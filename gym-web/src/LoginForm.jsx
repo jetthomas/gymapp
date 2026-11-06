@@ -1,10 +1,14 @@
 import { useState } from 'react'
 import { login, register } from './api'
 import './index.css'
+import eyeIcon from './assets/eye.svg'
+import eyeOffIcon from './assets/eye-off.svg'
+
 
 export default function LoginForm({ onLoggedIn }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [message, setMessage] = useState('')
   const [isError, setIsError] = useState(true)
   const [loading, setLoading] = useState(false)
@@ -58,15 +62,25 @@ export default function LoginForm({ onLoggedIn }) {
 
         <div className="field">
           <label htmlFor="password">Password</label>
-          <input
-            type="password"
-            placeholder="Password"
-            aria-label="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            minLength={6}
-            required
-          />
+          <div className="password-wrap">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              placeholder="Password"
+              aria-label="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              minLength={6}
+              required
+            />
+            <button
+              type="button"
+              className="eye-btn"
+              onClick={() => setShowPassword(!showPassword)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
+              <img src={showPassword ? eyeOffIcon : eyeIcon} alt="" />
+            </button>
+          </div>
         </div>
 
         <button className="login-btn" type="submit" disabled={loading}>
