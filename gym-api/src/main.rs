@@ -142,7 +142,9 @@ fn check_password(password: &str, user_inputs: &[&str]) -> Result<(), String> {
 }
 
 fn valid_email(email: &str) -> bool {
-    let Some((local, domain)) = email.split_once('@') else { return false };
+    let Some((local, domain)) = email.split_once('@') else {
+        return false;
+    };
     !local.is_empty()
         && !domain.contains('@')
         && domain.contains('.')
@@ -183,8 +185,18 @@ async fn register(
         .map_err(internal)?
         .to_string();
     let email = c.email.to_lowercase();
-
     let mut db = connect(&state).await.map_err(internal)?;
+    let existing = db
+        .query("SELECT 1 FROM dbo.Users WHERE Email = @P1", &[&email])
+        .await
+        .map_err(internal)?
+        .into_row()
+        .await
+        .map_err(internal)?;
+
+    if existing.is_some() {
+        return Err((StatusCode::CONFLICT, "email already registered".into()));
+    }
     let result = db
         .execute(
             "INSERT INTO dbo.Users (FirstName, LastName, Email, PasswordHash) VALUES (@P1, @P2, @P3, @P4)",
