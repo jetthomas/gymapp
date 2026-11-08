@@ -28,9 +28,12 @@
 
 body {
   margin: 0;
+  /* matches .login-page so scrolling or bouncing past the edge never shows white */
+  background: var(--bg);
 }
 
 .login-page {
+  box-sizing: border-box;
   min-height: 100dvh;
   padding: 16px;
   display: flex;
