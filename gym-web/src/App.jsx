@@ -8,22 +8,53 @@ export default function App() {
   const [token, setToken] = useState(null);
   const [page, setPage] = useState('login');
   const [email, setEmail] = useState('');
+  const [notice, setNotice] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+
+  function backToLogin(doneEmail, doneNotice = '') {
+    if (doneEmail) setEmail(doneEmail);
+    setNotice(doneNotice);
+    setPage('login');
+  }
+
+  async function handleDelete() {
+    if (!window.confirm('Delete your account? You can reactivate it later from the login screen.')) return;
+    setDeleteError('');
+    try {
+      await deleteaccount(token);
+      setToken(null);
+    } catch (err) {
+      setDeleteError(
+        err.status ? err.message : "Couldn't connect. Check your internet and try again.",
+      );
+    }
+  }
 
   if (!token && page === 'create') {
-    return <CreateAccountForm initialEmail={email} onBack={() => setPage('login')} />;
+    return <CreateAccountForm initialEmail={email} onBack={backToLogin} />;
   }
   if (!token && page === 'reactivate') {
-    return <ReactivateAccountForm onBack={() => setPage('login')} />;
+    return <ReactivateAccountForm initialEmail={email} onBack={backToLogin} />;
   }
   if (!token) {
     return (
       <LoginForm
-        onLoggedIn={setToken}
+        initialEmail={email}
+        notice={notice}
+        onLoggedIn={(t) => {
+          setNotice('');
+          setToken(t);
+        }}
         onCreateAccount={(e) => {
           setEmail(e);
+          setNotice('');
           setPage('create');
         }}
-        onReactivateAccount={() => setPage('reactivate')}
+        onReactivateAccount={(e) => {
+          setEmail(e);
+          setNotice('');
+          setPage('reactivate');
+        }}
       />
     );
   }
@@ -34,15 +65,10 @@ export default function App() {
         <button className="login-btn" onClick={() => setToken(null)}>
           Log out
         </button>
-        <button
-          className="outline-btn-danger"
-          onClick={async () => {
-            await deleteaccount(token);
-            setToken(null);
-          }}
-        >
-          Delete Account
+        <button className="link-btn danger" onClick={handleDelete}>
+          Delete account
         </button>
+        {deleteError && <p className="msg error">{deleteError}</p>}
       </div>
     </div>
   );
