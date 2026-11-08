@@ -26,11 +26,18 @@ async function request(path, { method = 'GET', body, token } = {}) {
   return data
 }
 
-export const register = (email, password) =>
-  request('/auth/register', { method: 'POST', body: { email, password } })
+export const register = (firstName, lastName, email, password) =>
+  request('/auth/register', { method: 'POST', body: { firstName, lastName, email, password } })
 
 export const login = (email, password) =>
   request('/auth/login', { method: 'POST', body: { email, password } })
+
+export const deleteaccount = (token) =>
+  request('/auth/delete', { method: 'DELETE', token })
+
+export const reactivateaccount = (email, password) =>
+  request('/auth/reactivate', { method: 'POST', body: { email, password } })
+
 
 export const getWorkouts = (token) =>
   request('/workouts', { token })

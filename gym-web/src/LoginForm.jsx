@@ -1,16 +1,15 @@
 import { useState } from 'react'
-import { login, register } from './api'
+import { login } from './api'
 import './index.css'
 import eyeIcon from './assets/eye.svg'
 import eyeOffIcon from './assets/eye-off.svg'
 
 
-export default function LoginForm({ onLoggedIn }) {
+export default function LoginForm({ onLoggedIn, onCreateAccount, onReactivateAccount }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [message, setMessage] = useState('')
-  const [isError, setIsError] = useState(true)
   const [loading, setLoading] = useState(false)
 
   async function run(action) {
@@ -19,7 +18,6 @@ export default function LoginForm({ onLoggedIn }) {
     try {
       await action()
     } catch (err) {
-      setIsError(true)
       setMessage(err.status ? `Failed: ${err.message}` : `Network error: ${err.message}`)
     } finally {
       setLoading(false)
@@ -31,15 +29,6 @@ export default function LoginForm({ onLoggedIn }) {
     run(async () => {
       const result = await login(email, password)
       onLoggedIn(result.accessToken)
-    })
-  }
-
-  function handleRegister(event) {
-    if (!event.currentTarget.form.reportValidity()) return
-    run(async () => {
-      await register(email, password)
-      setIsError(false)
-      setMessage('Registered! Now log in.')
     })
   }
 
@@ -87,11 +76,15 @@ export default function LoginForm({ onLoggedIn }) {
           Login
         </button>
 
-        <button className="link-btn" type="button" onClick={handleRegister} disabled={loading}>
+        <button className="link-btn" type="button" onClick={onCreateAccount} disabled={loading}>
           Create account
         </button>
 
-        {message && <p className={isError ? 'msg error' : 'msg success'}>{message}</p>}
+        <button className="link-btn" type="button" onClick={onReactivateAccount} disabled={loading}>
+          Reactivate Account
+        </button>
+
+        {message && <p className="msg error">{message}</p>}
       </form>
     </div>
   )

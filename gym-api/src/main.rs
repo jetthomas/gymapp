@@ -7,7 +7,7 @@ use argon2::{
 use axum::{
     extract::{FromRequestParts, State},
     http::{header::AUTHORIZATION, request::Parts, StatusCode},
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -43,6 +43,15 @@ fn internal<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
 
 #[derive(Deserialize)]
 struct Credentials {
+    email: String,
+    password: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NewUser {
+    first_name: String,
+    last_name: String,
     email: String,
     password: String,
 }
@@ -105,7 +114,12 @@ impl FromRequestParts<Arc<AppState>> for AuthUser {
 
 // ---------- auth endpoints ----------
 
-async fn register(State(state): State<Arc<AppState>>, Json(c): Json<Credentials>) -> ApiResult<StatusCode> {
+async fn register(State(state): State<Arc<AppState>>, Json(c): Json<NewUser>) -> ApiResult<StatusCode> {
+    let first_name = c.first_name.trim();
+    let last_name = c.last_name.trim();
+    if first_name.is_empty() || last_name.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "first and last name are required".into()));
+    }
     if !c.email.contains('@') || c.password.len() < 6 {
         return Err((StatusCode::BAD_REQUEST, "invalid email or password too short".into()));
     }
@@ -118,7 +132,10 @@ async fn register(State(state): State<Arc<AppState>>, Json(c): Json<Credentials>
 
     let mut db = connect(&state).await.map_err(internal)?;
     let result = db
-        .execute("INSERT INTO dbo.Users (Email, PasswordHash) VALUES (@P1, @P2)", &[&email, &hash])
+        .execute(
+            "INSERT INTO dbo.Users (FirstName, LastName, Email, PasswordHash) VALUES (@P1, @P2, @P3, @P4)",
+            &[&first_name, &last_name, &email, &hash],
+        )
         .await;
 
     match result {
@@ -132,6 +149,44 @@ async fn register(State(state): State<Arc<AppState>>, Json(c): Json<Credentials>
 }
 
 async fn login(State(state): State<Arc<AppState>>, Json(c): Json<Credentials>) -> ApiResult<Json<LoginResponse>> {
+    let unauthorized = || (StatusCode::UNAUTHORIZED, "wrong email or password".to_string());
+    let email = c.email.to_lowercase();
+
+    let mut db = connect(&state).await.map_err(internal)?;
+    let row = db
+        .query("SELECT Id, PasswordHash, Active FROM dbo.Users WHERE Email = @P1", &[&email])
+        .await
+        .map_err(internal)?
+        .into_row()
+        .await
+        .map_err(internal)?
+        .ok_or_else(unauthorized)?;
+
+    let id: i32 = row.get("Id").ok_or_else(|| internal("missing Id"))?;
+    let stored: &str = row.get("PasswordHash").ok_or_else(|| internal("missing hash"))?;
+    let active: bool = row.get("Active").ok_or_else(|| internal("missing Active"))?;
+    let parsed = PasswordHash::new(stored).map_err(internal)?;
+    Argon2::default()
+        .verify_password(c.password.as_bytes(), &parsed)
+        .map_err(|_| unauthorized())?;
+    // Checked after the password so a stranger can't probe which emails are deactivated
+    if !active {
+        return Err((StatusCode::FORBIDDEN, "account is deactivated".into()));
+    }
+
+    let token = make_token(id, &state.jwt_secret).map_err(internal)?;
+    Ok(Json(LoginResponse { access_token: token }))
+}
+
+async fn delete_account(State(state): State<Arc<AppState>>, AuthUser(user_id): AuthUser) -> ApiResult<StatusCode> {
+    let mut db = connect(&state).await.map_err(internal)?;
+    db.execute("UPDATE dbo.Users SET Active = 0 WHERE Id = @P1", &[&user_id])
+        .await
+        .map_err(internal)?;
+    Ok(StatusCode::OK)
+}
+
+async fn reactivate_account(State(state): State<Arc<AppState>>, Json(c): Json<Credentials>) -> ApiResult<StatusCode> {
     let unauthorized = || (StatusCode::UNAUTHORIZED, "wrong email or password".to_string());
     let email = c.email.to_lowercase();
 
@@ -152,9 +207,12 @@ async fn login(State(state): State<Arc<AppState>>, Json(c): Json<Credentials>) -
         .verify_password(c.password.as_bytes(), &parsed)
         .map_err(|_| unauthorized())?;
 
-    let token = make_token(id, &state.jwt_secret).map_err(internal)?;
-    Ok(Json(LoginResponse { access_token: token }))
+    db.execute("UPDATE dbo.Users SET Active = 1 WHERE Id = @P1", &[&id])
+        .await
+        .map_err(internal)?;
+    Ok(StatusCode::OK)
 }
+
 
 // ---------- workout endpoints ----------
 // The user ID comes from the token (AuthUser), never from the request body
@@ -235,7 +293,14 @@ async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
                 [Date] DATETIME2 NOT NULL,
                 Name NVARCHAR(200) NOT NULL,
                 Notes NVARCHAR(MAX) NULL
-            );",
+            );
+         -- Adds the account columns to tables created before they existed; Active and CreatedAt are filled by the DB
+         IF COL_LENGTH('dbo.Users', 'FirstName') IS NULL
+            ALTER TABLE dbo.Users ADD
+                FirstName NVARCHAR(100) NULL,
+                LastName NVARCHAR(100) NULL,
+                Active BIT NOT NULL DEFAULT 1,
+                CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME();",
     )
     .await?
     .into_results()
@@ -261,6 +326,8 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/auth/register", post(register))
+        .route("/auth/delete", delete(delete_account))
+        .route("/auth/reactivate", post(reactivate_account))
         .route("/auth/login", post(login))
         .route("/workouts", get(list_workouts).post(create_workout))
         .with_state(state);
