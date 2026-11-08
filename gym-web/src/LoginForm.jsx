@@ -76,7 +76,7 @@ export default function LoginForm({ onLoggedIn, onCreateAccount, onReactivateAcc
         </button>
 
         <button
-          className="link-btn"
+          className="outline-btn"
           type="button"
           onClick={() => onCreateAccount(email)}
           disabled={loading}
@@ -84,7 +84,12 @@ export default function LoginForm({ onLoggedIn, onCreateAccount, onReactivateAcc
           Create account
         </button>
 
-        <button className="link-btn" type="button" onClick={onReactivateAccount} disabled={loading}>
+        <button
+          className="outline-btn"
+          type="button"
+          onClick={onReactivateAccount}
+          disabled={loading}
+        >
           Reactivate Account
         </button>
 
