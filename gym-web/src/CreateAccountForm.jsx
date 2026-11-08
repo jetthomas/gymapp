@@ -1,32 +1,32 @@
-import { useState } from 'react'
-import { register } from './api'
-import './index.css'
-import eyeIcon from './assets/eye.svg'
-import eyeOffIcon from './assets/eye-off.svg'
+import { useState } from 'react';
+import { register } from './api';
+import './index.css';
+import eyeIcon from './assets/eye.svg';
+import eyeOffIcon from './assets/eye-off.svg';
 
-export default function CreateAccountForm({ onBack }) {
-  const [firstName, setFirstName] = useState('')
-  const [lastName, setLastName] = useState('')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
-  const [message, setMessage] = useState('')
-  const [isError, setIsError] = useState(true)
-  const [loading, setLoading] = useState(false)
+export default function CreateAccountForm({ onBack, initialEmail = '' }) {
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState(initialEmail);
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [message, setMessage] = useState('');
+  const [isError, setIsError] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   async function handleSubmit(event) {
-    event.preventDefault()
-    setLoading(true)
-    setMessage('')
+    event.preventDefault();
+    setLoading(true);
+    setMessage('');
     try {
-      await register(firstName, lastName, email, password)
-      setIsError(false)
-      setMessage('Account created! Now log in.')
+      await register(firstName, lastName, email, password);
+      setIsError(false);
+      setMessage('Account created! Now log in.');
     } catch (err) {
-      setIsError(true)
-      setMessage(err.status ? `Failed: ${err.message}` : `Network error: ${err.message}`)
+      setIsError(true);
+      setMessage(err.status ? `Failed: ${err.message}` : `Network error: ${err.message}`);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 
@@ -65,6 +65,8 @@ export default function CreateAccountForm({ onBack }) {
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            pattern="[^@\s]+@[^@\s]+\.[^@\s]+"
+            title="Enter an email like name@example.com"
             required
           />
         </div>
@@ -78,7 +80,9 @@ export default function CreateAccountForm({ onBack }) {
               aria-label="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              minLength={6}
+              minLength={10}
+              pattern=".*[^A-Za-z0-9].*"
+              title="At least 10 characters, including a special character (e.g. ! @ #$)"
               required
             />
             <button
@@ -103,5 +107,5 @@ export default function CreateAccountForm({ onBack }) {
         {message && <p className={isError ? 'msg error' : 'msg success'}>{message}</p>}
       </form>
     </div>
-  )
+  );
 }
