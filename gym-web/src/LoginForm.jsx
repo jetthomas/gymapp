@@ -1,35 +1,34 @@
-import { useState } from 'react'
-import { login } from './api'
-import './index.css'
-import eyeIcon from './assets/eye.svg'
-import eyeOffIcon from './assets/eye-off.svg'
-
+import { useState } from 'react';
+import { login } from './api';
+import './index.css';
+import eyeIcon from './assets/eye.svg';
+import eyeOffIcon from './assets/eye-off.svg';
 
 export default function LoginForm({ onLoggedIn, onCreateAccount, onReactivateAccount }) {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
-  const [message, setMessage] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
 
   async function run(action) {
-    setLoading(true)
-    setMessage('')
+    setLoading(true);
+    setMessage('');
     try {
-      await action()
+      await action();
     } catch (err) {
-      setMessage(err.status ? `Failed: ${err.message}` : `Network error: ${err.message}`)
+      setMessage(err.status ? `Failed: ${err.message}` : `Network error: ${err.message}`);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 
   function handleLogin(event) {
-    event.preventDefault()
+    event.preventDefault();
     run(async () => {
-      const result = await login(email, password)
-      onLoggedIn(result.accessToken)
-    })
+      const result = await login(email, password);
+      onLoggedIn(result.accessToken);
+    });
   }
 
   return (
@@ -76,7 +75,12 @@ export default function LoginForm({ onLoggedIn, onCreateAccount, onReactivateAcc
           Login
         </button>
 
-        <button className="link-btn" type="button" onClick={onCreateAccount} disabled={loading}>
+        <button
+          className="link-btn"
+          type="button"
+          onClick={() => onCreateAccount(email)}
+          disabled={loading}
+        >
           Create account
         </button>
 
@@ -87,5 +91,5 @@ export default function LoginForm({ onLoggedIn, onCreateAccount, onReactivateAcc
         {message && <p className="msg error">{message}</p>}
       </form>
     </div>
-  )
+  );
 }

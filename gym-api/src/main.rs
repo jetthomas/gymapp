@@ -1,21 +1,22 @@
 use std::{env, sync::Arc};
 
 use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
 };
 use axum::{
-    extract::{FromRequestParts, State},
-    http::{header::AUTHORIZATION, request::Parts, StatusCode},
-    routing::{delete, get, post},
     Json, Router,
+    extract::{FromRequestParts, State},
+    http::{StatusCode, header::AUTHORIZATION, request::Parts},
+    routing::{delete, get, post},
 };
 use chrono::{DateTime, NaiveDateTime, Utc};
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use tiberius::{AuthMethod, Client, Config};
 use tokio::net::TcpStream;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
+use zxcvbn::{Score, zxcvbn};
 
 // ---------- shared state ----------
 
@@ -36,7 +37,10 @@ async fn connect(state: &AppState) -> Result<Db, tiberius::error::Error> {
 // Log the real error on the server, send a vague one to the client
 fn internal<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
     eprintln!("error: {e}");
-    (StatusCode::INTERNAL_SERVER_ERROR, "server error".to_string())
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "server error".to_string(),
+    )
 }
 
 // ---------- JSON shapes ----------
@@ -87,8 +91,15 @@ struct Claims {
 
 fn make_token(user_id: i32, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
     let exp = (Utc::now() + chrono::Duration::hours(1)).timestamp() as usize;
-    let claims = Claims { sub: user_id.to_string(), exp };
-    encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_bytes()))
+    let claims = Claims {
+        sub: user_id.to_string(),
+        exp,
+    };
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(secret.as_bytes()),
+    )
 }
 
 // Any handler that takes an AuthUser argument requires a valid token
@@ -97,9 +108,16 @@ struct AuthUser(i32);
 impl FromRequestParts<Arc<AppState>> for AuthUser {
     type Rejection = (StatusCode, String);
 
-    async fn from_request_parts(parts: &mut Parts, state: &Arc<AppState>) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<AppState>,
+    ) -> Result<Self, Self::Rejection> {
         let unauthorized = || (StatusCode::UNAUTHORIZED, "not logged in".to_string());
-        let header = parts.headers.get(AUTHORIZATION).and_then(|v| v.to_str().ok()).ok_or_else(unauthorized)?;
+        let header = parts
+            .headers
+            .get(AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(unauthorized)?;
         let token = header.strip_prefix("Bearer ").ok_or_else(unauthorized)?;
         let data = decode::<Claims>(
             token,
@@ -111,17 +129,53 @@ impl FromRequestParts<Arc<AppState>> for AuthUser {
         Ok(AuthUser(id))
     }
 }
+fn check_password(password: &str, user_inputs: &[&str]) -> Result<(), String> {
+    let entropy = zxcvbn(password, user_inputs);
+    if entropy.score() >= Score::Three {
+        return Ok(());
+    }
+    let msg = entropy
+        .feedback()
+        .and_then(|f| f.warning().map(|w| w.to_string()))
+        .unwrap_or_else(|| "Password is too weak".into());
+    Err(msg)
+}
 
+fn valid_email(email: &str) -> bool {
+    let Some((local, domain)) = email.split_once('@') else { return false };
+    !local.is_empty()
+        && !domain.contains('@')
+        && domain.contains('.')
+        && !domain.starts_with('.')
+        && !domain.ends_with('.')
+        && !email.chars().any(char::is_whitespace)
+}
+
+fn valid_password(password: &str) -> bool {
+    password.chars().count() >= 10 && password.chars().any(|c| !c.is_ascii_alphanumeric())
+}
 // ---------- auth endpoints ----------
 
-async fn register(State(state): State<Arc<AppState>>, Json(c): Json<NewUser>) -> ApiResult<StatusCode> {
+async fn register(
+    State(state): State<Arc<AppState>>,
+    Json(c): Json<NewUser>,
+) -> ApiResult<StatusCode> {
     let first_name = c.first_name.trim();
     let last_name = c.last_name.trim();
     if first_name.is_empty() || last_name.is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "first and last name are required".into()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "first and last name are required".into(),
+        ));
     }
-    if !c.email.contains('@') || c.password.len() < 6 {
-        return Err((StatusCode::BAD_REQUEST, "invalid email or password too short".into()));
+    if !valid_email(&c.email) {
+        return Err((StatusCode::BAD_REQUEST, "invalid email address".into()));
+    }
+    if !valid_password(&c.password) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "password must be at least 10 characters and include a special character".into(),
+        ));
     }
     let salt = SaltString::generate(&mut OsRng);
     let hash = Argon2::default()
@@ -148,13 +202,24 @@ async fn register(State(state): State<Arc<AppState>>, Json(c): Json<NewUser>) ->
     }
 }
 
-async fn login(State(state): State<Arc<AppState>>, Json(c): Json<Credentials>) -> ApiResult<Json<LoginResponse>> {
-    let unauthorized = || (StatusCode::UNAUTHORIZED, "wrong email or password".to_string());
+async fn login(
+    State(state): State<Arc<AppState>>,
+    Json(c): Json<Credentials>,
+) -> ApiResult<Json<LoginResponse>> {
+    let unauthorized = || {
+        (
+            StatusCode::UNAUTHORIZED,
+            "wrong email or password".to_string(),
+        )
+    };
     let email = c.email.to_lowercase();
 
     let mut db = connect(&state).await.map_err(internal)?;
     let row = db
-        .query("SELECT Id, PasswordHash, Active FROM dbo.Users WHERE Email = @P1", &[&email])
+        .query(
+            "SELECT Id, PasswordHash, Active FROM dbo.Users WHERE Email = @P1",
+            &[&email],
+        )
         .await
         .map_err(internal)?
         .into_row()
@@ -163,8 +228,12 @@ async fn login(State(state): State<Arc<AppState>>, Json(c): Json<Credentials>) -
         .ok_or_else(unauthorized)?;
 
     let id: i32 = row.get("Id").ok_or_else(|| internal("missing Id"))?;
-    let stored: &str = row.get("PasswordHash").ok_or_else(|| internal("missing hash"))?;
-    let active: bool = row.get("Active").ok_or_else(|| internal("missing Active"))?;
+    let stored: &str = row
+        .get("PasswordHash")
+        .ok_or_else(|| internal("missing hash"))?;
+    let active: bool = row
+        .get("Active")
+        .ok_or_else(|| internal("missing Active"))?;
     let parsed = PasswordHash::new(stored).map_err(internal)?;
     Argon2::default()
         .verify_password(c.password.as_bytes(), &parsed)
@@ -175,24 +244,43 @@ async fn login(State(state): State<Arc<AppState>>, Json(c): Json<Credentials>) -
     }
 
     let token = make_token(id, &state.jwt_secret).map_err(internal)?;
-    Ok(Json(LoginResponse { access_token: token }))
+    Ok(Json(LoginResponse {
+        access_token: token,
+    }))
 }
 
-async fn delete_account(State(state): State<Arc<AppState>>, AuthUser(user_id): AuthUser) -> ApiResult<StatusCode> {
+async fn delete_account(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user_id): AuthUser,
+) -> ApiResult<StatusCode> {
     let mut db = connect(&state).await.map_err(internal)?;
-    db.execute("UPDATE dbo.Users SET Active = 0 WHERE Id = @P1", &[&user_id])
-        .await
-        .map_err(internal)?;
+    db.execute(
+        "UPDATE dbo.Users SET Active = 0 WHERE Id = @P1",
+        &[&user_id],
+    )
+    .await
+    .map_err(internal)?;
     Ok(StatusCode::OK)
 }
 
-async fn reactivate_account(State(state): State<Arc<AppState>>, Json(c): Json<Credentials>) -> ApiResult<StatusCode> {
-    let unauthorized = || (StatusCode::UNAUTHORIZED, "wrong email or password".to_string());
+async fn reactivate_account(
+    State(state): State<Arc<AppState>>,
+    Json(c): Json<Credentials>,
+) -> ApiResult<StatusCode> {
+    let unauthorized = || {
+        (
+            StatusCode::UNAUTHORIZED,
+            "wrong email or password".to_string(),
+        )
+    };
     let email = c.email.to_lowercase();
 
     let mut db = connect(&state).await.map_err(internal)?;
     let row = db
-        .query("SELECT Id, PasswordHash FROM dbo.Users WHERE Email = @P1", &[&email])
+        .query(
+            "SELECT Id, PasswordHash FROM dbo.Users WHERE Email = @P1",
+            &[&email],
+        )
         .await
         .map_err(internal)?
         .into_row()
@@ -201,7 +289,9 @@ async fn reactivate_account(State(state): State<Arc<AppState>>, Json(c): Json<Cr
         .ok_or_else(unauthorized)?;
 
     let id: i32 = row.get("Id").ok_or_else(|| internal("missing Id"))?;
-    let stored: &str = row.get("PasswordHash").ok_or_else(|| internal("missing hash"))?;
+    let stored: &str = row
+        .get("PasswordHash")
+        .ok_or_else(|| internal("missing hash"))?;
     let parsed = PasswordHash::new(stored).map_err(internal)?;
     Argon2::default()
         .verify_password(c.password.as_bytes(), &parsed)
@@ -213,11 +303,13 @@ async fn reactivate_account(State(state): State<Arc<AppState>>, Json(c): Json<Cr
     Ok(StatusCode::OK)
 }
 
-
 // ---------- workout endpoints ----------
 // The user ID comes from the token (AuthUser), never from the request body
 
-async fn list_workouts(State(state): State<Arc<AppState>>, AuthUser(user_id): AuthUser) -> ApiResult<Json<Vec<Workout>>> {
+async fn list_workouts(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user_id): AuthUser,
+) -> ApiResult<Json<Vec<Workout>>> {
     let mut db = connect(&state).await.map_err(internal)?;
     let rows = db
         .query(
@@ -235,7 +327,10 @@ async fn list_workouts(State(state): State<Arc<AppState>>, AuthUser(user_id): Au
         .map(|r| Workout {
             id: r.get("Id").unwrap_or_default(),
             name: r.get::<&str, _>("Name").unwrap_or_default().to_string(),
-            date: r.get::<NaiveDateTime, _>("Date").unwrap_or_default().and_utc(),
+            date: r
+                .get::<NaiveDateTime, _>("Date")
+                .unwrap_or_default()
+                .and_utc(),
             notes: r.get::<&str, _>("Notes").map(|s| s.to_string()),
         })
         .collect();
@@ -262,7 +357,12 @@ async fn create_workout(
         .ok_or_else(|| internal("insert returned no row"))?;
 
     let id: i32 = row.get(0).ok_or_else(|| internal("missing new Id"))?;
-    let saved = Workout { id, name: w.name, date: w.date, notes: w.notes };
+    let saved = Workout {
+        id,
+        name: w.name,
+        date: w.date,
+        notes: w.notes,
+    };
     Ok((StatusCode::CREATED, Json(saved)))
 }
 
@@ -314,14 +414,26 @@ async fn main() {
 
     let mut db_config = Config::new();
     db_config.host(env_required("DB_HOST"));
-    db_config.port(env_or("DB_PORT", "1433").parse().expect("DB_PORT must be a number"));
+    db_config.port(
+        env_or("DB_PORT", "1433")
+            .parse()
+            .expect("DB_PORT must be a number"),
+    );
     db_config.database(env_or("DB_NAME", "GymApp"));
-    db_config.authentication(AuthMethod::sql_server(env_required("DB_USER"), env_required("DB_PASSWORD")));
+    db_config.authentication(AuthMethod::sql_server(
+        env_required("DB_USER"),
+        env_required("DB_PASSWORD"),
+    ));
     db_config.trust_cert(); // accept SQL Server's self-signed certificate (development only)
 
-    let state = Arc::new(AppState { db_config, jwt_secret: env_required("JWT_SECRET") });
+    let state = Arc::new(AppState {
+        db_config,
+        jwt_secret: env_required("JWT_SECRET"),
+    });
 
-    init_db(&state).await.expect("could not connect to SQL Server or create tables");
+    init_db(&state)
+        .await
+        .expect("could not connect to SQL Server or create tables");
 
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
@@ -333,7 +445,9 @@ async fn main() {
         .with_state(state);
 
     let addr = env_or("BIND_ADDR", "127.0.0.1:5080");
-    let listener = tokio::net::TcpListener::bind(&addr).await.expect("could not bind address");
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .expect("could not bind address");
     println!("Listening on http://{addr}");
     axum::serve(listener, app).await.unwrap();
 }
