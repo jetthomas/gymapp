@@ -3,7 +3,7 @@ import LoginForm from './LoginForm';
 import CreateAccountForm from './CreateAccountForm';
 import ReactivateAccountForm from './ReactivateAccountForm';
 import { deleteaccount } from './api';
-import './App.css';
+import './index.css';
 export default function App() {
   const [token, setToken] = useState(null);
   const [page, setPage] = useState('login');
@@ -28,17 +28,22 @@ export default function App() {
     );
   }
   return (
-    <div className="card">
-      <h1>Logged in!</h1>
-      <button onClick={() => setToken(null)}>Log out</button>
-      <button
-        onClick={async () => {
-          await deleteaccount(token);
-          setToken(null);
-        }}
-      >
-        Delete Account
-      </button>
+    <div className="login-page">
+      <div className="login-card">
+        <h1>Logged in!</h1>
+        <button className="login-btn" onClick={() => setToken(null)}>
+          Log out
+        </button>
+        <button
+          className="outline-btn-danger"
+          onClick={async () => {
+            await deleteaccount(token);
+            setToken(null);
+          }}
+        >
+          Delete Account
+        </button>
+      </div>
     </div>
   );
 }
