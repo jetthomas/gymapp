@@ -4,12 +4,11 @@ import './index.css'
 import eyeIcon from './assets/eye.svg'
 import eyeOffIcon from './assets/eye-off.svg'
 
-export default function ReactivateAccountForm({ onBack }) {
-  const [email, setEmail] = useState('')
+export default function ReactivateAccountForm({ onBack, initialEmail = '' }) {
+  const [email, setEmail] = useState(initialEmail)
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [message, setMessage] = useState('')
-  const [isError, setIsError] = useState(true)
   const [loading, setLoading] = useState(false)
 
   async function handleSubmit(event) {
@@ -18,11 +17,9 @@ export default function ReactivateAccountForm({ onBack }) {
     setMessage('')
     try {
       await reactivateaccount(email, password)
-      setIsError(false)
-      setMessage('Account reactivated! Now log in.')
+      onBack(email, 'Account reactivated. Log in to continue.')
     } catch (err) {
-      setIsError(true)
-      setMessage(err.status ? `Failed: ${err.message}` : `Network error: ${err.message}`)
+      setMessage(err.status ? err.message : "Couldn't connect. Check your internet and try again.")
     } finally {
       setLoading(false)
     }
@@ -37,7 +34,7 @@ export default function ReactivateAccountForm({ onBack }) {
           <label htmlFor="email">Email address</label>
           <input
             id="email"
-            placeholder="Email address"
+            placeholder="name@example.com"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -49,9 +46,8 @@ export default function ReactivateAccountForm({ onBack }) {
           <label htmlFor="password">Password</label>
           <div className="password-wrap">
             <input
+              id="password"
               type={showPassword ? 'text' : 'password'}
-              placeholder="Password"
-              aria-label="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               minLength={6}
@@ -68,15 +64,15 @@ export default function ReactivateAccountForm({ onBack }) {
           </div>
         </div>
 
+        {message && <p className="msg error">{message}</p>}
+
         <button className="login-btn" type="submit" disabled={loading}>
-          Reactivate account
+          {loading ? 'Reactivating…' : 'Reactivate account'}
         </button>
 
-        <button className="link-btn" type="button" onClick={onBack} disabled={loading}>
+        <button className="link-btn" type="button" onClick={() => onBack()} disabled={loading}>
           Back to login
         </button>
-
-        {message && <p className={isError ? 'msg error' : 'msg success'}>{message}</p>}
       </form>
     </div>
   )

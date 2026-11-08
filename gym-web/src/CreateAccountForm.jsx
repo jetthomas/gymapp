@@ -11,7 +11,6 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState('');
-  const [isError, setIsError] = useState(true);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(event) {
@@ -20,11 +19,9 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
     setMessage('');
     try {
       await register(firstName, lastName, email, password);
-      setIsError(false);
-      setMessage('Account created! Now log in.');
+      onBack(email, 'Account created. Log in to continue.');
     } catch (err) {
-      setIsError(true);
-      setMessage(err.status ? `Failed: ${err.message}` : `Network error: ${err.message}`);
+      setMessage(err.status ? err.message : "Couldn't connect. Check your internet and try again.");
     } finally {
       setLoading(false);
     }
@@ -39,7 +36,6 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
           <label htmlFor="firstName">First name</label>
           <input
             id="firstName"
-            placeholder="First name"
             value={firstName}
             onChange={(e) => setFirstName(e.target.value)}
             required
@@ -50,7 +46,6 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
           <label htmlFor="lastName">Last name</label>
           <input
             id="lastName"
-            placeholder="Last name"
             value={lastName}
             onChange={(e) => setLastName(e.target.value)}
             required
@@ -61,7 +56,7 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
           <label htmlFor="email">Email address</label>
           <input
             id="email"
-            placeholder="Email address"
+            placeholder="name@example.com"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -75,9 +70,9 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
           <label htmlFor="password">Password</label>
           <div className="password-wrap">
             <input
+              id="password"
               type={showPassword ? 'text' : 'password'}
-              placeholder="Password"
-              aria-label="Password"
+              aria-describedby="password-hint"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               minLength={10}
@@ -94,17 +89,20 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
               <img src={showPassword ? eyeOffIcon : eyeIcon} alt="" />
             </button>
           </div>
+          <p className="hint" id="password-hint">
+            At least 10 characters, including a symbol like ! @ # $
+          </p>
         </div>
 
+        {message && <p className="msg error">{message}</p>}
+
         <button className="login-btn" type="submit" disabled={loading}>
-          Create account
+          {loading ? 'Creating account…' : 'Create account'}
         </button>
 
-        <button className="link-btn" type="button" onClick={onBack} disabled={loading}>
+        <button className="link-btn" type="button" onClick={() => onBack()} disabled={loading}>
           Back to login
         </button>
-
-        {message && <p className={isError ? 'msg error' : 'msg success'}>{message}</p>}
       </form>
     </div>
   );

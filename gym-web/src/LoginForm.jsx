@@ -4,8 +4,14 @@ import './index.css';
 import eyeIcon from './assets/eye.svg';
 import eyeOffIcon from './assets/eye-off.svg';
 
-export default function LoginForm({ onLoggedIn, onCreateAccount, onReactivateAccount }) {
-  const [email, setEmail] = useState('');
+export default function LoginForm({
+  onLoggedIn,
+  onCreateAccount,
+  onReactivateAccount,
+  initialEmail = '',
+  notice = '',
+}) {
+  const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState('');
@@ -17,7 +23,7 @@ export default function LoginForm({ onLoggedIn, onCreateAccount, onReactivateAcc
     try {
       await action();
     } catch (err) {
-      setMessage(err.status ? `Failed: ${err.message}` : `Network error: ${err.message}`);
+      setMessage(err.status ? err.message : "Couldn't connect. Check your internet and try again.");
     } finally {
       setLoading(false);
     }
@@ -34,13 +40,13 @@ export default function LoginForm({ onLoggedIn, onCreateAccount, onReactivateAcc
   return (
     <div className="login-page">
       <form className="login-card" onSubmit={handleLogin}>
-        <h1>Login</h1>
+        <h1>Log in</h1>
 
         <div className="field">
           <label htmlFor="email">Email address</label>
           <input
             id="email"
-            placeholder="Email address"
+            placeholder="name@example.com"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -52,9 +58,8 @@ export default function LoginForm({ onLoggedIn, onCreateAccount, onReactivateAcc
           <label htmlFor="password">Password</label>
           <div className="password-wrap">
             <input
+              id="password"
               type={showPassword ? 'text' : 'password'}
-              placeholder="Password"
-              aria-label="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               minLength={6}
@@ -71,29 +76,33 @@ export default function LoginForm({ onLoggedIn, onCreateAccount, onReactivateAcc
           </div>
         </div>
 
+        {message ? (
+          <p className="msg error">{message}</p>
+        ) : (
+          notice && <p className="msg success">{notice}</p>
+        )}
+
         <button className="login-btn" type="submit" disabled={loading}>
-          Login
+          {loading ? 'Logging in…' : 'Log in'}
         </button>
 
         <button
-          className="outline-btn"
+          className="link-btn"
           type="button"
           onClick={() => onCreateAccount(email)}
           disabled={loading}
         >
-          Create account
+          New here? Create account
         </button>
 
         <button
-          className="outline-btn"
+          className="link-btn"
           type="button"
-          onClick={onReactivateAccount}
+          onClick={() => onReactivateAccount(email)}
           disabled={loading}
         >
-          Reactivate Account
+          Reactivate account
         </button>
-
-        {message && <p className="msg error">{message}</p>}
       </form>
     </div>
   );

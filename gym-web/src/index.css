@@ -1,16 +1,49 @@
+:root {
+  --bg: #f5f5f7;
+  --surface: #fff;
+  --text: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --border: #d2d2d7;
+  --accent: #0071e3;
+  --accent-hover: #0077ed;
+  --focus-ring: rgba(0, 113, 227, 0.3);
+  --danger: #d70015;
+  --success: #248a3d;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000;
+    --surface: #1c1c1e;
+    --text: #f5f5f7;
+    --text-secondary: #98989d;
+    --border: #3a3a3c;
+    --accent: #0a84ff;
+    --accent-hover: #409cff;
+    --focus-ring: rgba(10, 132, 255, 0.4);
+    --danger: #ff453a;
+    --success: #30d158;
+  }
+}
+
+body {
+  margin: 0;
+}
+
 .login-page {
-  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f5f6f8;
+  background: var(--bg);
   font-family:
     system-ui,
     -apple-system,
     'Segoe UI',
     Roboto,
     sans-serif;
-  color: #212529;
+  color: var(--text);
 }
 
 .login-page * {
@@ -21,16 +54,30 @@
   width: 100%;
   max-width: 400px;
   padding: 40px 32px;
-  background: #fff;
+  background: var(--surface);
   border-radius: 20px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .login-card {
+    animation: card-in 150ms ease-out;
+  }
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+  }
+}
+
 .login-card h1 {
-  margin: 0 0 24px;
+  margin: 0 0 32px;
   text-align: center;
   font-size: 2rem;
-  font-weight: 500;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
 }
 
 .field {
@@ -39,15 +86,19 @@
 
 .field label {
   display: block;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
 }
 
 .field input {
   width: 100%;
   padding: 12px 16px;
   font-size: 1rem;
-  color: #212529;
-  border: 1px solid #dee2e6;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 999px;
   outline: none;
   transition:
@@ -56,18 +107,24 @@
 }
 
 .field input:focus {
-  border-color: #86b7fe;
-  box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.25);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--focus-ring);
+}
+
+.hint {
+  margin: 6px 16px 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
 }
 
 .login-btn {
   width: 100%;
   margin-top: 8px;
-  padding: 14px;
+  padding: 12px 16px;
   font-size: 1rem;
   font-weight: 600;
   color: #fff;
-  background: #0d6efd;
+  background: var(--accent);
   border: none;
   border-radius: 999px;
   transition:
@@ -80,47 +137,10 @@
 }
 
 .login-btn:hover:not(:disabled) {
-  background: #0b5ed7;
-}
-
-.outline-btn {
-  width: 100%;
-  margin-top: 12px;
-  padding: 14px;
-  font-size: 1rem;
-  font-weight: 600;
-  color: #0d6efd;
-  background: transparent;
-  border: 2px solid #0d6efd;
-  border-radius: 999px;
-  transition:
-    background 0.15s,
-    transform 0.1s;
-}
-
-.outline-btn-danger {
-  width: 100%;
-  margin-top: 12px;
-  padding: 14px;
-  font-size: 1rem;
-  font-weight: 600;
-  color: #fff;
-  background: #dc3545;
-  border: 2px solid #dc3545;
-  border-radius: 999px;
-  transition:
-    background 0.15s,
-    transform 0.1s;
-}
-.outline-btn-danger:active:not(:disabled) {
-  transform: scale(0.98);
-}
-.outline-btn-danger:hover:not(:disabled) {
-  background: #bb2d3b;
+  background: var(--accent-hover);
 }
 
 .login-btn:disabled,
-.outline-btn:disabled,
 .link-btn:disabled {
   opacity: 0.65;
   cursor: not-allowed;
@@ -128,47 +148,57 @@
 
 .link-btn {
   display: block;
-  margin: 12px auto 0;
-  padding: 0;
+  margin: 16px auto 0;
+  padding: 4px 8px;
   font-size: 0.9rem;
-  color: #0d6efd;
+  color: var(--accent);
   background: none;
   border: none;
   cursor: pointer;
+  transition: opacity 0.1s;
 }
 
 .link-btn:hover:not(:disabled) {
   text-decoration: underline;
 }
 
+.link-btn:active:not(:disabled) {
+  opacity: 0.6;
+}
+
+.link-btn.danger {
+  color: var(--danger);
+}
+
 .msg {
-  margin: 12px 0 0;
+  margin: 16px 0 0;
   text-align: center;
   font-size: 0.9rem;
 }
 
 .msg.error {
-  color: #dc3545;
+  color: var(--danger);
 }
 
 .msg.success {
-  color: #198754;
+  color: var(--success);
 }
+
 .password-wrap {
   position: relative;
 }
 
 .password-wrap input {
-  padding-right: 48px;
+  padding-right: 52px;
 }
 
 .eye-btn {
   position: absolute;
   top: 50%;
-  right: 16px;
+  right: 4px;
   transform: translateY(-50%);
   display: flex;
-  padding: 0;
+  padding: 12px;
   border: none;
   background: none;
   cursor: pointer;
