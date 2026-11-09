@@ -136,7 +136,7 @@ export default function LoginForm({
           onClick={() => onCreateAccount(email)}
           disabled={loading}
         >
-          New Here? Create Account
+          New here? Create an account
         </button>
 
         <button
