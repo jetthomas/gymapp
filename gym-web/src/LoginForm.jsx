@@ -40,14 +40,17 @@ export default function LoginForm({
   return (
     <div className="login-page">
       <form className="login-card" onSubmit={handleLogin}>
-        <h1>Log in</h1>
+        <h1>Log In</h1>
 
         <div className="field">
           <label htmlFor="email">Email address</label>
           <input
             id="email"
+            name="email"
             placeholder="name@example.com"
             type="email"
+            autoComplete="email"
+            spellCheck={false}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
@@ -59,6 +62,8 @@ export default function LoginForm({
           <div className="password-wrap">
             <input
               id="password"
+              name="password"
+              autoComplete="current-password"
               type={showPassword ? 'text' : 'password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -71,19 +76,19 @@ export default function LoginForm({
               onClick={() => setShowPassword(!showPassword)}
               aria-label={showPassword ? 'Hide password' : 'Show password'}
             >
-              <img src={showPassword ? eyeOffIcon : eyeIcon} alt="" />
+              <img src={showPassword ? eyeOffIcon : eyeIcon} alt="" width={20} height={20} />
             </button>
           </div>
         </div>
 
         {message ? (
-          <p className="msg error">{message}</p>
+          <p className="msg error" role="alert">{message}</p>
         ) : (
-          notice && <p className="msg success">{notice}</p>
+          notice && <p className="msg success" role="status">{notice}</p>
         )}
 
         <button className="login-btn" type="submit" disabled={loading}>
-          {loading ? 'Logging in…' : 'Log in'}
+          {loading ? 'Logging In…' : 'Log In'}
         </button>
 
         <button
@@ -92,7 +97,7 @@ export default function LoginForm({
           onClick={() => onCreateAccount(email)}
           disabled={loading}
         >
-          New here? Create account
+          New Here? Create Account
         </button>
 
         <button
@@ -101,7 +106,7 @@ export default function LoginForm({
           onClick={() => onReactivateAccount(email)}
           disabled={loading}
         >
-          Reactivate account
+          Reactivate Account
         </button>
       </form>
     </div>

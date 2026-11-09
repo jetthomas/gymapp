@@ -28,14 +28,17 @@ export default function ReactivateAccountForm({ onBack, initialEmail = '' }) {
   return (
     <div className="login-page">
       <form className="login-card" onSubmit={handleSubmit}>
-        <h1>Reactivate account</h1>
+        <h1>Reactivate Account</h1>
 
         <div className="field">
           <label htmlFor="email">Email address</label>
           <input
             id="email"
+            name="email"
             placeholder="name@example.com"
             type="email"
+            autoComplete="email"
+            spellCheck={false}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
@@ -47,6 +50,8 @@ export default function ReactivateAccountForm({ onBack, initialEmail = '' }) {
           <div className="password-wrap">
             <input
               id="password"
+              name="password"
+              autoComplete="current-password"
               type={showPassword ? 'text' : 'password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -59,19 +64,19 @@ export default function ReactivateAccountForm({ onBack, initialEmail = '' }) {
               onClick={() => setShowPassword(!showPassword)}
               aria-label={showPassword ? 'Hide password' : 'Show password'}
             >
-              <img src={showPassword ? eyeOffIcon : eyeIcon} alt="" />
+              <img src={showPassword ? eyeOffIcon : eyeIcon} alt="" width={20} height={20} />
             </button>
           </div>
         </div>
 
-        {message && <p className="msg error">{message}</p>}
+        {message && <p className="msg error" role="alert">{message}</p>}
 
         <button className="login-btn" type="submit" disabled={loading}>
-          {loading ? 'Reactivating…' : 'Reactivate account'}
+          {loading ? 'Reactivating…' : 'Reactivate Account'}
         </button>
 
         <button className="link-btn" type="button" onClick={() => onBack()} disabled={loading}>
-          Back to login
+          Back to Log In
         </button>
       </form>
     </div>

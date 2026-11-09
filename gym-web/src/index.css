@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light dark;
   --bg: #f5f5f7;
   --surface: #fff;
   --text: #1d1d1f;
@@ -53,6 +54,10 @@ body {
   box-sizing: border-box;
 }
 
+.login-page button {
+  touch-action: manipulation;
+}
+
 .login-card {
   width: 100%;
   max-width: 400px;
@@ -81,6 +86,7 @@ body {
   font-weight: 700;
   line-height: 1.1;
   letter-spacing: -0.02em;
+  text-wrap: balance;
 }
 
 .field {
@@ -109,7 +115,7 @@ body {
     box-shadow 0.15s;
 }
 
-.field input:focus {
+.field input:focus-visible {
   border-color: var(--accent);
   box-shadow: 0 0 0 4px var(--focus-ring);
 }
@@ -175,6 +181,7 @@ body {
 
 .msg {
   margin: 16px 0 0;
+  overflow-wrap: anywhere;
   text-align: center;
   font-size: 0.9rem;
 }
@@ -205,4 +212,13 @@ body {
   border: none;
   background: none;
   cursor: pointer;
+  transition: opacity 0.1s;
+}
+
+.eye-btn:hover {
+  opacity: 0.7;
+}
+
+.eye-btn:active {
+  opacity: 0.5;
 }
