@@ -98,14 +98,19 @@ export default function AdminScreen({ token, onBack }) {
                   </div>
                   <div className="user-email">{u.email}</div>
                 </div>
-                <button
-                  className="pill-btn"
-                  type="button"
-                  onClick={() => handleReset(u.id)}
-                  disabled={creatingFor === u.id}
-                >
-                  {creatingFor === u.id ? 'Creating…' : 'Reset link'}
-                </button>
+                <div className="row-actions">
+                  <span className={`badge ${u.active ? 'success' : 'muted'}`}>
+                    {u.active ? 'Active' : 'Inactive'}
+                  </span>
+                  <button
+                    className="pill-btn"
+                    type="button"
+                    onClick={() => handleReset(u.id)}
+                    disabled={creatingFor === u.id}
+                  >
+                    {creatingFor === u.id ? 'Creating…' : 'Reset link'}
+                  </button>
+                </div>
 
                 {reset?.userId === u.id && (
                   <div className="reset-panel">

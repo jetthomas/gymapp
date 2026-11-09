@@ -403,6 +403,22 @@ body {
   border-radius: 999px;
 }
 
+.badge.success {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+
+.badge.muted {
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-secondary) 12%, transparent);
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .pill-btn {
   padding: 6px 14px;
   font-size: 0.875rem;
