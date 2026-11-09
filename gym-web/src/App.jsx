@@ -38,9 +38,7 @@ export default function App() {
       await deleteaccount(token);
       logOut();
     } catch (err) {
-      setDeleteError(
-        err.status ? err.message : "Couldn't connect. Check your internet and try again.",
-      );
+      setDeleteError(err.message);
     }
   }
 

@@ -6,11 +6,17 @@ async function request(path, { method = 'GET', body, token } = {}) {
   if (body !== undefined) headers['Content-Type'] = 'application/json'
     if (token) headers['Authorization'] = `Bearer ${token}`
 
-  const res = await fetch(BASE + path, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  })
+  let res
+  try {
+    res = await fetch(BASE + path, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    })
+  } catch {
+    // fetch only throws when the server can't be reached at all
+    throw new Error("Couldn't connect. Check your internet and try again.")
+  }
 
   // The API sends JSON on success and plain text on errors
   const text = await res.text()

@@ -180,17 +180,17 @@ async fn create_reset_link(
     }))
 }
 
-fn make_token(user_id: i32, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
-    let exp = (Utc::now() + chrono::Duration::hours(1)).timestamp() as usize;
+// Each token kind is signed with its own key, so one kind can never pass as another
+fn sign(user_id: i32, key: &[u8], ttl: chrono::Duration) -> Result<String, jsonwebtoken::errors::Error> {
     let claims = Claims {
         sub: user_id.to_string(),
-        exp,
+        exp: (Utc::now() + ttl).timestamp() as usize,
     };
-    encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(secret.as_bytes()),
-    )
+    encode(&Header::default(), &claims, &EncodingKey::from_secret(key))
+}
+
+fn make_token(user_id: i32, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
+    sign(user_id, secret.as_bytes(), chrono::Duration::hours(1))
 }
 
 fn reset_key(secret: &str, password_hash: &str) -> Vec<u8> {
@@ -201,34 +201,41 @@ fn make_reset_token(
     secret: &str,
     password_hash: &str,
 ) -> Result<String, jsonwebtoken::errors::Error> {
-    let exp = (Utc::now() + chrono::Duration::minutes(15)).timestamp() as usize;
-    let claims = Claims {
-        sub: user_id.to_string(),
-        exp,
-    };
-    encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(&reset_key(secret, password_hash)),
-    )
+    sign(user_id, &reset_key(secret, password_hash), chrono::Duration::minutes(15))
 }
 
-// Its own key, so a challenge can never be used as a login token
 fn challenge_key(secret: &str) -> Vec<u8> {
     format!("{secret}:2fa").into_bytes()
 }
 
 fn make_challenge(user_id: i32, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
-    let exp = (Utc::now() + chrono::Duration::minutes(5)).timestamp() as usize;
-    let claims = Claims {
-        sub: user_id.to_string(),
-        exp,
-    };
-    encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(&challenge_key(secret)),
-    )
+    sign(user_id, &challenge_key(secret), chrono::Duration::minutes(5))
+}
+
+// Argon2 is deliberately slow, so it runs off the async threads that serve requests
+async fn hash_password(password: String) -> ApiResult<String> {
+    tokio::task::spawn_blocking(move || {
+        Argon2::default()
+            .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+            .map(|h| h.to_string())
+    })
+    .await
+    .map_err(internal)?
+    .map_err(internal)
+}
+
+async fn password_matches(password: String, stored: String) -> ApiResult<bool> {
+    tokio::task::spawn_blocking(move || {
+        let parsed = PasswordHash::new(&stored)?;
+        Ok::<_, argon2::password_hash::Error>(
+            Argon2::default()
+                .verify_password(password.as_bytes(), &parsed)
+                .is_ok(),
+        )
+    })
+    .await
+    .map_err(internal)?
+    .map_err(internal)
 }
 
 // SHA1, 6 digits, 30-second steps: the settings every authenticator app expects
@@ -262,13 +269,6 @@ async fn reset_password(
             "This reset link is invalid or has expired.".to_string(),
         )
     };
-    if !valid_password(&r.password) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "password must be at least 10 characters and include a special character".into(),
-        ));
-    }
-    check_password(&r.password, &[]).map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
     let mut peek = Validation::default();
     peek.insecure_disable_signature_validation();
     let unverified =
@@ -276,7 +276,10 @@ async fn reset_password(
     let id: i32 = unverified.claims.sub.parse().map_err(|_| invalid())?;
     let mut db = connect(&state).await.map_err(internal)?;
     let row = db
-        .query("SELECT PasswordHash FROM dbo.Users WHERE Id = @P1", &[&id])
+        .query(
+            "SELECT PasswordHash, Email, FirstName, LastName FROM dbo.Users WHERE Id = @P1",
+            &[&id],
+        )
         .await
         .map_err(internal)?
         .into_row()
@@ -292,18 +295,52 @@ async fn reset_password(
         &Validation::default(),
     )
     .map_err(|_| invalid())?;
-    let salt = SaltString::generate(&mut OsRng);
-    let hash = Argon2::default()
-        .hash_password(r.password.as_bytes(), &salt)
-        .map_err(internal)?
-        .to_string();
+    let user_inputs: Vec<&str> = ["Email", "FirstName", "LastName"]
+        .iter()
+        .filter_map(|col| row.get::<&str, _>(*col))
+        .collect();
+    check_password(&r.password, &user_inputs).map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
+    let hash = hash_password(r.password).await?;
+    // Also turns 2FA off: an admin reset link is the way back in after losing the phone
     db.execute(
-        "UPDATE dbo.Users SET PasswordHash = @P1 WHERE Id = @P2",
+        "UPDATE dbo.Users SET PasswordHash = @P1, TotpEnabled = 0, TotpSecret = NULL WHERE Id = @P2",
         &[&hash, &id],
     )
     .await
     .map_err(internal)?;
     Ok(StatusCode::OK)
+}
+
+// Checks the token and that the account is still active; returns (user id, is admin)
+async fn authenticate(parts: &Parts, state: &AppState) -> Result<(i32, bool), (StatusCode, String)> {
+    let unauthorized = || (StatusCode::UNAUTHORIZED, "not logged in".to_string());
+    let header = parts
+        .headers
+        .get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(unauthorized)?;
+    let token = header.strip_prefix("Bearer ").ok_or_else(unauthorized)?;
+    let data = decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(state.jwt_secret.as_bytes()),
+        &Validation::default(),
+    )
+    .map_err(|_| unauthorized())?;
+    let id = data.claims.sub.parse::<i32>().map_err(|_| unauthorized())?;
+    // A deleted (deactivated) account's token stops working straight away
+    let mut db = connect(state).await.map_err(internal)?;
+    let row = db
+        .query("SELECT Active, IsAdmin FROM dbo.Users WHERE Id = @P1", &[&id])
+        .await
+        .map_err(internal)?
+        .into_row()
+        .await
+        .map_err(internal)?
+        .ok_or_else(unauthorized)?;
+    if row.get::<bool, _>("Active") != Some(true) {
+        return Err(unauthorized());
+    }
+    Ok((id, row.get("IsAdmin").unwrap_or(false)))
 }
 
 // Any handler that takes an AuthUser argument requires a valid token
@@ -316,38 +353,12 @@ impl FromRequestParts<Arc<AppState>> for AuthUser {
         parts: &mut Parts,
         state: &Arc<AppState>,
     ) -> Result<Self, Self::Rejection> {
-        let unauthorized = || (StatusCode::UNAUTHORIZED, "not logged in".to_string());
-        let header = parts
-            .headers
-            .get(AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .ok_or_else(unauthorized)?;
-        let token = header.strip_prefix("Bearer ").ok_or_else(unauthorized)?;
-        let data = decode::<Claims>(
-            token,
-            &DecodingKey::from_secret(state.jwt_secret.as_bytes()),
-            &Validation::default(),
-        )
-        .map_err(|_| unauthorized())?;
-        let id = data.claims.sub.parse::<i32>().map_err(|_| unauthorized())?;
-        // A deleted (deactivated) account's token stops working straight away
-        let mut db = connect(state).await.map_err(internal)?;
-        let active: Option<bool> = db
-            .query("SELECT Active FROM dbo.Users WHERE Id = @P1", &[&id])
-            .await
-            .map_err(internal)?
-            .into_row()
-            .await
-            .map_err(internal)?
-            .and_then(|row| row.get("Active"));
-        if active != Some(true) {
-            return Err(unauthorized());
-        }
+        let (id, _) = authenticate(parts, state).await?;
         Ok(AuthUser(id))
     }
 }
 
-struct AdminUser(i32);
+struct AdminUser;
 
 impl FromRequestParts<Arc<AppState>> for AdminUser {
     type Rejection = (StatusCode, String);
@@ -356,28 +367,11 @@ impl FromRequestParts<Arc<AppState>> for AdminUser {
         parts: &mut Parts,
         state: &Arc<AppState>,
     ) -> Result<Self, Self::Rejection> {
-        let AuthUser(id) = AuthUser::from_request_parts(parts, state).await?;
-        let forbidden = || (StatusCode::FORBIDDEN, "admins only".to_string());
-        let mut db = connect(state).await.map_err(internal)?;
-        let row = db
-            .query(
-                "SELECT IsAdmin FROM dbo.Users WHERE Id = @P1",
-                &[&id],
-            )
-            .await
-            .map_err(internal)?
-            .into_row()
-            .await
-            .map_err(internal)?
-            .ok_or_else(forbidden)?;
-        // Active is already checked by AuthUser
-        let is_admin: bool = row
-            .get("IsAdmin")
-            .ok_or_else(|| internal("missing IsAdmin"))?;
+        let (_, is_admin) = authenticate(parts, state).await?;
         if !is_admin {
-            return Err(forbidden());
+            return Err((StatusCode::FORBIDDEN, "admins only".to_string()));
         }
-        Ok(AdminUser(id))
+        Ok(AdminUser)
     }
 }
 
@@ -409,8 +403,7 @@ async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<Account> 
         .map_err(internal)?;
     let Some(row) = row else {
         // Unknown email: still spend the time of a real check, so timing reveals nothing
-        let parsed = PasswordHash::new(&DUMMY_HASH).map_err(internal)?;
-        let _ = Argon2::default().verify_password(c.password.as_bytes(), &parsed);
+        password_matches(c.password.clone(), DUMMY_HASH.clone()).await?;
         return Err(unauthorized());
     };
 
@@ -427,10 +420,9 @@ async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<Account> 
     let totp_enabled: bool = row
         .get("TotpEnabled")
         .ok_or_else(|| internal("missing TotpEnabled"))?;
-    let parsed = PasswordHash::new(stored).map_err(internal)?;
-    Argon2::default()
-        .verify_password(c.password.as_bytes(), &parsed)
-        .map_err(|_| unauthorized())?;
+    if !password_matches(c.password.clone(), stored.to_string()).await? {
+        return Err(unauthorized());
+    }
     Ok(Account {
         id,
         active,
@@ -451,12 +443,13 @@ fn valid_email(email: &str) -> bool {
         && !email.chars().any(char::is_whitespace)
 }
 
-fn valid_password(password: &str) -> bool {
-    password.chars().count() >= 10 && password.chars().any(|c| !c.is_ascii_alphanumeric())
-}
-
-// Rejects guessable passwords (common words, patterns, the user's own name/email)
+// The length + symbol rule, then rejects guessable passwords (common words, patterns, the user's own name/email)
 fn check_password(password: &str, user_inputs: &[&str]) -> Result<(), String> {
+    if password.chars().count() < 10 || password.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(
+            "password must be at least 10 characters and include a special character".into(),
+        );
+    }
     let entropy = zxcvbn(password, user_inputs);
     if entropy.score() >= Score::Four {
         return Ok(());
@@ -484,19 +477,9 @@ async fn register(
     if !valid_email(&c.email) {
         return Err((StatusCode::BAD_REQUEST, "invalid email address".into()));
     }
-    if !valid_password(&c.password) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "password must be at least 10 characters and include a special character".into(),
-        ));
-    }
     check_password(&c.password, &[&c.email, first_name, last_name])
         .map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
-    let salt = SaltString::generate(&mut OsRng);
-    let hash = Argon2::default()
-        .hash_password(c.password.as_bytes(), &salt)
-        .map_err(internal)?
-        .to_string();
+    let hash = hash_password(c.password.clone()).await?;
     let email = c.email.to_lowercase();
     let mut db = connect(&state).await.map_err(internal)?;
     let result = db
@@ -770,6 +753,13 @@ async fn create_workout(
     AuthUser(user_id): AuthUser,
     Json(w): Json<NewWorkout>,
 ) -> ApiResult<(StatusCode, Json<Workout>)> {
+    // The Name column is NVARCHAR(200)
+    if w.name.trim().is_empty() || w.name.chars().count() > 200 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "workout name must be 1 to 200 characters".into(),
+        ));
+    }
     let mut db = connect_as(&state, user_id).await.map_err(internal)?;
     let date = w.date.naive_utc();
     let row = db
@@ -872,6 +862,8 @@ async fn main() {
         .expect("could not connect to SQL Server or create tables");
 
     // One new attempt every 12 seconds per IP, bursts of up to 5: about 5 a minute
+    // shortcut: keys on the TCP peer IP, so behind a proxy (Vite, nginx) every user shares
+    // one bucket; switch to SmartIpKeyExtractor + X-Forwarded-For when deploying behind one
     let limit = GovernorConfigBuilder::default()
         .per_second(12)
         .burst_size(5)
@@ -881,13 +873,14 @@ async fn main() {
         .route("/auth/login", post(login))
         .route("/auth/2fa/verify", post(totp_verify))
         .route("/auth/reset", post(reset_password))
+        // checks a password, so it needs the same limit as login
+        .route("/auth/reactivate", post(reactivate_account))
         .layer(GovernorLayer::new(limit));
 
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/auth/register", post(register))
         .route("/auth/delete", delete(delete_account))
-        .route("/auth/reactivate", post(reactivate_account))
         .route("/auth/2fa/setup", post(totp_setup))
         .route("/auth/2fa/confirm", post(totp_confirm))
         .route("/workouts", get(list_workouts).post(create_workout))
@@ -953,4 +946,19 @@ mod tests {
             .get_secret_base32();
         let totp = make_totp(decode_secret(&base32).unwrap(), "a@b.com").unwrap();
         assert!(totp.check_current(&totp.generate_current().unwrap()).unwrap());    }
+
+    #[test]
+    fn rejects_bad_emails_and_passwords() {
+        assert!(valid_email("a@b.com"));
+        for bad in ["", "ab.com", "@b.com", "a@b", "a@.com", "a@b.", "a@b@c.com", "a b@c.com"] {
+            assert!(!valid_email(bad), "{bad:?} should be rejected");
+        }
+        assert!(check_password("short!", &[]).is_err(), "too short");
+        assert!(check_password("nosymbolsatall123", &[]).is_err(), "no symbol");
+        assert!(check_password("correct-Horse-battery-staple-9", &[]).is_ok());
+        assert!(
+            check_password("jet.thomas@gym.com!", &["jet.thomas@gym.com"]).is_err(),
+            "the user's own email is guessable"
+        );
+    }
 }

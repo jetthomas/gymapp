@@ -14,7 +14,7 @@ export default function TwoFactorSetup({ token }) {
     try {
       await action();
     } catch (err) {
-      setMessage(err.status ? err.message : "Couldn't connect. Check your internet and try again.");
+      setMessage(err.message);
     } finally {
       setLoading(false);
     }

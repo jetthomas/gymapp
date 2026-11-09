@@ -1,12 +1,10 @@
 import { useState } from 'react';
 import { resetPassword } from './api';
 import './index.css';
-import eyeIcon from './assets/eye.svg';
-import eyeOffIcon from './assets/eye-off.svg';
+import PasswordInput from './PasswordInput';
 
 export default function ResetPasswordForm({ token, onBack }) {
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -18,7 +16,7 @@ export default function ResetPasswordForm({ token, onBack }) {
       await resetPassword(token, password);
       onBack(undefined, 'Password updated. Log in with your new password.');
     } catch (err) {
-      setMessage(err.status ? err.message : "Couldn't connect. Check your internet and try again.");
+      setMessage(err.message);
     } finally {
       setLoading(false);
     }
@@ -31,26 +29,16 @@ export default function ResetPasswordForm({ token, onBack }) {
 
         <div className="field">
           <label htmlFor="password">New password</label>
-          <div className="password-wrap">
-            <input
-              id="password"
-              type={showPassword ? 'text' : 'password'}
-              aria-describedby="password-hint"
-              autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              minLength={10}
-              required
-            />
-            <button
-              type="button"
-              className="eye-btn"
-              onClick={() => setShowPassword(!showPassword)}
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-            >
-              <img src={showPassword ? eyeOffIcon : eyeIcon} alt="" width={20} height={20} />
-            </button>
-          </div>
+          <PasswordInput
+            id="password"
+            aria-describedby="password-hint"
+            autoComplete="new-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            minLength={10}
+            pattern=".*[^A-Za-z0-9].*"
+            title="At least 10 characters, including a special character (e.g. ! @ #$)"
+          />
           <p className="hint" id="password-hint">
             At least 10 characters, including a symbol like ! @ # $
           </p>
