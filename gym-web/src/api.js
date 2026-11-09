@@ -44,3 +44,20 @@ export const getWorkouts = (token) =>
 
 export const createWorkout = (token, workout) =>
   request('/workouts', { method: 'POST', body: workout, token })
+export const getUsers = (token) =>
+  request('/admin/users', { token })
+
+export const createResetLink = (token, userId) =>
+  request(`/admin/users/${userId}/reset-link`, { method: 'POST', token })
+
+export const resetPassword = (resetToken, password) =>
+  request('/auth/reset', { method: 'POST', body: { token: resetToken, password } })
+
+export const setup2fa = (token) =>
+  request('/auth/2fa/setup', { method: 'POST', token })
+
+export const confirm2fa = (token, code) =>
+  request('/auth/2fa/confirm', { method: 'POST', token, body: { code } })
+
+export const verify2fa = (challenge, code) =>
+  request('/auth/2fa/verify', { method: 'POST', body: { challenge, code } })

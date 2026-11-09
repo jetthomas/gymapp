@@ -1,4 +1,8 @@
-use std::{env, sync::Arc};
+use std::{
+    env,
+    net::SocketAddr,
+    sync::{Arc, LazyLock},
+};
 
 use argon2::{
     Argon2,
@@ -6,7 +10,7 @@ use argon2::{
 };
 use axum::{
     Json, Router,
-    extract::{FromRequestParts, State},
+    extract::{FromRequestParts, Path, State},
     http::{StatusCode, header::AUTHORIZATION, request::Parts},
     routing::{delete, get, post},
 };
@@ -16,7 +20,17 @@ use serde::{Deserialize, Serialize};
 use tiberius::{AuthMethod, Client, Config};
 use tokio::net::TcpStream;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
+use totp_rs::{Algorithm, Secret, TOTP};
+use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use zxcvbn::{Score, zxcvbn};
+
+// A real Argon2 hash, so checking a password against it takes as long as a real login
+static DUMMY_HASH: LazyLock<String> = LazyLock::new(|| {
+    Argon2::default()
+        .hash_password(b"not-a-real-password", &SaltString::generate(&mut OsRng))
+        .expect("hashing a constant can't fail")
+        .to_string()
+});
 
 // ---------- shared state ----------
 
@@ -33,6 +47,17 @@ async fn connect(state: &AppState) -> Result<Db, tiberius::error::Error> {
     let tcp = TcpStream::connect(state.db_config.get_addr()).await?;
     tcp.set_nodelay(true)?;
     Client::connect(state.db_config.clone(), tcp.compat_write()).await
+}
+
+// Opens a connection that row-level security knows belongs to this user
+async fn connect_as(state: &AppState, user_id: i32) -> Result<Db, tiberius::error::Error> {
+    let mut db = connect(state).await?;
+    db.execute(
+        "EXEC sp_set_session_context @key = N'UserId', @value = @P1, @read_only = 1",
+        &[&user_id],
+    )
+    .await?;
+    Ok(db)
 }
 
 // Log the real error on the server, send a vague one to the client
@@ -53,6 +78,12 @@ struct Credentials {
 }
 
 #[derive(Deserialize)]
+struct ResetRequest {
+    token: String,
+    password: String,
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct NewUser {
     first_name: String,
@@ -64,7 +95,27 @@ struct NewUser {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct LoginResponse {
-    access_token: String,
+    access_token: Option<String>,
+    is_admin: bool,
+    needs_code: bool,
+    challenge: Option<String>,
+}
+
+#[derive(Serialize)]
+struct TotpSetup {
+    qr: String,     // a PNG image, base64-encoded
+    secret: String, // the same secret as text, for people who can't scan
+}
+
+#[derive(Deserialize)]
+struct CodeRequest {
+    code: String,
+}
+
+#[derive(Deserialize)]
+struct VerifyRequest {
+    challenge: String,
+    code: String,
 }
 
 #[derive(Deserialize)]
@@ -93,12 +144,40 @@ struct UserSummary {
     is_admin: bool,
 }
 
-// ---------- tokens ----------
-
 #[derive(Serialize, Deserialize)]
 struct Claims {
     sub: String,
     exp: usize,
+}
+
+#[derive(Serialize)]
+struct ResetLink {
+    link: String,
+}
+async fn create_reset_link(
+    State(state): State<Arc<AppState>>,
+    _admin: AdminUser,
+    Path(user_id): Path<i32>,
+) -> ApiResult<Json<ResetLink>> {
+    let mut db = connect(&state).await.map_err(internal)?;
+    let row = db
+        .query(
+            "SELECT PasswordHash FROM dbo.Users WHERE Id = @P1",
+            &[&user_id],
+        )
+        .await
+        .map_err(internal)?
+        .into_row()
+        .await
+        .map_err(internal)?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "user not found".to_string()))?;
+    let stored: &str = row
+        .get("PasswordHash")
+        .ok_or_else(|| internal("missing hash"))?;
+    let token = make_reset_token(user_id, &state.jwt_secret, stored).map_err(internal)?;
+    Ok(Json(ResetLink {
+        link: format!("{}/?reset={token}", state.frontend_url),
+    }))
 }
 
 fn make_token(user_id: i32, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
@@ -134,6 +213,99 @@ fn make_reset_token(
     )
 }
 
+// Its own key, so a challenge can never be used as a login token
+fn challenge_key(secret: &str) -> Vec<u8> {
+    format!("{secret}:2fa").into_bytes()
+}
+
+fn make_challenge(user_id: i32, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
+    let exp = (Utc::now() + chrono::Duration::minutes(5)).timestamp() as usize;
+    let claims = Claims {
+        sub: user_id.to_string(),
+        exp,
+    };
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(&challenge_key(secret)),
+    )
+}
+
+// SHA1, 6 digits, 30-second steps: the settings every authenticator app expects
+fn make_totp(secret: Vec<u8>, email: &str) -> Result<TOTP, String> {
+    TOTP::new(
+        Algorithm::SHA1,
+        6,
+        1,
+        30,
+        secret,
+        Some("GymApp".to_string()),
+        email.to_string(),
+    )
+    .map_err(|e| format!("{e:?}"))
+}
+
+// Turns the stored base32 text back into the secret's bytes
+fn decode_secret(base32: &str) -> Result<Vec<u8>, String> {
+    Secret::Encoded(base32.to_string())
+        .to_bytes()
+        .map_err(|e| format!("{e:?}"))
+}
+
+async fn reset_password(
+    State(state): State<Arc<AppState>>,
+    Json(r): Json<ResetRequest>,
+) -> ApiResult<StatusCode> {
+    let invalid = || {
+        (
+            StatusCode::BAD_REQUEST,
+            "This reset link is invalid or has expired.".to_string(),
+        )
+    };
+    if !valid_password(&r.password) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "password must be at least 10 characters and include a special character".into(),
+        ));
+    }
+    check_password(&r.password, &[]).map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
+    let mut peek = Validation::default();
+    peek.insecure_disable_signature_validation();
+    let unverified =
+        decode::<Claims>(&r.token, &DecodingKey::from_secret(&[]), &peek).map_err(|_| invalid())?;
+    let id: i32 = unverified.claims.sub.parse().map_err(|_| invalid())?;
+    let mut db = connect(&state).await.map_err(internal)?;
+    let row = db
+        .query("SELECT PasswordHash FROM dbo.Users WHERE Id = @P1", &[&id])
+        .await
+        .map_err(internal)?
+        .into_row()
+        .await
+        .map_err(internal)?
+        .ok_or_else(invalid)?;
+    let stored: &str = row
+        .get("PasswordHash")
+        .ok_or_else(|| internal("missing hash"))?;
+    decode::<Claims>(
+        &r.token,
+        &DecodingKey::from_secret(&reset_key(&state.jwt_secret, stored)),
+        &Validation::default(),
+    )
+    .map_err(|_| invalid())?;
+    let salt = SaltString::generate(&mut OsRng);
+    let hash = Argon2::default()
+        .hash_password(r.password.as_bytes(), &salt)
+        .map_err(internal)?
+        .to_string();
+    db.execute(
+        "UPDATE dbo.Users SET PasswordHash = @P1 WHERE Id = @P2",
+        &[&hash, &id],
+    )
+    .await
+    .map_err(internal)?;
+    Ok(StatusCode::OK)
+}
+
 // Any handler that takes an AuthUser argument requires a valid token
 struct AuthUser(i32);
 
@@ -158,6 +330,19 @@ impl FromRequestParts<Arc<AppState>> for AuthUser {
         )
         .map_err(|_| unauthorized())?;
         let id = data.claims.sub.parse::<i32>().map_err(|_| unauthorized())?;
+        // A deleted (deactivated) account's token stops working straight away
+        let mut db = connect(state).await.map_err(internal)?;
+        let active: Option<bool> = db
+            .query("SELECT Active FROM dbo.Users WHERE Id = @P1", &[&id])
+            .await
+            .map_err(internal)?
+            .into_row()
+            .await
+            .map_err(internal)?
+            .and_then(|row| row.get("Active"));
+        if active != Some(true) {
+            return Err(unauthorized());
+        }
         Ok(AuthUser(id))
     }
 }
@@ -176,7 +361,7 @@ impl FromRequestParts<Arc<AppState>> for AdminUser {
         let mut db = connect(state).await.map_err(internal)?;
         let row = db
             .query(
-                "SELECT IsAdmin, Active FROM dbo.Users WHERE Id = @P1",
+                "SELECT IsAdmin FROM dbo.Users WHERE Id = @P1",
                 &[&id],
             )
             .await
@@ -185,21 +370,26 @@ impl FromRequestParts<Arc<AppState>> for AdminUser {
             .await
             .map_err(internal)?
             .ok_or_else(forbidden)?;
+        // Active is already checked by AuthUser
         let is_admin: bool = row
             .get("IsAdmin")
             .ok_or_else(|| internal("missing IsAdmin"))?;
-        let active: bool = row
-            .get("Active")
-            .ok_or_else(|| internal("missing Active"))?;
-        if !is_admin || !active {
+        if !is_admin {
             return Err(forbidden());
         }
         Ok(AdminUser(id))
     }
 }
 
-// Returns the user's Id and Active flag when the email and password match
-async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<(i32, bool)> {
+struct Account {
+    id: i32,
+    active: bool,
+    is_admin: bool,
+    totp_enabled: bool,
+}
+
+// Returns the user's account flags when the email and password match
+async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<Account> {
     let unauthorized = || {
         (
             StatusCode::UNAUTHORIZED,
@@ -209,15 +399,20 @@ async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<(i32, boo
     let email = c.email.to_lowercase();
     let row = db
         .query(
-            "SELECT Id, PasswordHash, Active FROM dbo.Users WHERE Email = @P1",
+            "SELECT Id, PasswordHash, Active, IsAdmin, TotpEnabled FROM dbo.Users WHERE Email = @P1",
             &[&email],
         )
         .await
         .map_err(internal)?
         .into_row()
         .await
-        .map_err(internal)?
-        .ok_or_else(unauthorized)?;
+        .map_err(internal)?;
+    let Some(row) = row else {
+        // Unknown email: still spend the time of a real check, so timing reveals nothing
+        let parsed = PasswordHash::new(&DUMMY_HASH).map_err(internal)?;
+        let _ = Argon2::default().verify_password(c.password.as_bytes(), &parsed);
+        return Err(unauthorized());
+    };
 
     let id: i32 = row.get("Id").ok_or_else(|| internal("missing Id"))?;
     let stored: &str = row
@@ -226,11 +421,22 @@ async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<(i32, boo
     let active: bool = row
         .get("Active")
         .ok_or_else(|| internal("missing Active"))?;
+    let is_admin: bool = row
+        .get("IsAdmin")
+        .ok_or_else(|| internal("missing IsAdmin"))?;
+    let totp_enabled: bool = row
+        .get("TotpEnabled")
+        .ok_or_else(|| internal("missing TotpEnabled"))?;
     let parsed = PasswordHash::new(stored).map_err(internal)?;
     Argon2::default()
         .verify_password(c.password.as_bytes(), &parsed)
         .map_err(|_| unauthorized())?;
-    Ok((id, active))
+    Ok(Account {
+        id,
+        active,
+        is_admin,
+        totp_enabled,
+    })
 }
 
 fn valid_email(email: &str) -> bool {
@@ -315,15 +521,157 @@ async fn login(
     Json(c): Json<Credentials>,
 ) -> ApiResult<Json<LoginResponse>> {
     let mut db = connect(&state).await.map_err(internal)?;
-    let (id, active) = verify_credentials(&mut db, &c).await?;
+    let account = verify_credentials(&mut db, &c).await?;
     // Checked after the password so a stranger can't probe which emails are deactivated
-    if !active {
+    if !account.active {
         return Err((StatusCode::FORBIDDEN, "account is deactivated".into()));
     }
+    if account.totp_enabled {
+        let challenge = make_challenge(account.id, &state.jwt_secret).map_err(internal)?;
+        return Ok(Json(LoginResponse {
+            access_token: None,
+            is_admin: false,
+            needs_code: true,
+            challenge: Some(challenge),
+        }));
+    }
 
+    let token = make_token(account.id, &state.jwt_secret).map_err(internal)?;
+    Ok(Json(LoginResponse {
+        access_token: Some(token),
+        is_admin: account.is_admin,
+        needs_code: false,
+        challenge: None,
+    }))
+}
+
+async fn totp_setup(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user_id): AuthUser,
+) -> ApiResult<Json<TotpSetup>> {
+    let mut db = connect(&state).await.map_err(internal)?;
+    let row = db
+        .query(
+            "SELECT Email, TotpEnabled FROM dbo.Users WHERE Id = @P1",
+            &[&user_id],
+        )
+        .await
+        .map_err(internal)?
+        .into_row()
+        .await
+        .map_err(internal)?
+        .ok_or_else(|| internal("user missing"))?;
+    let email: &str = row.get("Email").ok_or_else(|| internal("missing Email"))?;
+    let enabled: bool = row.get("TotpEnabled").unwrap_or(false);
+    if enabled {
+        return Err((StatusCode::CONFLICT, "Two-factor is already on.".into()));
+    }
+
+    let bytes = Secret::generate_secret()
+        .to_bytes()
+        .map_err(|e| internal(format!("{e:?}")))?;
+    let totp = make_totp(bytes, email).map_err(internal)?;
+    let secret = totp.get_secret_base32();
+    let qr = totp.get_qr_base64().map_err(internal)?;
+
+    // Saved but NOT enabled: totp_confirm switches it on once the user proves they scanned it
+    db.execute(
+        "UPDATE dbo.Users SET TotpSecret = @P1 WHERE Id = @P2",
+        &[&secret, &user_id],
+    )
+    .await
+    .map_err(internal)?;
+    Ok(Json(TotpSetup { qr, secret }))
+}
+
+async fn totp_confirm(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user_id): AuthUser,
+    Json(r): Json<CodeRequest>,
+) -> ApiResult<StatusCode> {
+    let mut db = connect(&state).await.map_err(internal)?;
+    let row = db
+        .query(
+            "SELECT Email, TotpSecret FROM dbo.Users WHERE Id = @P1",
+            &[&user_id],
+        )
+        .await
+        .map_err(internal)?
+        .into_row()
+        .await
+        .map_err(internal)?
+        .ok_or_else(|| internal("user missing"))?;
+    let email: &str = row.get("Email").ok_or_else(|| internal("missing Email"))?;
+    let secret: &str = row.get("TotpSecret").ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            "Start two-factor setup first.".to_string(),
+        )
+    })?;
+
+    let totp = make_totp(decode_secret(secret).map_err(internal)?, email).map_err(internal)?;
+    if !totp.check_current(&r.code).map_err(internal)? {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "That code didn't match. Try the newest one.".into(),
+        ));
+    }
+    db.execute(
+        "UPDATE dbo.Users SET TotpEnabled = 1 WHERE Id = @P1",
+        &[&user_id],
+    )
+    .await
+    .map_err(internal)?;
+    Ok(StatusCode::OK)
+}
+
+async fn totp_verify(
+    State(state): State<Arc<AppState>>,
+    Json(r): Json<VerifyRequest>,
+) -> ApiResult<Json<LoginResponse>> {
+    let expired = || {
+        (
+            StatusCode::UNAUTHORIZED,
+            "Your sign-in expired. Log in again.".to_string(),
+        )
+    };
+    let data = decode::<Claims>(
+        &r.challenge,
+        &DecodingKey::from_secret(&challenge_key(&state.jwt_secret)),
+        &Validation::default(),
+    )
+    .map_err(|_| expired())?;
+    let id: i32 = data.claims.sub.parse().map_err(|_| expired())?;
+
+    let mut db = connect(&state).await.map_err(internal)?;
+    let row = db
+        .query(
+            "SELECT Email, TotpSecret, IsAdmin FROM dbo.Users WHERE Id = @P1",
+            &[&id],
+        )
+        .await
+        .map_err(internal)?
+        .into_row()
+        .await
+        .map_err(internal)?
+        .ok_or_else(expired)?;
+    let email: &str = row.get("Email").ok_or_else(|| internal("missing Email"))?;
+    let secret: &str = row.get("TotpSecret").ok_or_else(expired)?;
+    let is_admin: bool = row.get("IsAdmin").unwrap_or(false);
+
+    let totp = make_totp(decode_secret(secret).map_err(internal)?, email).map_err(internal)?;
+    if !totp.check_current(&r.code).map_err(internal)? {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "That code didn't match. Try the newest one.".into(),
+        ));
+    }
     let token = make_token(id, &state.jwt_secret).map_err(internal)?;
     Ok(Json(LoginResponse {
-        access_token: token,
+        access_token: Some(token),
+        is_admin,
+        needs_code: false,
+        challenge: None,
     }))
 }
 
@@ -346,8 +694,8 @@ async fn reactivate_account(
     Json(c): Json<Credentials>,
 ) -> ApiResult<StatusCode> {
     let mut db = connect(&state).await.map_err(internal)?;
-    let (id, _) = verify_credentials(&mut db, &c).await?;
-    db.execute("UPDATE dbo.Users SET Active = 1 WHERE Id = @P1", &[&id])
+    let account = verify_credentials(&mut db, &c).await?;
+    db.execute("UPDATE dbo.Users SET Active = 1 WHERE Id = @P1", &[&account.id])
         .await
         .map_err(internal)?;
     Ok(StatusCode::OK)
@@ -390,7 +738,7 @@ async fn list_workouts(
     State(state): State<Arc<AppState>>,
     AuthUser(user_id): AuthUser,
 ) -> ApiResult<Json<Vec<Workout>>> {
-    let mut db = connect(&state).await.map_err(internal)?;
+    let mut db = connect_as(&state, user_id).await.map_err(internal)?;
     let rows = db
         .query(
             "SELECT Id, [Date], Name, Notes FROM dbo.Workouts WHERE UserId = @P1 ORDER BY [Date] DESC",
@@ -422,7 +770,7 @@ async fn create_workout(
     AuthUser(user_id): AuthUser,
     Json(w): Json<NewWorkout>,
 ) -> ApiResult<(StatusCode, Json<Workout>)> {
-    let mut db = connect(&state).await.map_err(internal)?;
+    let mut db = connect_as(&state, user_id).await.map_err(internal)?;
     let date = w.date.naive_utc();
     let row = db
         .query(
@@ -468,7 +816,10 @@ async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
                 FirstName NVARCHAR(100) NULL,
                 LastName NVARCHAR(100) NULL,
                 Active BIT NOT NULL DEFAULT 1,
-                CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+                CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+                IsAdmin BIT NOT NULL DEFAULT 0,
+                TotpSecret NVARCHAR(64) NULL,
+                TotpEnabled BIT NOT NULL DEFAULT 0
             );
          IF OBJECT_ID('dbo.Workouts', 'U') IS NULL
             CREATE TABLE dbo.Workouts (
@@ -477,7 +828,13 @@ async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
                 [Date] DATETIME2 NOT NULL,
                 Name NVARCHAR(200) NOT NULL,
                 Notes NVARCHAR(MAX) NULL
-            );",
+            );
+         IF COL_LENGTH('dbo.Users', 'IsAdmin') IS NULL
+            ALTER TABLE dbo.Users ADD IsAdmin BIT NOT NULL DEFAULT 0;
+         IF COL_LENGTH('dbo.Users', 'TotpSecret') IS NULL
+            ALTER TABLE dbo.Users ADD TotpSecret NVARCHAR(64) NULL;
+         IF COL_LENGTH('dbo.Users', 'TotpEnabled') IS NULL
+            ALTER TABLE dbo.Users ADD TotpEnabled BIT NOT NULL DEFAULT 0;",
     )
     .await?
     .into_results()
@@ -500,7 +857,9 @@ async fn main() {
         env_required("DB_USER"),
         env_required("DB_PASSWORD"),
     ));
-    db_config.trust_cert(); // accept SQL Server's self-signed certificate (development only)
+    if env_or("DB_TRUST_CERT", "false") == "true" {
+        db_config.trust_cert(); // development only: accepts SQL Server's self-signed certificate
+    }
 
     let state = Arc::new(AppState {
         db_config,
@@ -512,14 +871,29 @@ async fn main() {
         .await
         .expect("could not connect to SQL Server or create tables");
 
+    // One new attempt every 12 seconds per IP, bursts of up to 5: about 5 a minute
+    let limit = GovernorConfigBuilder::default()
+        .per_second(12)
+        .burst_size(5)
+        .finish()
+        .unwrap();
+    let limited = Router::new()
+        .route("/auth/login", post(login))
+        .route("/auth/2fa/verify", post(totp_verify))
+        .route("/auth/reset", post(reset_password))
+        .layer(GovernorLayer::new(limit));
+
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/auth/register", post(register))
         .route("/auth/delete", delete(delete_account))
         .route("/auth/reactivate", post(reactivate_account))
-        .route("/auth/login", post(login))
+        .route("/auth/2fa/setup", post(totp_setup))
+        .route("/auth/2fa/confirm", post(totp_confirm))
         .route("/workouts", get(list_workouts).post(create_workout))
         .route("/admin/users", get(list_users))
+        .route("/admin/users/{id}/reset-link", post(create_reset_link))
+        .merge(limited)
         .with_state(state);
 
     let addr = env_or("BIND_ADDR", "127.0.0.1:5080");
@@ -527,7 +901,12 @@ async fn main() {
         .await
         .expect("could not bind address");
     println!("Listening on http://{addr}");
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .unwrap();
 }
 
 #[cfg(test)]
@@ -558,4 +937,20 @@ mod tests {
             .is_err()
         );
     }
+
+    #[test]
+    fn challenge_is_not_a_login_token_and_totp_round_trips() {
+        let challenge = make_challenge(7, "secret").unwrap();
+        let as_login = decode::<Claims>(
+            &challenge,
+            &DecodingKey::from_secret(b"secret"),
+            &Validation::default(),
+        );
+        assert!(as_login.is_err(), "a challenge must not log anyone in");
+
+        let base32 = make_totp(Secret::generate_secret().to_bytes().unwrap(), "a@b.com")
+            .unwrap()
+            .get_secret_base32();
+        let totp = make_totp(decode_secret(&base32).unwrap(), "a@b.com").unwrap();
+        assert!(totp.check_current(&totp.generate_current().unwrap()).unwrap());    }
 }

@@ -222,3 +222,53 @@ body {
 .eye-btn:active {
   opacity: 0.5;
 }
+
+.login-card.admin-card {
+  max-width: 720px;
+}
+
+.user-row {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.user-row:last-of-type {
+  border-bottom: none;
+}
+
+.user-email {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.user-name {
+  font-weight: 600;
+}
+
+/* Row actions line up with the name and email, not centred under them */
+.user-row .link-btn {
+  margin: 8px 0 0;
+  padding-left: 0;
+}
+
+/* Scanners need dark-on-light, so the QR keeps a white plate in dark mode too */
+.qr {
+  display: block;
+  margin: 16px auto;
+  padding: 8px;
+  background: #fff;
+  border-radius: 12px;
+}
+
+.secret-key {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.field input.code-input {
+  text-align: center;
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.3em;
+}
