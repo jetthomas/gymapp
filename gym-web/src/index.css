@@ -145,8 +145,19 @@ body {
   transform: scale(0.98);
 }
 
-.login-btn:hover:not(:disabled) {
-  background: var(--accent-hover);
+/* hover only on real pointers, so a tap on iPhone doesn't leave a stuck hover state */
+@media (hover: hover) {
+  .login-btn:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
+
+  .link-btn:hover:not(:disabled) {
+    text-decoration: underline;
+  }
+
+  .eye-btn:hover {
+    opacity: 0.7;
+  }
 }
 
 .login-btn:disabled,
@@ -165,10 +176,6 @@ body {
   border: none;
   cursor: pointer;
   transition: opacity 0.1s;
-}
-
-.link-btn:hover:not(:disabled) {
-  text-decoration: underline;
 }
 
 .link-btn:active:not(:disabled) {
@@ -213,10 +220,6 @@ body {
   background: none;
   cursor: pointer;
   transition: opacity 0.1s;
-}
-
-.eye-btn:hover {
-  opacity: 0.7;
 }
 
 .eye-btn:active {
@@ -514,4 +517,6 @@ body {
   font-size: 1.25rem;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.3em;
+  /* balances the trailing letter-spacing so the digits sit truly centered */
+  text-indent: 0.3em;
 }
