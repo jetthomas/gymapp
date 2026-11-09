@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { login } from './api';
+import { login, verify2fa } from './api';
 import './index.css';
-import eyeIcon from './assets/eye.svg';
-import eyeOffIcon from './assets/eye-off.svg';
+import PasswordInput from './PasswordInput';
 
 export default function LoginForm({
   onLoggedIn,
@@ -13,9 +12,10 @@ export default function LoginForm({
 }) {
   const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const [challenge, setChallenge] = useState(null);
+  const [code, setCode] = useState('');
 
   async function run(action) {
     setLoading(true);
@@ -23,7 +23,7 @@ export default function LoginForm({
     try {
       await action();
     } catch (err) {
-      setMessage(err.status ? err.message : "Couldn't connect. Check your internet and try again.");
+      setMessage(err.message);
     } finally {
       setLoading(false);
     }
@@ -33,8 +33,60 @@ export default function LoginForm({
     event.preventDefault();
     run(async () => {
       const result = await login(email, password);
-      onLoggedIn(result.accessToken);
+      if (result.needsCode) {
+        setChallenge(result.challenge);
+      } else {
+        onLoggedIn(result.accessToken, result.isAdmin);
+      }
     });
+  }
+
+  function handleCode(event) {
+    event.preventDefault();
+    run(async () => {
+      const result = await verify2fa(challenge, code);
+      onLoggedIn(result.accessToken, result.isAdmin);
+    });
+  }
+
+  if (challenge) {
+    return (
+      <div className="login-page">
+        <form className="login-card" onSubmit={handleCode}>
+          <h1>Enter your code</h1>
+          <div className="field">
+            <label htmlFor="code">6-digit code from your authenticator app</label>
+            <input
+              id="code"
+              className="code-input"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+              required
+              autoFocus
+            />
+          </div>
+          {message && <p className="msg error" role="alert">{message}</p>}
+          <button className="login-btn" type="submit" disabled={loading}>
+            {loading ? 'Checking…' : 'Continue'}
+          </button>
+          <button
+            className="link-btn"
+            type="button"
+            onClick={() => {
+              setChallenge(null);
+              setCode('');
+              setMessage('');
+            }}
+            disabled={loading}
+          >
+            Back
+          </button>
+        </form>
+      </div>
+    );
   }
 
   return (
@@ -59,26 +111,13 @@ export default function LoginForm({
 
         <div className="field">
           <label htmlFor="password">Password</label>
-          <div className="password-wrap">
-            <input
-              id="password"
-              name="password"
-              autoComplete="current-password"
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              minLength={6}
-              required
-            />
-            <button
-              type="button"
-              className="eye-btn"
-              onClick={() => setShowPassword(!showPassword)}
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-            >
-              <img src={showPassword ? eyeOffIcon : eyeIcon} alt="" width={20} height={20} />
-            </button>
-          </div>
+          <PasswordInput
+            id="password"
+            name="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
         </div>
 
         {message ? (

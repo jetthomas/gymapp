@@ -1,13 +1,11 @@
 import { useState } from 'react'
 import { reactivateaccount } from './api'
 import './index.css'
-import eyeIcon from './assets/eye.svg'
-import eyeOffIcon from './assets/eye-off.svg'
+import PasswordInput from './PasswordInput'
 
 export default function ReactivateAccountForm({ onBack, initialEmail = '' }) {
   const [email, setEmail] = useState(initialEmail)
   const [password, setPassword] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -19,7 +17,7 @@ export default function ReactivateAccountForm({ onBack, initialEmail = '' }) {
       await reactivateaccount(email, password)
       onBack(email, 'Account reactivated. Log in to continue.')
     } catch (err) {
-      setMessage(err.status ? err.message : "Couldn't connect. Check your internet and try again.")
+      setMessage(err.message)
     } finally {
       setLoading(false)
     }
@@ -47,26 +45,13 @@ export default function ReactivateAccountForm({ onBack, initialEmail = '' }) {
 
         <div className="field">
           <label htmlFor="password">Password</label>
-          <div className="password-wrap">
-            <input
-              id="password"
-              name="password"
-              autoComplete="current-password"
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              minLength={6}
-              required
-            />
-            <button
-              type="button"
-              className="eye-btn"
-              onClick={() => setShowPassword(!showPassword)}
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-            >
-              <img src={showPassword ? eyeOffIcon : eyeIcon} alt="" width={20} height={20} />
-            </button>
-          </div>
+          <PasswordInput
+            id="password"
+            name="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
         </div>
 
         {message && <p className="msg error" role="alert">{message}</p>}

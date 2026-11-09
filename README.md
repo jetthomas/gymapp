@@ -74,6 +74,10 @@ Check it's up:
 curl http://127.0.0.1:5080/health   # ok
 ```
 
+### 4b. Lock down the database (recommended)
+
+The first run needs an admin login (like `sa`) because it creates the tables. After that, run [`gym-api/sql/security.sql`](gym-api/sql/security.sql) as the admin. It creates a `gym_app` login that can only read and write the app's tables, and turns on row-level security so each user only sees their own workouts. Then switch `DB_USER`/`DB_PASSWORD` in `.env` to `gym_app`.
+
 ### 5. Run the frontend
 
 In a second terminal:
@@ -88,25 +92,31 @@ Open http://localhost:5173. Vite forwards `/api/*` to the API on port 5080, so k
 
 ### Making yourself an admin
 
-Admin access is controlled by an `IsAdmin` column on `dbo.Users`, which the API does not create yet. Add it and promote your account:
+Admin access is controlled by the `IsAdmin` column on `dbo.Users`. Promote your account:
 
 ```sql
-ALTER TABLE dbo.Users ADD IsAdmin BIT NOT NULL DEFAULT 0;
 UPDATE dbo.Users SET IsAdmin = 1 WHERE Email = 'you@example.com';
 ```
 
 ## API
 
-| Method | Route              | Description                                                      |
-| ------ | ------------------ | ---------------------------------------------------------------- |
-| GET    | `/health`          | Health check                                                     |
-| POST   | `/auth/register`   | Create an account (`firstName`, `lastName`, `email`, `password`) |
-| POST   | `/auth/login`      | Log in (`email`, `password`) and get a token                     |
-| DELETE | `/auth/delete`     | Deactivate your account                                            |
-| POST   | `/auth/reactivate` | Reactivate a deactivated account (`email`, `password`)           |
-| GET    | `/workouts`        | List your workouts                                                  | 
-| POST   | `/workouts`        | Add a workout                                                      |
-| GET    | `/admin/users`     | List all users (admins only)                                       |
+| Method | Route                            | Description                                                          |
+| ------ | -------------------------------- | -------------------------------------------------------------------- |
+| GET    | `/health`                        | Health check                                                         |
+| POST   | `/auth/register`                 | Create an account (`firstName`, `lastName`, `email`, `password`)     |
+| POST   | `/auth/login`                    | Log in (`email`, `password`); returns a token, or a 2FA `challenge`  |
+| POST   | `/auth/2fa/verify`               | Finish a 2FA login (`challenge`, `code`) and get a token             |
+| POST   | `/auth/2fa/setup`                | Start turning on 2FA; returns a QR code and secret                   |
+| POST   | `/auth/2fa/confirm`              | Finish turning on 2FA (`code`)                                       |
+| POST   | `/auth/reset`                    | Set a new password from a reset link (`token`, `password`); turns 2FA off |
+| DELETE | `/auth/delete`                   | Deactivate your account                                              |
+| POST   | `/auth/reactivate`               | Reactivate a deactivated account (`email`, `password`)               |
+| GET    | `/workouts`                      | List your workouts                                                   |
+| POST   | `/workouts`                      | Add a workout                                                        |
+| GET    | `/admin/users`                   | List all users (admins only)                                         |
+| POST   | `/admin/users/{id}/reset-link`   | Make a 15-minute password reset link for a user (admins only)        |
+
+Login, 2FA verify, reset and reactivate are rate-limited to about 5 attempts a minute per IP.
 
 ## Project structure
 

@@ -2,11 +2,17 @@ import { useState } from 'react';
 import LoginForm from './LoginForm';
 import CreateAccountForm from './CreateAccountForm';
 import ReactivateAccountForm from './ReactivateAccountForm';
-import { deleteaccount } from './api';
+import AdminScreen from './AdminScreen';
+import ResetPasswordForm from './ResetPasswordForm';
+import TwoFactorSetup from './TwoFactorSetup';
+import { deleteaccount, logout } from './api';
 import './index.css';
 export default function App() {
   const [token, setToken] = useState(null);
-  const [page, setPage] = useState('login');
+  const [isAdmin, setIsAdmin] = useState(false);
+  // The reset link opens the app as /?reset=<token>
+  const [resetToken] = useState(() => new URLSearchParams(window.location.search).get('reset'));
+  const [page, setPage] = useState(resetToken ? 'reset' : 'login');
   const [email, setEmail] = useState('');
   const [notice, setNotice] = useState('');
   const [deleteError, setDeleteError] = useState('');
@@ -15,6 +21,20 @@ export default function App() {
     if (doneEmail) setEmail(doneEmail);
     setNotice(doneNotice);
     setPage('login');
+    // Drop ?reset=... so a refresh doesn't reopen the reset screen
+    window.history.replaceState(null, '', window.location.pathname);
+  }
+
+  function logOut() {
+    setToken(null);
+    setIsAdmin(false);
+    setPage('login');
+  }
+
+  function handleLogOut() {
+    // Tell the server so the token stops working; sign out locally even if that call fails
+    logout(token).catch(() => {});
+    logOut();
   }
 
   async function handleDelete() {
@@ -22,11 +42,9 @@ export default function App() {
     setDeleteError('');
     try {
       await deleteaccount(token);
-      setToken(null);
+      logOut();
     } catch (err) {
-      setDeleteError(
-        err.status ? err.message : "Couldn't connect. Check your internet and try again.",
-      );
+      setDeleteError(err.message);
     }
   }
 
@@ -36,14 +54,18 @@ export default function App() {
   if (!token && page === 'reactivate') {
     return <ReactivateAccountForm initialEmail={email} onBack={backToLogin} />;
   }
+  if (!token && page === 'reset') {
+    return <ResetPasswordForm token={resetToken} onBack={backToLogin} />;
+  }
   if (!token) {
     return (
       <LoginForm
         initialEmail={email}
         notice={notice}
-        onLoggedIn={(t) => {
+        onLoggedIn={(t, admin) => {
           setNotice('');
           setToken(t);
+          setIsAdmin(admin);
         }}
         onCreateAccount={(e) => {
           setEmail(e);
@@ -58,13 +80,29 @@ export default function App() {
       />
     );
   }
+  if (token && page === 'admin') {
+    return <AdminScreen token={token} onBack={() => setPage('login')} />;
+  }
   return (
     <div className="login-page">
       <div className="login-card">
         <h1>Logged In!</h1>
-        <button className="login-btn" onClick={() => setToken(null)}>
+        <button className="login-btn" onClick={handleLogOut}>
           Log Out
         </button>
+        {isAdmin && (
+          <button className="link-btn" onClick={() => setPage('admin')}>
+            Manage users
+          </button>
+        )}
+        <TwoFactorSetup
+          token={token}
+          onEnabled={() => {
+            // Turning 2FA on signs out every session, this one included
+            logOut();
+            setNotice('Two-factor is on. Log in again with your code.');
+          }}
+        />
         <button className="link-btn danger" onClick={handleDelete}>
           Delete Account
         </button>
