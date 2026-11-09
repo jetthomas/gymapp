@@ -23,6 +23,7 @@ use zxcvbn::{Score, zxcvbn};
 struct AppState {
     db_config: Config,
     jwt_secret: String,
+    frontend_url: String,
 }
 
 type Db = Client<Compat<TcpStream>>;
@@ -81,6 +82,17 @@ struct Workout {
     notes: Option<String>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UserSummary {
+    id: i32,
+    first_name: Option<String>,
+    last_name: Option<String>,
+    email: String,
+    active: bool,
+    is_admin: bool,
+}
+
 // ---------- tokens ----------
 
 #[derive(Serialize, Deserialize)]
@@ -99,6 +111,26 @@ fn make_token(user_id: i32, secret: &str) -> Result<String, jsonwebtoken::errors
         &Header::default(),
         &claims,
         &EncodingKey::from_secret(secret.as_bytes()),
+    )
+}
+
+fn reset_key(secret: &str, password_hash: &str) -> Vec<u8> {
+    format!("{secret}{password_hash}").into_bytes()
+}
+fn make_reset_token(
+    user_id: i32,
+    secret: &str,
+    password_hash: &str,
+) -> Result<String, jsonwebtoken::errors::Error> {
+    let exp = (Utc::now() + chrono::Duration::minutes(15)).timestamp() as usize;
+    let claims = Claims {
+        sub: user_id.to_string(),
+        exp,
+    };
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(&reset_key(secret, password_hash)),
     )
 }
 
@@ -129,16 +161,76 @@ impl FromRequestParts<Arc<AppState>> for AuthUser {
         Ok(AuthUser(id))
     }
 }
-fn check_password(password: &str, user_inputs: &[&str]) -> Result<(), String> {
-    let entropy = zxcvbn(password, user_inputs);
-    if entropy.score() >= Score::Three {
-        return Ok(());
+
+struct AdminUser(i32);
+
+impl FromRequestParts<Arc<AppState>> for AdminUser {
+    type Rejection = (StatusCode, String);
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<AppState>,
+    ) -> Result<Self, Self::Rejection> {
+        let AuthUser(id) = AuthUser::from_request_parts(parts, state).await?;
+        let forbidden = || (StatusCode::FORBIDDEN, "admins only".to_string());
+        let mut db = connect(state).await.map_err(internal)?;
+        let row = db
+            .query(
+                "SELECT IsAdmin, Active FROM dbo.Users WHERE Id = @P1",
+                &[&id],
+            )
+            .await
+            .map_err(internal)?
+            .into_row()
+            .await
+            .map_err(internal)?
+            .ok_or_else(forbidden)?;
+        let is_admin: bool = row
+            .get("IsAdmin")
+            .ok_or_else(|| internal("missing IsAdmin"))?;
+        let active: bool = row
+            .get("Active")
+            .ok_or_else(|| internal("missing Active"))?;
+        if !is_admin || !active {
+            return Err(forbidden());
+        }
+        Ok(AdminUser(id))
     }
-    let msg = entropy
-        .feedback()
-        .and_then(|f| f.warning().map(|w| w.to_string()))
-        .unwrap_or_else(|| "Password is too weak".into());
-    Err(msg)
+}
+
+// Returns the user's Id and Active flag when the email and password match
+async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<(i32, bool)> {
+    let unauthorized = || {
+        (
+            StatusCode::UNAUTHORIZED,
+            "wrong email or password".to_string(),
+        )
+    };
+    let email = c.email.to_lowercase();
+    let row = db
+        .query(
+            "SELECT Id, PasswordHash, Active FROM dbo.Users WHERE Email = @P1",
+            &[&email],
+        )
+        .await
+        .map_err(internal)?
+        .into_row()
+        .await
+        .map_err(internal)?
+        .ok_or_else(unauthorized)?;
+
+    let id: i32 = row.get("Id").ok_or_else(|| internal("missing Id"))?;
+    let stored: &str = row
+        .get("PasswordHash")
+        .ok_or_else(|| internal("missing hash"))?;
+    let active: bool = row
+        .get("Active")
+        .ok_or_else(|| internal("missing Active"))?;
+    let parsed = PasswordHash::new(stored).map_err(internal)?;
+    Argon2::default()
+        .verify_password(c.password.as_bytes(), &parsed)
+        .map_err(|_| unauthorized())?;
+    Ok((id, active))
 }
 
 fn valid_email(email: &str) -> bool {
@@ -155,6 +247,19 @@ fn valid_email(email: &str) -> bool {
 
 fn valid_password(password: &str) -> bool {
     password.chars().count() >= 10 && password.chars().any(|c| !c.is_ascii_alphanumeric())
+}
+
+// Rejects guessable passwords (common words, patterns, the user's own name/email)
+fn check_password(password: &str, user_inputs: &[&str]) -> Result<(), String> {
+    let entropy = zxcvbn(password, user_inputs);
+    if entropy.score() >= Score::Four {
+        return Ok(());
+    }
+    let msg = entropy
+        .feedback()
+        .and_then(|f| f.warning().map(|w| w.to_string()))
+        .unwrap_or_else(|| "Password is too weak".into());
+    Err(msg)
 }
 // ---------- auth endpoints ----------
 
@@ -179,6 +284,8 @@ async fn register(
             "password must be at least 10 characters and include a special character".into(),
         ));
     }
+    check_password(&c.password, &[&c.email, first_name, last_name])
+        .map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
     let salt = SaltString::generate(&mut OsRng);
     let hash = Argon2::default()
         .hash_password(c.password.as_bytes(), &salt)
@@ -186,17 +293,6 @@ async fn register(
         .to_string();
     let email = c.email.to_lowercase();
     let mut db = connect(&state).await.map_err(internal)?;
-    let existing = db
-        .query("SELECT 1 FROM dbo.Users WHERE Email = @P1", &[&email])
-        .await
-        .map_err(internal)?
-        .into_row()
-        .await
-        .map_err(internal)?;
-
-    if existing.is_some() {
-        return Err((StatusCode::CONFLICT, "email already registered".into()));
-    }
     let result = db
         .execute(
             "INSERT INTO dbo.Users (FirstName, LastName, Email, PasswordHash) VALUES (@P1, @P2, @P3, @P4)",
@@ -208,7 +304,7 @@ async fn register(
         Ok(_) => Ok(StatusCode::OK),
         // 2627 / 2601 = unique constraint violated, so the email already exists
         Err(tiberius::error::Error::Server(e)) if e.code() == 2627 || e.code() == 2601 => {
-            Err((StatusCode::BAD_REQUEST, "email already registered".into()))
+            Err((StatusCode::CONFLICT, "email already registered".into()))
         }
         Err(e) => Err(internal(e)),
     }
@@ -218,38 +314,8 @@ async fn login(
     State(state): State<Arc<AppState>>,
     Json(c): Json<Credentials>,
 ) -> ApiResult<Json<LoginResponse>> {
-    let unauthorized = || {
-        (
-            StatusCode::UNAUTHORIZED,
-            "wrong email or password".to_string(),
-        )
-    };
-    let email = c.email.to_lowercase();
-
     let mut db = connect(&state).await.map_err(internal)?;
-    let row = db
-        .query(
-            "SELECT Id, PasswordHash, Active FROM dbo.Users WHERE Email = @P1",
-            &[&email],
-        )
-        .await
-        .map_err(internal)?
-        .into_row()
-        .await
-        .map_err(internal)?
-        .ok_or_else(unauthorized)?;
-
-    let id: i32 = row.get("Id").ok_or_else(|| internal("missing Id"))?;
-    let stored: &str = row
-        .get("PasswordHash")
-        .ok_or_else(|| internal("missing hash"))?;
-    let active: bool = row
-        .get("Active")
-        .ok_or_else(|| internal("missing Active"))?;
-    let parsed = PasswordHash::new(stored).map_err(internal)?;
-    Argon2::default()
-        .verify_password(c.password.as_bytes(), &parsed)
-        .map_err(|_| unauthorized())?;
+    let (id, active) = verify_credentials(&mut db, &c).await?;
     // Checked after the password so a stranger can't probe which emails are deactivated
     if !active {
         return Err((StatusCode::FORBIDDEN, "account is deactivated".into()));
@@ -279,40 +345,42 @@ async fn reactivate_account(
     State(state): State<Arc<AppState>>,
     Json(c): Json<Credentials>,
 ) -> ApiResult<StatusCode> {
-    let unauthorized = || {
-        (
-            StatusCode::UNAUTHORIZED,
-            "wrong email or password".to_string(),
-        )
-    };
-    let email = c.email.to_lowercase();
-
     let mut db = connect(&state).await.map_err(internal)?;
-    let row = db
-        .query(
-            "SELECT Id, PasswordHash FROM dbo.Users WHERE Email = @P1",
-            &[&email],
-        )
-        .await
-        .map_err(internal)?
-        .into_row()
-        .await
-        .map_err(internal)?
-        .ok_or_else(unauthorized)?;
-
-    let id: i32 = row.get("Id").ok_or_else(|| internal("missing Id"))?;
-    let stored: &str = row
-        .get("PasswordHash")
-        .ok_or_else(|| internal("missing hash"))?;
-    let parsed = PasswordHash::new(stored).map_err(internal)?;
-    Argon2::default()
-        .verify_password(c.password.as_bytes(), &parsed)
-        .map_err(|_| unauthorized())?;
-
+    let (id, _) = verify_credentials(&mut db, &c).await?;
     db.execute("UPDATE dbo.Users SET Active = 1 WHERE Id = @P1", &[&id])
         .await
         .map_err(internal)?;
     Ok(StatusCode::OK)
+}
+
+async fn list_users(
+    State(state): State<Arc<AppState>>,
+    _admin: AdminUser,
+) -> ApiResult<Json<Vec<UserSummary>>> {
+    let mut db = connect(&state).await.map_err(internal)?;
+    let rows = db
+        .query(
+            "SELECT Id, FirstName, LastName, Email, Active, IsAdmin FROM dbo.Users ORDER BY Email",
+            &[],
+        )
+        .await
+        .map_err(internal)?
+        .into_first_result()
+        .await
+        .map_err(internal)?;
+
+    let users = rows
+        .iter()
+        .map(|r| UserSummary {
+            id: r.get("Id").unwrap_or_default(),
+            first_name: r.get::<&str, _>("FirstName").map(|s| s.to_string()),
+            last_name: r.get::<&str, _>("LastName").map(|s| s.to_string()),
+            email: r.get::<&str, _>("Email").unwrap_or_default().to_string(),
+            active: r.get("Active").unwrap_or_default(),
+            is_admin: r.get("IsAdmin").unwrap_or_default(),
+        })
+        .collect();
+    Ok(Json(users))
 }
 
 // ---------- workout endpoints ----------
@@ -396,7 +464,11 @@ async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
             CREATE TABLE dbo.Users (
                 Id INT IDENTITY(1,1) PRIMARY KEY,
                 Email NVARCHAR(256) NOT NULL UNIQUE,
-                PasswordHash NVARCHAR(512) NOT NULL
+                PasswordHash NVARCHAR(512) NOT NULL,
+                FirstName NVARCHAR(100) NULL,
+                LastName NVARCHAR(100) NULL,
+                Active BIT NOT NULL DEFAULT 1,
+                CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
             );
          IF OBJECT_ID('dbo.Workouts', 'U') IS NULL
             CREATE TABLE dbo.Workouts (
@@ -405,14 +477,7 @@ async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
                 [Date] DATETIME2 NOT NULL,
                 Name NVARCHAR(200) NOT NULL,
                 Notes NVARCHAR(MAX) NULL
-            );
-         -- Adds the account columns to tables created before they existed; Active and CreatedAt are filled by the DB
-         IF COL_LENGTH('dbo.Users', 'FirstName') IS NULL
-            ALTER TABLE dbo.Users ADD
-                FirstName NVARCHAR(100) NULL,
-                LastName NVARCHAR(100) NULL,
-                Active BIT NOT NULL DEFAULT 1,
-                CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME();",
+            );",
     )
     .await?
     .into_results()
@@ -423,7 +488,6 @@ async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
-
     let mut db_config = Config::new();
     db_config.host(env_required("DB_HOST"));
     db_config.port(
@@ -441,6 +505,7 @@ async fn main() {
     let state = Arc::new(AppState {
         db_config,
         jwt_secret: env_required("JWT_SECRET"),
+        frontend_url: env_or("FRONTEND_URL", "http://localhost:5173"),
     });
 
     init_db(&state)
@@ -454,6 +519,7 @@ async fn main() {
         .route("/auth/reactivate", post(reactivate_account))
         .route("/auth/login", post(login))
         .route("/workouts", get(list_workouts).post(create_workout))
+        .route("/admin/users", get(list_users))
         .with_state(state);
 
     let addr = env_or("BIND_ADDR", "127.0.0.1:5080");
@@ -462,4 +528,34 @@ async fn main() {
         .expect("could not bind address");
     println!("Listening on http://{addr}");
     axum::serve(listener, app).await.unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn reset_token_only_works_with_the_hash_it_was_made_for() {
+        let token = make_reset_token(7, "secret", "old-hash").unwrap();
+        let check = |hash: &str| {
+            decode::<Claims>(
+                &token,
+                &DecodingKey::from_secret(&reset_key("secret", hash)),
+                &Validation::default(),
+            )
+        };
+        assert_eq!(check("old-hash").unwrap().claims.sub, "7");
+        assert!(
+            check("new-hash").is_err(),
+            "link must die once the password changes"
+        );
+        // a reset token must not pass as a login token
+        assert!(
+            decode::<Claims>(
+                &token,
+                &DecodingKey::from_secret(b"secret"),
+                &Validation::default()
+            )
+            .is_err()
+        );
+    }
 }

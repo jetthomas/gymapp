@@ -61,14 +61,14 @@ export default function App() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <h1>Logged in!</h1>
+        <h1>Logged In!</h1>
         <button className="login-btn" onClick={() => setToken(null)}>
-          Log out
+          Log Out
         </button>
         <button className="link-btn danger" onClick={handleDelete}>
-          Delete account
+          Delete Account
         </button>
-        {deleteError && <p className="msg error">{deleteError}</p>}
+        {deleteError && <p className="msg error" role="alert">{deleteError}</p>}
       </div>
     </div>
   );

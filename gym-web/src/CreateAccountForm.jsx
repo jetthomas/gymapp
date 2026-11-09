@@ -30,12 +30,14 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
   return (
     <div className="login-page">
       <form className="login-card" onSubmit={handleSubmit}>
-        <h1>Create account</h1>
+        <h1>Create Account</h1>
 
         <div className="field">
           <label htmlFor="firstName">First name</label>
           <input
             id="firstName"
+            name="firstName"
+            autoComplete="given-name"
             value={firstName}
             onChange={(e) => setFirstName(e.target.value)}
             required
@@ -46,6 +48,8 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
           <label htmlFor="lastName">Last name</label>
           <input
             id="lastName"
+            name="lastName"
+            autoComplete="family-name"
             value={lastName}
             onChange={(e) => setLastName(e.target.value)}
             required
@@ -56,8 +60,11 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
           <label htmlFor="email">Email address</label>
           <input
             id="email"
+            name="email"
             placeholder="name@example.com"
             type="email"
+            autoComplete="email"
+            spellCheck={false}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             pattern="[^@\s]+@[^@\s]+\.[^@\s]+"
@@ -71,6 +78,8 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
           <div className="password-wrap">
             <input
               id="password"
+              name="password"
+              autoComplete="new-password"
               type={showPassword ? 'text' : 'password'}
               aria-describedby="password-hint"
               value={password}
@@ -86,7 +95,7 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
               onClick={() => setShowPassword(!showPassword)}
               aria-label={showPassword ? 'Hide password' : 'Show password'}
             >
-              <img src={showPassword ? eyeOffIcon : eyeIcon} alt="" />
+              <img src={showPassword ? eyeOffIcon : eyeIcon} alt="" width={20} height={20} />
             </button>
           </div>
           <p className="hint" id="password-hint">
@@ -94,14 +103,14 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
           </p>
         </div>
 
-        {message && <p className="msg error">{message}</p>}
+        {message && <p className="msg error" role="alert">{message}</p>}
 
         <button className="login-btn" type="submit" disabled={loading}>
-          {loading ? 'Creating account…' : 'Create account'}
+          {loading ? 'Creating Account…' : 'Create Account'}
         </button>
 
         <button className="link-btn" type="button" onClick={() => onBack()} disabled={loading}>
-          Back to login
+          Back to Log In
         </button>
       </form>
     </div>
