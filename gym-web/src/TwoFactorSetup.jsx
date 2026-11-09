@@ -1,12 +1,11 @@
 import { useState } from 'react';
 import { setup2fa, confirm2fa } from './api';
 
-export default function TwoFactorSetup({ token }) {
+export default function TwoFactorSetup({ token, onEnabled }) {
   const [setup, setSetup] = useState(null); // { qr, secret } once started
   const [code, setCode] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
-  const [done, setDone] = useState(false);
 
   async function run(action) {
     setLoading(true);
@@ -28,7 +27,7 @@ export default function TwoFactorSetup({ token }) {
     event.preventDefault();
     run(async () => {
       await confirm2fa(token, code);
-      setDone(true);
+      onEnabled();
     });
   }
 
@@ -37,8 +36,6 @@ export default function TwoFactorSetup({ token }) {
     setCode('');
     setMessage('');
   }
-
-  if (done) return <p className="msg success" role="status">Two-factor is on.</p>;
 
   if (!setup) {
     return (

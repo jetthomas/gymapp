@@ -1,7 +1,9 @@
 use std::{
     env,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
+    num::NonZeroU32,
     sync::{Arc, LazyLock},
+    time::Duration,
 };
 
 use argon2::{
@@ -10,18 +12,21 @@ use argon2::{
 };
 use axum::{
     Json, Router,
-    extract::{FromRequestParts, Path, State},
-    http::{StatusCode, header::AUTHORIZATION, request::Parts},
+    extract::{ConnectInfo, FromRequestParts, Path, State},
+    http::{Request, StatusCode, header::AUTHORIZATION, request::Parts},
     routing::{delete, get, post},
 };
 use chrono::{DateTime, NaiveDateTime, Utc};
+use governor::{DefaultKeyedRateLimiter, Quota};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use tiberius::{AuthMethod, Client, Config};
 use tokio::net::TcpStream;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 use totp_rs::{Algorithm, Secret, TOTP};
-use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
+use tower_governor::{
+    GovernorError, GovernorLayer, governor::GovernorConfigBuilder, key_extractor::KeyExtractor,
+};
 use zxcvbn::{Score, zxcvbn};
 
 // A real Argon2 hash, so checking a password against it takes as long as a real login
@@ -38,6 +43,30 @@ struct AppState {
     db_config: Config,
     jwt_secret: String,
     frontend_url: String,
+    // Wrong-code budget per user for 2FA, so spreading guesses over many IPs doesn't help
+    // shortcut: in memory, so it resets on restart and isn't shared between processes;
+    // move it to a DB column if the API ever runs as more than one process
+    totp_attempts: DefaultKeyedRateLimiter<i32>,
+}
+
+// The API only listens on 127.0.0.1 behind a proxy, so the client IP is the last
+// X-Forwarded-For entry (added by our proxy). Earlier entries come from the client and can be faked.
+#[derive(Clone)]
+struct ProxyIpKeyExtractor;
+
+impl KeyExtractor for ProxyIpKeyExtractor {
+    type Key = IpAddr;
+
+    fn extract<T>(&self, req: &Request<T>) -> Result<IpAddr, GovernorError> {
+        let forwarded = req
+            .headers()
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.rsplit(',').next())
+            .and_then(|ip| ip.trim().parse().ok());
+        let peer = || req.extensions().get::<ConnectInfo<SocketAddr>>().map(|c| c.0.ip());
+        forwarded.or_else(peer).ok_or(GovernorError::UnableToExtractKey)
+    }
 }
 
 type Db = Client<Compat<TcpStream>>;
@@ -148,6 +177,9 @@ struct UserSummary {
 struct Claims {
     sub: String,
     exp: usize,
+    // Login tokens only: must match Users.SessionVersion, so bumping it signs every session out
+    #[serde(default)]
+    ver: i32,
 }
 
 #[derive(Serialize)]
@@ -181,16 +213,17 @@ async fn create_reset_link(
 }
 
 // Each token kind is signed with its own key, so one kind can never pass as another
-fn sign(user_id: i32, key: &[u8], ttl: chrono::Duration) -> Result<String, jsonwebtoken::errors::Error> {
+fn sign(user_id: i32, ver: i32, key: &[u8], ttl: chrono::Duration) -> Result<String, jsonwebtoken::errors::Error> {
     let claims = Claims {
         sub: user_id.to_string(),
         exp: (Utc::now() + ttl).timestamp() as usize,
+        ver,
     };
     encode(&Header::default(), &claims, &EncodingKey::from_secret(key))
 }
 
-fn make_token(user_id: i32, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
-    sign(user_id, secret.as_bytes(), chrono::Duration::hours(1))
+fn make_token(user_id: i32, session_version: i32, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
+    sign(user_id, session_version, secret.as_bytes(), chrono::Duration::hours(1))
 }
 
 fn reset_key(secret: &str, password_hash: &str) -> Vec<u8> {
@@ -201,7 +234,7 @@ fn make_reset_token(
     secret: &str,
     password_hash: &str,
 ) -> Result<String, jsonwebtoken::errors::Error> {
-    sign(user_id, &reset_key(secret, password_hash), chrono::Duration::minutes(15))
+    sign(user_id, 0, &reset_key(secret, password_hash), chrono::Duration::minutes(15))
 }
 
 fn challenge_key(secret: &str) -> Vec<u8> {
@@ -209,7 +242,7 @@ fn challenge_key(secret: &str) -> Vec<u8> {
 }
 
 fn make_challenge(user_id: i32, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
-    sign(user_id, &challenge_key(secret), chrono::Duration::minutes(5))
+    sign(user_id, 0, &challenge_key(secret), chrono::Duration::minutes(5))
 }
 
 // Argon2 is deliberately slow, so it runs off the async threads that serve requests
@@ -301,9 +334,10 @@ async fn reset_password(
         .collect();
     check_password(&r.password, &user_inputs).map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
     let hash = hash_password(r.password).await?;
-    // Also turns 2FA off: an admin reset link is the way back in after losing the phone
+    // Also turns 2FA off: an admin reset link is the way back in after losing the phone.
+    // Bumping SessionVersion signs out every existing session (e.g. a thief's).
     db.execute(
-        "UPDATE dbo.Users SET PasswordHash = @P1, TotpEnabled = 0, TotpSecret = NULL WHERE Id = @P2",
+        "UPDATE dbo.Users SET PasswordHash = @P1, TotpEnabled = 0, TotpSecret = NULL, SessionVersion = SessionVersion + 1 WHERE Id = @P2",
         &[&hash, &id],
     )
     .await
@@ -327,17 +361,23 @@ async fn authenticate(parts: &Parts, state: &AppState) -> Result<(i32, bool), (S
     )
     .map_err(|_| unauthorized())?;
     let id = data.claims.sub.parse::<i32>().map_err(|_| unauthorized())?;
-    // A deleted (deactivated) account's token stops working straight away
+    // A deleted (deactivated) account's token stops working straight away, and so does
+    // any token from before the last logout, password reset, 2FA change or reactivation
     let mut db = connect(state).await.map_err(internal)?;
     let row = db
-        .query("SELECT Active, IsAdmin FROM dbo.Users WHERE Id = @P1", &[&id])
+        .query(
+            "SELECT Active, IsAdmin, SessionVersion FROM dbo.Users WHERE Id = @P1",
+            &[&id],
+        )
         .await
         .map_err(internal)?
         .into_row()
         .await
         .map_err(internal)?
         .ok_or_else(unauthorized)?;
-    if row.get::<bool, _>("Active") != Some(true) {
+    if row.get::<bool, _>("Active") != Some(true)
+        || row.get::<i32, _>("SessionVersion") != Some(data.claims.ver)
+    {
         return Err(unauthorized());
     }
     Ok((id, row.get("IsAdmin").unwrap_or(false)))
@@ -380,6 +420,7 @@ struct Account {
     active: bool,
     is_admin: bool,
     totp_enabled: bool,
+    session_version: i32,
 }
 
 // Returns the user's account flags when the email and password match
@@ -393,7 +434,7 @@ async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<Account> 
     let email = c.email.to_lowercase();
     let row = db
         .query(
-            "SELECT Id, PasswordHash, Active, IsAdmin, TotpEnabled FROM dbo.Users WHERE Email = @P1",
+            "SELECT Id, PasswordHash, Active, IsAdmin, TotpEnabled, SessionVersion FROM dbo.Users WHERE Email = @P1",
             &[&email],
         )
         .await
@@ -420,6 +461,9 @@ async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<Account> 
     let totp_enabled: bool = row
         .get("TotpEnabled")
         .ok_or_else(|| internal("missing TotpEnabled"))?;
+    let session_version: i32 = row
+        .get("SessionVersion")
+        .ok_or_else(|| internal("missing SessionVersion"))?;
     if !password_matches(c.password.clone(), stored.to_string()).await? {
         return Err(unauthorized());
     }
@@ -428,6 +472,7 @@ async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<Account> 
         active,
         is_admin,
         totp_enabled,
+        session_version,
     })
 }
 
@@ -519,7 +564,8 @@ async fn login(
         }));
     }
 
-    let token = make_token(account.id, &state.jwt_secret).map_err(internal)?;
+    let token =
+        make_token(account.id, account.session_version, &state.jwt_secret).map_err(internal)?;
     Ok(Json(LoginResponse {
         access_token: Some(token),
         is_admin: account.is_admin,
@@ -599,8 +645,9 @@ async fn totp_confirm(
             "That code didn't match. Try the newest one.".into(),
         ));
     }
+    // Signs out every session, including this one: they were made without a code
     db.execute(
-        "UPDATE dbo.Users SET TotpEnabled = 1 WHERE Id = @P1",
+        "UPDATE dbo.Users SET TotpEnabled = 1, SessionVersion = SessionVersion + 1 WHERE Id = @P1",
         &[&user_id],
     )
     .await
@@ -625,11 +672,18 @@ async fn totp_verify(
     )
     .map_err(|_| expired())?;
     let id: i32 = data.claims.sub.parse().map_err(|_| expired())?;
+    // Counted per user, not per IP, so an attacker with the password can't spread guesses out
+    if state.totp_attempts.check_key(&id).is_err() {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many tries. Wait a minute and try again.".into(),
+        ));
+    }
 
     let mut db = connect(&state).await.map_err(internal)?;
     let row = db
         .query(
-            "SELECT Email, TotpSecret, IsAdmin FROM dbo.Users WHERE Id = @P1",
+            "SELECT Email, TotpSecret, IsAdmin, SessionVersion FROM dbo.Users WHERE Id = @P1",
             &[&id],
         )
         .await
@@ -641,6 +695,9 @@ async fn totp_verify(
     let email: &str = row.get("Email").ok_or_else(|| internal("missing Email"))?;
     let secret: &str = row.get("TotpSecret").ok_or_else(expired)?;
     let is_admin: bool = row.get("IsAdmin").unwrap_or(false);
+    let session_version: i32 = row
+        .get("SessionVersion")
+        .ok_or_else(|| internal("missing SessionVersion"))?;
 
     let totp = make_totp(decode_secret(secret).map_err(internal)?, email).map_err(internal)?;
     if !totp.check_current(&r.code).map_err(internal)? {
@@ -649,7 +706,7 @@ async fn totp_verify(
             "That code didn't match. Try the newest one.".into(),
         ));
     }
-    let token = make_token(id, &state.jwt_secret).map_err(internal)?;
+    let token = make_token(id, session_version, &state.jwt_secret).map_err(internal)?;
     Ok(Json(LoginResponse {
         access_token: Some(token),
         is_admin,
@@ -678,9 +735,28 @@ async fn reactivate_account(
 ) -> ApiResult<StatusCode> {
     let mut db = connect(&state).await.map_err(internal)?;
     let account = verify_credentials(&mut db, &c).await?;
-    db.execute("UPDATE dbo.Users SET Active = 1 WHERE Id = @P1", &[&account.id])
-        .await
-        .map_err(internal)?;
+    // Bump SessionVersion so tokens from before the deactivation don't come back to life
+    db.execute(
+        "UPDATE dbo.Users SET Active = 1, SessionVersion = SessionVersion + 1 WHERE Id = @P1",
+        &[&account.id],
+    )
+    .await
+    .map_err(internal)?;
+    Ok(StatusCode::OK)
+}
+
+// Signs this user out everywhere: every token they hold stops working
+async fn logout(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user_id): AuthUser,
+) -> ApiResult<StatusCode> {
+    let mut db = connect(&state).await.map_err(internal)?;
+    db.execute(
+        "UPDATE dbo.Users SET SessionVersion = SessionVersion + 1 WHERE Id = @P1",
+        &[&user_id],
+    )
+    .await
+    .map_err(internal)?;
     Ok(StatusCode::OK)
 }
 
@@ -809,7 +885,8 @@ async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
                 CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
                 IsAdmin BIT NOT NULL DEFAULT 0,
                 TotpSecret NVARCHAR(64) NULL,
-                TotpEnabled BIT NOT NULL DEFAULT 0
+                TotpEnabled BIT NOT NULL DEFAULT 0,
+                SessionVersion INT NOT NULL DEFAULT 0
             );
          IF OBJECT_ID('dbo.Workouts', 'U') IS NULL
             CREATE TABLE dbo.Workouts (
@@ -824,7 +901,9 @@ async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
          IF COL_LENGTH('dbo.Users', 'TotpSecret') IS NULL
             ALTER TABLE dbo.Users ADD TotpSecret NVARCHAR(64) NULL;
          IF COL_LENGTH('dbo.Users', 'TotpEnabled') IS NULL
-            ALTER TABLE dbo.Users ADD TotpEnabled BIT NOT NULL DEFAULT 0;",
+            ALTER TABLE dbo.Users ADD TotpEnabled BIT NOT NULL DEFAULT 0;
+         IF COL_LENGTH('dbo.Users', 'SessionVersion') IS NULL
+            ALTER TABLE dbo.Users ADD SessionVersion INT NOT NULL DEFAULT 0;",
     )
     .await?
     .into_results()
@@ -855,21 +934,28 @@ async fn main() {
         db_config,
         jwt_secret: env_required("JWT_SECRET"),
         frontend_url: env_or("FRONTEND_URL", "http://localhost:5173"),
+        // 5 tries, then one more each minute
+        totp_attempts: DefaultKeyedRateLimiter::keyed(
+            Quota::with_period(Duration::from_secs(60))
+                .unwrap()
+                .allow_burst(NonZeroU32::new(5).unwrap()),
+        ),
     });
 
     init_db(&state)
         .await
         .expect("could not connect to SQL Server or create tables");
 
-    // One new attempt every 12 seconds per IP, bursts of up to 5: about 5 a minute
-    // shortcut: keys on the TCP peer IP, so behind a proxy (Vite, nginx) every user shares
-    // one bucket; switch to SmartIpKeyExtractor + X-Forwarded-For when deploying behind one
+    // One new attempt every 12 seconds per client IP, bursts of up to 5: about 5 a minute
     let limit = GovernorConfigBuilder::default()
+        .key_extractor(ProxyIpKeyExtractor)
         .per_second(12)
         .burst_size(5)
         .finish()
         .unwrap();
     let limited = Router::new()
+        // runs a full Argon2 hash, so it needs a limit too
+        .route("/auth/register", post(register))
         .route("/auth/login", post(login))
         .route("/auth/2fa/verify", post(totp_verify))
         .route("/auth/reset", post(reset_password))
@@ -879,7 +965,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
-        .route("/auth/register", post(register))
+        .route("/auth/logout", post(logout))
         .route("/auth/delete", delete(delete_account))
         .route("/auth/2fa/setup", post(totp_setup))
         .route("/auth/2fa/confirm", post(totp_confirm))
@@ -946,6 +1032,47 @@ mod tests {
             .get_secret_base32();
         let totp = make_totp(decode_secret(&base32).unwrap(), "a@b.com").unwrap();
         assert!(totp.check_current(&totp.generate_current().unwrap()).unwrap());    }
+
+    #[test]
+    fn login_token_carries_session_version() {
+        let token = make_token(7, 3, "secret").unwrap();
+        let claims = decode::<Claims>(&token, &DecodingKey::from_secret(b"secret"), &Validation::default())
+            .unwrap()
+            .claims;
+        assert_eq!(claims.ver, 3);
+        // tokens made before this field existed read as version 0, the column's default
+        #[derive(Serialize)]
+        struct OldClaims {
+            sub: String,
+            exp: usize,
+        }
+        let old_claims = OldClaims { sub: "7".into(), exp: 4_000_000_000 };
+        let old = encode(&Header::default(), &old_claims, &EncodingKey::from_secret(b"secret")).unwrap();
+        let claims = decode::<Claims>(&old, &DecodingKey::from_secret(b"secret"), &Validation::default())
+            .unwrap()
+            .claims;
+        assert_eq!(claims.ver, 0);
+    }
+
+    #[test]
+    fn client_ip_is_the_entry_our_proxy_added() {
+        let req = |xff: Option<&str>| {
+            let mut b = Request::builder();
+            if let Some(v) = xff {
+                b = b.header("x-forwarded-for", v);
+            }
+            let mut r = b.body(()).unwrap();
+            r.extensions_mut()
+                .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 5173))));
+            r
+        };
+        let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+        // the client faked the first entry; the proxy appended the real one
+        assert_eq!(ProxyIpKeyExtractor.extract(&req(Some("6.6.6.6, 203.0.113.9"))).unwrap(), ip("203.0.113.9"));
+        assert_eq!(ProxyIpKeyExtractor.extract(&req(Some("203.0.113.9"))).unwrap(), ip("203.0.113.9"));
+        // no header (e.g. curl straight to the API on this machine): fall back to the peer
+        assert_eq!(ProxyIpKeyExtractor.extract(&req(None)).unwrap(), ip("127.0.0.1"));
+    }
 
     #[test]
     fn rejects_bad_emails_and_passwords() {

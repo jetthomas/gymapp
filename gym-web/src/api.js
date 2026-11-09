@@ -38,6 +38,9 @@ export const register = (firstName, lastName, email, password) =>
 export const login = (email, password) =>
   request('/auth/login', { method: 'POST', body: { email, password } })
 
+export const logout = (token) =>
+  request('/auth/logout', { method: 'POST', token })
+
 export const deleteaccount = (token) =>
   request('/auth/delete', { method: 'DELETE', token })
 

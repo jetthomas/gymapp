@@ -5,7 +5,7 @@ import ReactivateAccountForm from './ReactivateAccountForm';
 import AdminScreen from './AdminScreen';
 import ResetPasswordForm from './ResetPasswordForm';
 import TwoFactorSetup from './TwoFactorSetup';
-import { deleteaccount } from './api';
+import { deleteaccount, logout } from './api';
 import './index.css';
 export default function App() {
   const [token, setToken] = useState(null);
@@ -29,6 +29,12 @@ export default function App() {
     setToken(null);
     setIsAdmin(false);
     setPage('login');
+  }
+
+  function handleLogOut() {
+    // Tell the server so the token stops working; sign out locally even if that call fails
+    logout(token).catch(() => {});
+    logOut();
   }
 
   async function handleDelete() {
@@ -81,7 +87,7 @@ export default function App() {
     <div className="login-page">
       <div className="login-card">
         <h1>Logged In!</h1>
-        <button className="login-btn" onClick={logOut}>
+        <button className="login-btn" onClick={handleLogOut}>
           Log Out
         </button>
         {isAdmin && (
@@ -89,7 +95,14 @@ export default function App() {
             Manage users
           </button>
         )}
-        <TwoFactorSetup token={token} />
+        <TwoFactorSetup
+          token={token}
+          onEnabled={() => {
+            // Turning 2FA on signs out every session, this one included
+            logOut();
+            setNotice('Two-factor is on. Log in again with your code.');
+          }}
+        />
         <button className="link-btn danger" onClick={handleDelete}>
           Delete Account
         </button>
