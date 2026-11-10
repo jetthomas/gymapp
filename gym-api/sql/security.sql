@@ -1,4 +1,4 @@
--- Parts 10 and 11: run once, connected as your ADMIN user (not gym_app).
+-- Parts 10 to 12: run once, connected as your ADMIN user (not gym_app).
 -- Replace the password with the output of: openssl rand -base64 24
 -- Change GymApp if your DB_NAME differs.
 
@@ -29,4 +29,22 @@ CREATE SECURITY POLICY Security.WorkoutPolicy
     ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.Workouts AFTER INSERT,
     ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.Workouts AFTER UPDATE
     WITH (STATE = ON);
+GO
+
+-- Part 12: the calorie and workout tracker tables (run after the API has created them)
+GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.FoodEntries TO gym_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.WorkoutSets TO gym_app;
+-- Every user shares the exercise library; the app can read it but never change it
+GRANT SELECT ON dbo.Exercises TO gym_app;
+-- The barcode cache is shared too; no DELETE, entries are refreshed in place
+GRANT SELECT, INSERT, UPDATE ON dbo.FoodProducts TO gym_app;
+GO
+-- fn_workout_owner only checks UserId, so it works for any table that has one
+ALTER SECURITY POLICY Security.WorkoutPolicy
+    ADD FILTER PREDICATE Security.fn_workout_owner(UserId) ON dbo.FoodEntries,
+    ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.FoodEntries AFTER INSERT,
+    ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.FoodEntries AFTER UPDATE,
+    ADD FILTER PREDICATE Security.fn_workout_owner(UserId) ON dbo.WorkoutSets,
+    ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.WorkoutSets AFTER INSERT,
+    ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.WorkoutSets AFTER UPDATE;
 GO

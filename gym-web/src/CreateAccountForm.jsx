@@ -17,7 +17,11 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
     setMessage('');
     try {
       await register(firstName, lastName, email, password);
-      onBack(email, 'Account created. Log in to continue.');
+      // The API answers the same for an email that's already registered, so don't claim a new account
+      onBack(
+        email,
+        "You're all set. Log in to continue. If you already had an account, use its password.",
+      );
     } catch (err) {
       setMessage(err.message);
     } finally {
@@ -37,6 +41,7 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
             name="firstName"
             autoComplete="given-name"
             value={firstName}
+            maxLength={100}
             onChange={(e) => setFirstName(e.target.value)}
             required
           />
@@ -49,6 +54,7 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
             name="lastName"
             autoComplete="family-name"
             value={lastName}
+            maxLength={100}
             onChange={(e) => setLastName(e.target.value)}
             required
           />
@@ -64,6 +70,7 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
             autoComplete="email"
             spellCheck={false}
             value={email}
+            maxLength={256}
             onChange={(e) => setEmail(e.target.value)}
             pattern="[^@\s]+@[^@\s]+\.[^@\s]+"
             title="Enter an email like name@example.com"
@@ -89,7 +96,11 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
           </p>
         </div>
 
-        {message && <p className="msg error" role="alert">{message}</p>}
+        {message && (
+          <p className="msg error" role="alert">
+            {message}
+          </p>
+        )}
 
         <button className="login-btn" type="submit" disabled={loading}>
           {loading ? 'Creating Account…' : 'Create Account'}
