@@ -20,7 +20,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use governor::{DefaultKeyedRateLimiter, Quota};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
-use tiberius::{AuthMethod, Client, Config};
+use tiberius::{AuthMethod, Client, Config, Row, ToSql};
 use tokio::net::TcpStream;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 use totp_rs::{Algorithm, Secret, TOTP};
@@ -64,8 +64,14 @@ impl KeyExtractor for ProxyIpKeyExtractor {
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.rsplit(',').next())
             .and_then(|ip| ip.trim().parse().ok());
-        let peer = || req.extensions().get::<ConnectInfo<SocketAddr>>().map(|c| c.0.ip());
-        forwarded.or_else(peer).ok_or(GovernorError::UnableToExtractKey)
+        let peer = || {
+            req.extensions()
+                .get::<ConnectInfo<SocketAddr>>()
+                .map(|c| c.0.ip())
+        };
+        forwarded
+            .or_else(peer)
+            .ok_or(GovernorError::UnableToExtractKey)
     }
 }
 
@@ -73,20 +79,35 @@ type Db = Client<Compat<TcpStream>>;
 type ApiResult<T> = Result<T, (StatusCode, String)>;
 
 async fn connect(state: &AppState) -> Result<Db, tiberius::error::Error> {
-    let tcp = TcpStream::connect(state.db_config.get_addr()).await?;
+    // Fail after 5 s instead of waiting out the OS timeout when the database host doesn't answer
+    let tcp = tokio::time::timeout(
+        Duration::from_secs(5),
+        TcpStream::connect(state.db_config.get_addr()),
+    )
+    .await
+    .map_err(|_| std::io::Error::from(std::io::ErrorKind::TimedOut))??;
     tcp.set_nodelay(true)?;
     Client::connect(state.db_config.clone(), tcp.compat_write()).await
 }
 
-// Opens a connection that row-level security knows belongs to this user
-async fn connect_as(state: &AppState, user_id: i32) -> Result<Db, tiberius::error::Error> {
-    let mut db = connect(state).await?;
+// Tags the connection so row-level security knows which user it belongs to
+async fn set_user(db: &mut Db, user_id: i32) -> Result<(), tiberius::error::Error> {
     db.execute(
         "EXEC sp_set_session_context @key = N'UserId', @value = @P1, @read_only = 1",
         &[&user_id],
     )
     .await?;
-    Ok(db)
+    Ok(())
+}
+
+// Runs a query and returns its first row, if there is one
+async fn one_row(db: &mut Db, sql: &str, params: &[&dyn ToSql]) -> ApiResult<Option<Row>> {
+    db.query(sql, params)
+        .await
+        .map_err(internal)?
+        .into_row()
+        .await
+        .map_err(internal)
 }
 
 // Log the real error on the server, send a vague one to the client
@@ -188,21 +209,16 @@ struct ResetLink {
 }
 async fn create_reset_link(
     State(state): State<Arc<AppState>>,
-    _admin: AdminUser,
+    AdminUser(mut db): AdminUser,
     Path(user_id): Path<i32>,
 ) -> ApiResult<Json<ResetLink>> {
-    let mut db = connect(&state).await.map_err(internal)?;
-    let row = db
-        .query(
-            "SELECT PasswordHash FROM dbo.Users WHERE Id = @P1",
-            &[&user_id],
-        )
-        .await
-        .map_err(internal)?
-        .into_row()
-        .await
-        .map_err(internal)?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, "user not found".to_string()))?;
+    let row = one_row(
+        &mut db,
+        "SELECT PasswordHash FROM dbo.Users WHERE Id = @P1",
+        &[&user_id],
+    )
+    .await?
+    .ok_or_else(|| (StatusCode::NOT_FOUND, "user not found".to_string()))?;
     let stored: &str = row
         .get("PasswordHash")
         .ok_or_else(|| internal("missing hash"))?;
@@ -213,7 +229,12 @@ async fn create_reset_link(
 }
 
 // Each token kind is signed with its own key, so one kind can never pass as another
-fn sign(user_id: i32, ver: i32, key: &[u8], ttl: chrono::Duration) -> Result<String, jsonwebtoken::errors::Error> {
+fn sign(
+    user_id: i32,
+    ver: i32,
+    key: &[u8],
+    ttl: chrono::Duration,
+) -> Result<String, jsonwebtoken::errors::Error> {
     let claims = Claims {
         sub: user_id.to_string(),
         exp: (Utc::now() + ttl).timestamp() as usize,
@@ -222,8 +243,17 @@ fn sign(user_id: i32, ver: i32, key: &[u8], ttl: chrono::Duration) -> Result<Str
     encode(&Header::default(), &claims, &EncodingKey::from_secret(key))
 }
 
-fn make_token(user_id: i32, session_version: i32, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
-    sign(user_id, session_version, secret.as_bytes(), chrono::Duration::hours(1))
+fn make_token(
+    user_id: i32,
+    session_version: i32,
+    secret: &str,
+) -> Result<String, jsonwebtoken::errors::Error> {
+    sign(
+        user_id,
+        session_version,
+        secret.as_bytes(),
+        chrono::Duration::hours(1),
+    )
 }
 
 fn reset_key(secret: &str, password_hash: &str) -> Vec<u8> {
@@ -234,7 +264,12 @@ fn make_reset_token(
     secret: &str,
     password_hash: &str,
 ) -> Result<String, jsonwebtoken::errors::Error> {
-    sign(user_id, 0, &reset_key(secret, password_hash), chrono::Duration::minutes(15))
+    sign(
+        user_id,
+        0,
+        &reset_key(secret, password_hash),
+        chrono::Duration::minutes(15),
+    )
 }
 
 fn challenge_key(secret: &str) -> Vec<u8> {
@@ -242,7 +277,12 @@ fn challenge_key(secret: &str) -> Vec<u8> {
 }
 
 fn make_challenge(user_id: i32, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
-    sign(user_id, 0, &challenge_key(secret), chrono::Duration::minutes(5))
+    sign(
+        user_id,
+        0,
+        &challenge_key(secret),
+        chrono::Duration::minutes(5),
+    )
 }
 
 // Argon2 is deliberately slow, so it runs off the async threads that serve requests
@@ -280,9 +320,20 @@ fn make_totp(secret: Vec<u8>, email: &str) -> Result<TOTP, String> {
         30,
         secret,
         Some("GymApp".to_string()),
-        email.to_string(),
+        // ":" separates the app name from the account in the QR code's link, so the library rejects it
+        email.replace(':', ""),
     )
     .map_err(|e| format!("{e:?}"))
+}
+
+// Which 30-second step the code belongs to (this one or one either side), if any
+fn matched_step(totp: &TOTP, code: &str, now: u64) -> Option<i64> {
+    let mut exact = totp.clone();
+    exact.skew = 0; // check one step at a time so we know which one matched
+    [now - 30, now, now + 30]
+        .into_iter()
+        .find(|&t| exact.check(code, t))
+        .map(|t| (t / 30) as i64)
 }
 
 // Turns the stored base32 text back into the secret's bytes
@@ -308,17 +359,13 @@ async fn reset_password(
         decode::<Claims>(&r.token, &DecodingKey::from_secret(&[]), &peek).map_err(|_| invalid())?;
     let id: i32 = unverified.claims.sub.parse().map_err(|_| invalid())?;
     let mut db = connect(&state).await.map_err(internal)?;
-    let row = db
-        .query(
-            "SELECT PasswordHash, Email, FirstName, LastName FROM dbo.Users WHERE Id = @P1",
-            &[&id],
-        )
-        .await
-        .map_err(internal)?
-        .into_row()
-        .await
-        .map_err(internal)?
-        .ok_or_else(invalid)?;
+    let row = one_row(
+        &mut db,
+        "SELECT PasswordHash, Email, FirstName, LastName FROM dbo.Users WHERE Id = @P1",
+        &[&id],
+    )
+    .await?
+    .ok_or_else(invalid)?;
     let stored: &str = row
         .get("PasswordHash")
         .ok_or_else(|| internal("missing hash"))?;
@@ -345,8 +392,11 @@ async fn reset_password(
     Ok(StatusCode::OK)
 }
 
-// Checks the token and that the account is still active; returns (user id, is admin)
-async fn authenticate(parts: &Parts, state: &AppState) -> Result<(i32, bool), (StatusCode, String)> {
+// Checks the token and that the account is still active; returns (user id, is admin, connection)
+async fn authenticate(
+    parts: &Parts,
+    state: &AppState,
+) -> Result<(i32, bool, Db), (StatusCode, String)> {
     let unauthorized = || (StatusCode::UNAUTHORIZED, "not logged in".to_string());
     let header = parts
         .headers
@@ -364,27 +414,25 @@ async fn authenticate(parts: &Parts, state: &AppState) -> Result<(i32, bool), (S
     // A deleted (deactivated) account's token stops working straight away, and so does
     // any token from before the last logout, password reset, 2FA change or reactivation
     let mut db = connect(state).await.map_err(internal)?;
-    let row = db
-        .query(
-            "SELECT Active, IsAdmin, SessionVersion FROM dbo.Users WHERE Id = @P1",
-            &[&id],
-        )
-        .await
-        .map_err(internal)?
-        .into_row()
-        .await
-        .map_err(internal)?
-        .ok_or_else(unauthorized)?;
+    let row = one_row(
+        &mut db,
+        "SELECT Active, IsAdmin, SessionVersion FROM dbo.Users WHERE Id = @P1",
+        &[&id],
+    )
+    .await?
+    .ok_or_else(unauthorized)?;
     if row.get::<bool, _>("Active") != Some(true)
         || row.get::<i32, _>("SessionVersion") != Some(data.claims.ver)
     {
         return Err(unauthorized());
     }
-    Ok((id, row.get("IsAdmin").unwrap_or(false)))
+    let is_admin = row.get("IsAdmin").unwrap_or(false);
+    Ok((id, is_admin, db))
 }
 
-// Any handler that takes an AuthUser argument requires a valid token
-struct AuthUser(i32);
+// Any handler that takes an AuthUser argument requires a valid token,
+// and reuses the connection the check already opened
+struct AuthUser(i32, Db);
 
 impl FromRequestParts<Arc<AppState>> for AuthUser {
     type Rejection = (StatusCode, String);
@@ -393,12 +441,12 @@ impl FromRequestParts<Arc<AppState>> for AuthUser {
         parts: &mut Parts,
         state: &Arc<AppState>,
     ) -> Result<Self, Self::Rejection> {
-        let (id, _) = authenticate(parts, state).await?;
-        Ok(AuthUser(id))
+        let (id, _, db) = authenticate(parts, state).await?;
+        Ok(AuthUser(id, db))
     }
 }
 
-struct AdminUser;
+struct AdminUser(Db);
 
 impl FromRequestParts<Arc<AppState>> for AdminUser {
     type Rejection = (StatusCode, String);
@@ -407,11 +455,11 @@ impl FromRequestParts<Arc<AppState>> for AdminUser {
         parts: &mut Parts,
         state: &Arc<AppState>,
     ) -> Result<Self, Self::Rejection> {
-        let (_, is_admin) = authenticate(parts, state).await?;
+        let (_, is_admin, db) = authenticate(parts, state).await?;
         if !is_admin {
             return Err((StatusCode::FORBIDDEN, "admins only".to_string()));
         }
-        Ok(AdminUser)
+        Ok(AdminUser(db))
     }
 }
 
@@ -432,16 +480,12 @@ async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<Account> 
         )
     };
     let email = c.email.to_lowercase();
-    let row = db
-        .query(
-            "SELECT Id, PasswordHash, Active, IsAdmin, TotpEnabled, SessionVersion FROM dbo.Users WHERE Email = @P1",
-            &[&email],
-        )
-        .await
-        .map_err(internal)?
-        .into_row()
-        .await
-        .map_err(internal)?;
+    let row = one_row(
+        db,
+        "SELECT Id, PasswordHash, Active, IsAdmin, TotpEnabled, SessionVersion FROM dbo.Users WHERE Email = @P1",
+        &[&email],
+    )
+    .await?;
     let Some(row) = row else {
         // Unknown email: still spend the time of a real check, so timing reveals nothing
         password_matches(c.password.clone(), DUMMY_HASH.clone()).await?;
@@ -487,6 +531,10 @@ fn valid_email(email: &str) -> bool {
         && !domain.ends_with('.')
         && !email.chars().any(char::is_whitespace)
 }
+// SQL Server's NVARCHAR(n) holds n UTF-16 units; an emoji takes 2
+fn fits(s: &str, max: usize) -> bool {
+    s.encode_utf16().count() <= max
+}
 
 // The length + symbol rule, then rejects guessable passwords (common words, patterns, the user's own name/email)
 fn check_password(password: &str, user_inputs: &[&str]) -> Result<(), String> {
@@ -519,7 +567,13 @@ async fn register(
             "first and last name are required".into(),
         ));
     }
-    if !valid_email(&c.email) {
+    if !fits(first_name, 100) || !fits(last_name, 100) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "names must be 100 characters or fewer".into(),
+        ));
+    }
+    if !valid_email(&c.email) || !fits(&c.email, 256) {
         return Err((StatusCode::BAD_REQUEST, "invalid email address".into()));
     }
     check_password(&c.password, &[&c.email, first_name, last_name])
@@ -574,22 +628,14 @@ async fn login(
     }))
 }
 
-async fn totp_setup(
-    State(state): State<Arc<AppState>>,
-    AuthUser(user_id): AuthUser,
-) -> ApiResult<Json<TotpSetup>> {
-    let mut db = connect(&state).await.map_err(internal)?;
-    let row = db
-        .query(
-            "SELECT Email, TotpEnabled FROM dbo.Users WHERE Id = @P1",
-            &[&user_id],
-        )
-        .await
-        .map_err(internal)?
-        .into_row()
-        .await
-        .map_err(internal)?
-        .ok_or_else(|| internal("user missing"))?;
+async fn totp_setup(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Json<TotpSetup>> {
+    let row = one_row(
+        &mut db,
+        "SELECT Email, TotpEnabled FROM dbo.Users WHERE Id = @P1",
+        &[&user_id],
+    )
+    .await?
+    .ok_or_else(|| internal("user missing"))?;
     let email: &str = row.get("Email").ok_or_else(|| internal("missing Email"))?;
     let enabled: bool = row.get("TotpEnabled").unwrap_or(false);
     if enabled {
@@ -614,22 +660,16 @@ async fn totp_setup(
 }
 
 async fn totp_confirm(
-    State(state): State<Arc<AppState>>,
-    AuthUser(user_id): AuthUser,
+    AuthUser(user_id, mut db): AuthUser,
     Json(r): Json<CodeRequest>,
 ) -> ApiResult<StatusCode> {
-    let mut db = connect(&state).await.map_err(internal)?;
-    let row = db
-        .query(
-            "SELECT Email, TotpSecret FROM dbo.Users WHERE Id = @P1",
-            &[&user_id],
-        )
-        .await
-        .map_err(internal)?
-        .into_row()
-        .await
-        .map_err(internal)?
-        .ok_or_else(|| internal("user missing"))?;
+    let row = one_row(
+        &mut db,
+        "SELECT Email, TotpSecret FROM dbo.Users WHERE Id = @P1",
+        &[&user_id],
+    )
+    .await?
+    .ok_or_else(|| internal("user missing"))?;
     let email: &str = row.get("Email").ok_or_else(|| internal("missing Email"))?;
     let secret: &str = row.get("TotpSecret").ok_or_else(|| {
         (
@@ -681,17 +721,13 @@ async fn totp_verify(
     }
 
     let mut db = connect(&state).await.map_err(internal)?;
-    let row = db
-        .query(
-            "SELECT Email, TotpSecret, IsAdmin, SessionVersion FROM dbo.Users WHERE Id = @P1",
-            &[&id],
-        )
-        .await
-        .map_err(internal)?
-        .into_row()
-        .await
-        .map_err(internal)?
-        .ok_or_else(expired)?;
+    let row = one_row(
+        &mut db,
+        "SELECT Email, TotpSecret, IsAdmin, SessionVersion FROM dbo.Users WHERE Id = @P1",
+        &[&id],
+    )
+    .await?
+    .ok_or_else(expired)?;
     let email: &str = row.get("Email").ok_or_else(|| internal("missing Email"))?;
     let secret: &str = row.get("TotpSecret").ok_or_else(expired)?;
     let is_admin: bool = row.get("IsAdmin").unwrap_or(false);
@@ -700,11 +736,24 @@ async fn totp_verify(
         .ok_or_else(|| internal("missing SessionVersion"))?;
 
     let totp = make_totp(decode_secret(secret).map_err(internal)?, email).map_err(internal)?;
-    if !totp.check_current(&r.code).map_err(internal)? {
-        return Err((
+    let wrong = || {
+        (
             StatusCode::UNAUTHORIZED,
-            "That code didn't match. Try the newest one.".into(),
-        ));
+            "That code didn't match. Try the newest one.".to_string(),
+        )
+    };
+    let step = matched_step(&totp, &r.code, Utc::now().timestamp() as u64).ok_or_else(wrong)?;
+    // Saves the step only if it's newer than the last one used, so each code works once.
+    // One UPDATE means two requests racing with the same code can't both pass.
+    let saved = db
+        .execute(
+            "UPDATE dbo.Users SET LastTotpStep = @P1 WHERE Id = @P2 AND (LastTotpStep IS NULL OR LastTotpStep < @P1)",
+            &[&step, &id],
+        )
+        .await
+        .map_err(internal)?;
+    if saved.total() == 0 {
+        return Err(wrong());
     }
     let token = make_token(id, session_version, &state.jwt_secret).map_err(internal)?;
     Ok(Json(LoginResponse {
@@ -715,11 +764,7 @@ async fn totp_verify(
     }))
 }
 
-async fn delete_account(
-    State(state): State<Arc<AppState>>,
-    AuthUser(user_id): AuthUser,
-) -> ApiResult<StatusCode> {
-    let mut db = connect(&state).await.map_err(internal)?;
+async fn delete_account(AuthUser(user_id, mut db): AuthUser) -> ApiResult<StatusCode> {
     db.execute(
         "UPDATE dbo.Users SET Active = 0 WHERE Id = @P1",
         &[&user_id],
@@ -735,9 +780,10 @@ async fn reactivate_account(
 ) -> ApiResult<StatusCode> {
     let mut db = connect(&state).await.map_err(internal)?;
     let account = verify_credentials(&mut db, &c).await?;
-    // Bump SessionVersion so tokens from before the deactivation don't come back to life
+    // Bump SessionVersion so tokens from before the deactivation don't come back to life.
+    // Active = 0 means an already-active account isn't touched, so this can't sign anyone out.
     db.execute(
-        "UPDATE dbo.Users SET Active = 1, SessionVersion = SessionVersion + 1 WHERE Id = @P1",
+        "UPDATE dbo.Users SET Active = 1, SessionVersion = SessionVersion + 1 WHERE Id = @P1 AND Active = 0",
         &[&account.id],
     )
     .await
@@ -746,11 +792,7 @@ async fn reactivate_account(
 }
 
 // Signs this user out everywhere: every token they hold stops working
-async fn logout(
-    State(state): State<Arc<AppState>>,
-    AuthUser(user_id): AuthUser,
-) -> ApiResult<StatusCode> {
-    let mut db = connect(&state).await.map_err(internal)?;
+async fn logout(AuthUser(user_id, mut db): AuthUser) -> ApiResult<StatusCode> {
     db.execute(
         "UPDATE dbo.Users SET SessionVersion = SessionVersion + 1 WHERE Id = @P1",
         &[&user_id],
@@ -760,11 +802,7 @@ async fn logout(
     Ok(StatusCode::OK)
 }
 
-async fn list_users(
-    State(state): State<Arc<AppState>>,
-    _admin: AdminUser,
-) -> ApiResult<Json<Vec<UserSummary>>> {
-    let mut db = connect(&state).await.map_err(internal)?;
+async fn list_users(AdminUser(mut db): AdminUser) -> ApiResult<Json<Vec<UserSummary>>> {
     let rows = db
         .query(
             "SELECT Id, FirstName, LastName, Email, Active, IsAdmin FROM dbo.Users ORDER BY Email",
@@ -793,11 +831,8 @@ async fn list_users(
 // ---------- workout endpoints ----------
 // The user ID comes from the token (AuthUser), never from the request body
 
-async fn list_workouts(
-    State(state): State<Arc<AppState>>,
-    AuthUser(user_id): AuthUser,
-) -> ApiResult<Json<Vec<Workout>>> {
-    let mut db = connect_as(&state, user_id).await.map_err(internal)?;
+async fn list_workouts(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Json<Vec<Workout>>> {
+    set_user(&mut db, user_id).await.map_err(internal)?;
     let rows = db
         .query(
             "SELECT Id, [Date], Name, Notes FROM dbo.Workouts WHERE UserId = @P1 ORDER BY [Date] DESC",
@@ -825,18 +860,17 @@ async fn list_workouts(
 }
 
 async fn create_workout(
-    State(state): State<Arc<AppState>>,
-    AuthUser(user_id): AuthUser,
+    AuthUser(user_id, mut db): AuthUser,
     Json(w): Json<NewWorkout>,
 ) -> ApiResult<(StatusCode, Json<Workout>)> {
     // The Name column is NVARCHAR(200)
-    if w.name.trim().is_empty() || w.name.chars().count() > 200 {
+    if w.name.trim().is_empty() || !fits(&w.name, 200) {
         return Err((
             StatusCode::BAD_REQUEST,
             "workout name must be 1 to 200 characters".into(),
         ));
     }
-    let mut db = connect_as(&state, user_id).await.map_err(internal)?;
+    set_user(&mut db, user_id).await.map_err(internal)?;
     let date = w.date.naive_utc();
     let row = db
         .query(
@@ -886,7 +920,8 @@ async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
                 IsAdmin BIT NOT NULL DEFAULT 0,
                 TotpSecret NVARCHAR(64) NULL,
                 TotpEnabled BIT NOT NULL DEFAULT 0,
-                SessionVersion INT NOT NULL DEFAULT 0
+                SessionVersion INT NOT NULL DEFAULT 0,
+                LastTotpStep BIGINT NULL
             );
          IF OBJECT_ID('dbo.Workouts', 'U') IS NULL
             CREATE TABLE dbo.Workouts (
@@ -903,7 +938,9 @@ async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
          IF COL_LENGTH('dbo.Users', 'TotpEnabled') IS NULL
             ALTER TABLE dbo.Users ADD TotpEnabled BIT NOT NULL DEFAULT 0;
          IF COL_LENGTH('dbo.Users', 'SessionVersion') IS NULL
-            ALTER TABLE dbo.Users ADD SessionVersion INT NOT NULL DEFAULT 0;",
+            ALTER TABLE dbo.Users ADD SessionVersion INT NOT NULL DEFAULT 0;
+         IF COL_LENGTH('dbo.Users', 'LastTotpStep') IS NULL
+            ALTER TABLE dbo.Users ADD LastTotpStep BIGINT NULL;",
     )
     .await?
     .into_results()
@@ -930,9 +967,15 @@ async fn main() {
         db_config.trust_cert(); // development only: accepts SQL Server's self-signed certificate
     }
 
+    let jwt_secret = env_required("JWT_SECRET");
+    // A short key can be cracked from any token, letting someone forge an admin login
+    assert!(
+        jwt_secret.len() >= 32,
+        "JWT_SECRET must be at least 32 characters. Make one with: openssl rand -base64 48"
+    );
     let state = Arc::new(AppState {
         db_config,
-        jwt_secret: env_required("JWT_SECRET"),
+        jwt_secret,
         frontend_url: env_or("FRONTEND_URL", "http://localhost:5173"),
         // 5 tries, then one more each minute
         totp_attempts: DefaultKeyedRateLimiter::keyed(
@@ -946,13 +989,25 @@ async fn main() {
         .await
         .expect("could not connect to SQL Server or create tables");
 
-    // One new attempt every 12 seconds per client IP, bursts of up to 5: about 5 a minute
+    // One new attempt every 2 seconds per client IP, bursts of up to 30:
+    // room for a gym's members logging in over one shared Wi-Fi
     let limit = GovernorConfigBuilder::default()
         .key_extractor(ProxyIpKeyExtractor)
-        .per_second(12)
-        .burst_size(5)
+        .per_second(2)
+        .burst_size(30)
         .finish()
         .unwrap();
+    // Both limiters keep an entry per IP / user until pruned; drop the ones that are idle again
+    let ip_limiter = limit.limiter().clone();
+    let cleanup_state = state.clone();
+    tokio::spawn(async move {
+        let mut every_minute = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            every_minute.tick().await;
+            ip_limiter.retain_recent();
+            cleanup_state.totp_attempts.retain_recent();
+        }
+    });
     let limited = Router::new()
         // runs a full Argon2 hash, so it needs a limit too
         .route("/auth/register", post(register))
@@ -1031,14 +1086,23 @@ mod tests {
             .unwrap()
             .get_secret_base32();
         let totp = make_totp(decode_secret(&base32).unwrap(), "a@b.com").unwrap();
-        assert!(totp.check_current(&totp.generate_current().unwrap()).unwrap());    }
+        assert!(
+            totp.check_current(&totp.generate_current().unwrap())
+                .unwrap()
+        );
+        assert!(make_totp(Secret::generate_secret().to_bytes().unwrap(), "a:b@c.com").is_ok());
+    }
 
     #[test]
     fn login_token_carries_session_version() {
         let token = make_token(7, 3, "secret").unwrap();
-        let claims = decode::<Claims>(&token, &DecodingKey::from_secret(b"secret"), &Validation::default())
-            .unwrap()
-            .claims;
+        let claims = decode::<Claims>(
+            &token,
+            &DecodingKey::from_secret(b"secret"),
+            &Validation::default(),
+        )
+        .unwrap()
+        .claims;
         assert_eq!(claims.ver, 3);
         // tokens made before this field existed read as version 0, the column's default
         #[derive(Serialize)]
@@ -1046,11 +1110,23 @@ mod tests {
             sub: String,
             exp: usize,
         }
-        let old_claims = OldClaims { sub: "7".into(), exp: 4_000_000_000 };
-        let old = encode(&Header::default(), &old_claims, &EncodingKey::from_secret(b"secret")).unwrap();
-        let claims = decode::<Claims>(&old, &DecodingKey::from_secret(b"secret"), &Validation::default())
-            .unwrap()
-            .claims;
+        let old_claims = OldClaims {
+            sub: "7".into(),
+            exp: 4_000_000_000,
+        };
+        let old = encode(
+            &Header::default(),
+            &old_claims,
+            &EncodingKey::from_secret(b"secret"),
+        )
+        .unwrap();
+        let claims = decode::<Claims>(
+            &old,
+            &DecodingKey::from_secret(b"secret"),
+            &Validation::default(),
+        )
+        .unwrap()
+        .claims;
         assert_eq!(claims.ver, 0);
     }
 
@@ -1068,24 +1144,71 @@ mod tests {
         };
         let ip = |s: &str| s.parse::<IpAddr>().unwrap();
         // the client faked the first entry; the proxy appended the real one
-        assert_eq!(ProxyIpKeyExtractor.extract(&req(Some("6.6.6.6, 203.0.113.9"))).unwrap(), ip("203.0.113.9"));
-        assert_eq!(ProxyIpKeyExtractor.extract(&req(Some("203.0.113.9"))).unwrap(), ip("203.0.113.9"));
+        assert_eq!(
+            ProxyIpKeyExtractor
+                .extract(&req(Some("6.6.6.6, 203.0.113.9")))
+                .unwrap(),
+            ip("203.0.113.9")
+        );
+        assert_eq!(
+            ProxyIpKeyExtractor
+                .extract(&req(Some("203.0.113.9")))
+                .unwrap(),
+            ip("203.0.113.9")
+        );
         // no header (e.g. curl straight to the API on this machine): fall back to the peer
-        assert_eq!(ProxyIpKeyExtractor.extract(&req(None)).unwrap(), ip("127.0.0.1"));
+        assert_eq!(
+            ProxyIpKeyExtractor.extract(&req(None)).unwrap(),
+            ip("127.0.0.1")
+        );
     }
 
     #[test]
     fn rejects_bad_emails_and_passwords() {
         assert!(valid_email("a@b.com"));
-        for bad in ["", "ab.com", "@b.com", "a@b", "a@.com", "a@b.", "a@b@c.com", "a b@c.com"] {
+        for bad in [
+            "",
+            "ab.com",
+            "@b.com",
+            "a@b",
+            "a@.com",
+            "a@b.",
+            "a@b@c.com",
+            "a b@c.com",
+        ] {
             assert!(!valid_email(bad), "{bad:?} should be rejected");
         }
         assert!(check_password("short!", &[]).is_err(), "too short");
-        assert!(check_password("nosymbolsatall123", &[]).is_err(), "no symbol");
+        assert!(
+            check_password("nosymbolsatall123", &[]).is_err(),
+            "no symbol"
+        );
         assert!(check_password("correct-Horse-battery-staple-9", &[]).is_ok());
         assert!(
             check_password("jet.thomas@gym.com!", &["jet.thomas@gym.com"]).is_err(),
             "the user's own email is guessable"
         );
+    }
+
+    #[test]
+    fn length_counts_utf16_units_like_sql_server() {
+        assert!(fits(&"a".repeat(100), 100));
+        assert!(!fits(&"a".repeat(101), 100));
+        assert!(!fits(&"😀".repeat(51), 100), "an emoji takes 2 units");
+    }
+
+    #[test]
+    fn matched_step_finds_the_codes_time_step() {
+        let totp = make_totp(Secret::generate_secret().to_bytes().unwrap(), "a@b.com").unwrap();
+        let now = 1_700_000_000;
+        assert_eq!(
+            matched_step(&totp, &totp.generate(now), now),
+            Some((now / 30) as i64)
+        );
+        assert_eq!(
+            matched_step(&totp, &totp.generate(now - 30), now),
+            Some((now / 30 - 1) as i64)
+        );
+        assert_eq!(matched_step(&totp, &totp.generate(now - 90), now), None);
     }
 }

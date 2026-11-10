@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import LoginForm from './LoginForm';
 import CreateAccountForm from './CreateAccountForm';
 import ReactivateAccountForm from './ReactivateAccountForm';
 import AdminScreen from './AdminScreen';
 import ResetPasswordForm from './ResetPasswordForm';
 import TwoFactorSetup from './TwoFactorSetup';
-import { deleteaccount, logout } from './api';
+import { deleteaccount, logout, setOnSessionExpired } from './api';
 import './index.css';
+
 export default function App() {
   const [token, setToken] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -16,6 +17,15 @@ export default function App() {
   const [email, setEmail] = useState('');
   const [notice, setNotice] = useState('');
   const [deleteError, setDeleteError] = useState('');
+
+  useEffect(() => {
+    setOnSessionExpired(() => {
+      setToken(null);
+      setIsAdmin(false);
+      setPage('login');
+      setNotice('Your session expired. Log in again.');
+    });
+  }, []);
 
   function backToLogin(doneEmail, doneNotice = '') {
     if (doneEmail) setEmail(doneEmail);
@@ -38,7 +48,8 @@ export default function App() {
   }
 
   async function handleDelete() {
-    if (!window.confirm('Delete your account? You can reactivate it later from the login screen.')) return;
+    if (!window.confirm('Delete your account? You can reactivate it later from the login screen.'))
+      return;
     setDeleteError('');
     try {
       await deleteaccount(token);
@@ -106,7 +117,11 @@ export default function App() {
         <button className="link-btn danger" onClick={handleDelete}>
           Delete Account
         </button>
-        {deleteError && <p className="msg error" role="alert">{deleteError}</p>}
+        {deleteError && (
+          <p className="msg error" role="alert">
+            {deleteError}
+          </p>
+        )}
       </div>
     </div>
   );

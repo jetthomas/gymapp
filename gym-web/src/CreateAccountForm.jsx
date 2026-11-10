@@ -37,6 +37,7 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
             name="firstName"
             autoComplete="given-name"
             value={firstName}
+            maxLength={100}
             onChange={(e) => setFirstName(e.target.value)}
             required
           />
@@ -49,6 +50,7 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
             name="lastName"
             autoComplete="family-name"
             value={lastName}
+            maxLength={100}
             onChange={(e) => setLastName(e.target.value)}
             required
           />
@@ -64,6 +66,7 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
             autoComplete="email"
             spellCheck={false}
             value={email}
+            maxLength={256}
             onChange={(e) => setEmail(e.target.value)}
             pattern="[^@\s]+@[^@\s]+\.[^@\s]+"
             title="Enter an email like name@example.com"
@@ -89,7 +92,11 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
           </p>
         </div>
 
-        {message && <p className="msg error" role="alert">{message}</p>}
+        {message && (
+          <p className="msg error" role="alert">
+            {message}
+          </p>
+        )}
 
         <button className="login-btn" type="submit" disabled={loading}>
           {loading ? 'Creating Account…' : 'Create Account'}
