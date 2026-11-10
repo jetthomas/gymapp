@@ -5,6 +5,7 @@ import ReactivateAccountForm from './ReactivateAccountForm';
 import AdminScreen from './AdminScreen';
 import ResetPasswordForm from './ResetPasswordForm';
 import TwoFactorSetup from './TwoFactorSetup';
+import MemberScreen from './MemberScreen';
 import { deleteaccount, logout, setOnSessionExpired } from './api';
 import './index.css';
 
@@ -94,6 +95,9 @@ export default function App() {
   if (token && page === 'admin') {
     return <AdminScreen token={token} onBack={() => setPage('login')} />;
   }
+  if (!isAdmin && page !== 'account') {
+    return <MemberScreen token={token} onAccount={() => setPage('account')} />;
+  }
   return (
     <div className="login-page">
       <div className="login-card">
@@ -104,6 +108,11 @@ export default function App() {
         {isAdmin && (
           <button className="link-btn" onClick={() => setPage('admin')}>
             Manage users
+          </button>
+        )}
+        {!isAdmin && (
+          <button className="link-btn" onClick={() => setPage('login')}>
+            Back to tracker
           </button>
         )}
         <TwoFactorSetup
