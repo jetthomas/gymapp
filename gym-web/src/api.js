@@ -54,16 +54,6 @@ export const getWorkouts = (token) => request('/workouts', { token });
 
 export const createWorkout = (token, workout) =>
   request('/workouts', { method: 'POST', body: workout, token });
-
-export const getFood = (token, date) => request(`/food?date=${date}`, { token });
-
-export const addFood = (token, entry) =>
-  request('/food', { method: 'POST', body: entry, token });
-
-export const getExercises = (token) => request('/exercises', { token });
-
-export const lookupBarcode = (token, barcode) =>
-  request(`/food/lookup/${encodeURIComponent(barcode)}`, { token });
 export const getUsers = (token) => request('/admin/users', { token });
 
 export const createResetLink = (token, userId) =>

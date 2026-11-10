@@ -12,12 +12,12 @@ use argon2::{
 };
 use axum::{
     Json, Router,
-    extract::{ConnectInfo, FromRequestParts, Path, Query, State},
+    extract::{ConnectInfo, FromRequestParts, Path, State},
     http::{Request, StatusCode, header::AUTHORIZATION, request::Parts},
     routing::{delete, get, post},
 };
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
-use governor::{DefaultDirectRateLimiter, DefaultKeyedRateLimiter, Quota, RateLimiter};
+use chrono::{DateTime, NaiveDateTime, Utc};
+use governor::{DefaultKeyedRateLimiter, Quota};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use tiberius::{AuthMethod, Client, Config, Row, ToSql};
@@ -47,10 +47,6 @@ struct AppState {
     // shortcut: in memory, so it resets on restart and isn't shared between processes;
     // move it to a DB column if the API ever runs as more than one process
     totp_attempts: DefaultKeyedRateLimiter<i32>,
-    // One client for every Open Food Facts call, so connections are reused
-    http: reqwest::Client,
-    // Open Food Facts allows 15 product reads a minute from one IP, and every user shares ours
-    off_limiter: DefaultDirectRateLimiter,
 }
 
 // The API only listens on 127.0.0.1 behind a proxy, so the client IP is the last
@@ -173,91 +169,18 @@ struct VerifyRequest {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct NewFood {
-    name: String,
-    calories: i32,
-    date: NaiveDate, // "2026-11-10", the user's local day
-    #[serde(default)]
-    protein_g: i32,
-    #[serde(default)]
-    carbs_g: i32,
-    #[serde(default)]
-    fat_g: i32,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Food {
-    id: i32,
-    name: String,
-    calories: i32,
-    protein_g: i32,
-    carbs_g: i32,
-    fat_g: i32,
-    date: NaiveDate,
-}
-
-#[derive(Deserialize)]
-struct DayQuery {
-    date: NaiveDate,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Exercise {
-    id: i32,
-    name: String,
-    muscle_group: String,
-    equipment: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct NewSet {
-    reps: i32,
-    weight_kg: Option<f64>, // None for bodyweight moves
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct NewWorkoutExercise {
-    exercise_id: i32,
-    sets: Vec<NewSet>,
-}
-
-// Replaces the old NewWorkout
-#[derive(Deserialize)]
 struct NewWorkout {
     name: String,
     date: DateTime<Utc>,
     notes: Option<String>,
-    exercises: Vec<NewWorkoutExercise>,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SetOut {
-    reps: i32,
-    weight_kg: Option<f64>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct WorkoutExercise {
-    exercise_id: i32,
-    name: String,
-    sets: Vec<SetOut>,
-}
-
-// Replaces the old Workout
 #[derive(Serialize)]
 struct Workout {
     id: i32,
     name: String,
     date: DateTime<Utc>,
     notes: Option<String>,
-    exercises: Vec<WorkoutExercise>,
 }
 
 #[derive(Serialize)]
@@ -925,268 +848,11 @@ async fn list_users(AdminUser(mut db): AdminUser) -> ApiResult<Json<Vec<UserSumm
     Ok(Json(users))
 }
 
-// ---------- food endpoints ----------
-
-async fn list_food(
-    AuthUser(user_id, mut db): AuthUser,
-    Query(q): Query<DayQuery>,
-) -> ApiResult<Json<Vec<Food>>> {
-    set_user(&mut db, user_id).await.map_err(internal)?;
-    let rows = db
-        .query(
-            "SELECT Id, Name, Calories, ProteinG, CarbsG, FatG, [Date] FROM dbo.FoodEntries WHERE UserId = @P1 AND [Date] = @P2 ORDER BY Id",
-            &[&user_id, &q.date],
-        )
-        .await
-        .map_err(internal)?
-        .into_first_result()
-        .await
-        .map_err(internal)?;
-
-    let food = rows
-        .iter()
-        .map(|r| Food {
-            id: r.get("Id").unwrap_or_default(),
-            name: r.get::<&str, _>("Name").unwrap_or_default().to_string(),
-            calories: r.get("Calories").unwrap_or_default(),
-            protein_g: r.get("ProteinG").unwrap_or_default(),
-            carbs_g: r.get("CarbsG").unwrap_or_default(),
-            fat_g: r.get("FatG").unwrap_or_default(),
-            date: r.get("Date").unwrap_or(q.date),
-        })
-        .collect();
-    Ok(Json(food))
-}
-
-async fn create_food(
-    AuthUser(user_id, mut db): AuthUser,
-    Json(f): Json<NewFood>,
-) -> ApiResult<(StatusCode, Json<Food>)> {
-    if f.name.trim().is_empty() || !fits(&f.name, 200) {
-        return Err((StatusCode::BAD_REQUEST, "food name must be 1 to 200 characters".into()));
-    }
-    // Catches typos like 50000 and negative numbers
-    if !(1..=10_000).contains(&f.calories) {
-        return Err((StatusCode::BAD_REQUEST, "calories must be 1 to 10000".into()));
-    }
-    for (label, grams) in [("protein", f.protein_g), ("carbs", f.carbs_g), ("fat", f.fat_g)] {
-        if !(0..=1000).contains(&grams) {
-            return Err((StatusCode::BAD_REQUEST, format!("{label} must be 0 to 1000 g")));
-        }
-    }
-    set_user(&mut db, user_id).await.map_err(internal)?;
-    let row = db
-        .query(
-            "INSERT INTO dbo.FoodEntries (UserId, [Date], Name, Calories, ProteinG, CarbsG, FatG) OUTPUT INSERTED.Id VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7)",
-            &[&user_id, &f.date, &f.name, &f.calories, &f.protein_g, &f.carbs_g, &f.fat_g],
-        )
-        .await
-        .map_err(internal)?
-        .into_row()
-        .await
-        .map_err(internal)?
-        .ok_or_else(|| internal("insert returned no row"))?;
-
-    let id: i32 = row.get(0).ok_or_else(|| internal("missing new Id"))?;
-    Ok((
-        StatusCode::CREATED,
-        Json(Food {
-            id,
-            name: f.name,
-            calories: f.calories,
-            protein_g: f.protein_g,
-            carbs_g: f.carbs_g,
-            fat_g: f.fat_g,
-            date: f.date,
-        }),
-    ))
-}
-
-// ---------- barcode lookup ----------
-
-// What our API returns: every number is per 100 g
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Product {
-    barcode: String,
-    name: String,
-    brand: Option<String>,
-    kcal: f64,
-    protein_g: f64,
-    carbs_g: f64,
-    fat_g: f64,
-}
-
-// The parts of an Open Food Facts v3 response we read
-#[derive(Deserialize)]
-struct OffResponse {
-    product: Option<OffProduct>,
-}
-
-#[derive(Deserialize)]
-struct OffProduct {
-    product_name: Option<String>,
-    brands: Option<String>,
-    #[serde(default)]
-    nutriments: OffNutriments,
-}
-
-// shortcut: expects numbers; a product that stores one as text fails as a 502, accept both if that shows up
-#[derive(Deserialize, Default)]
-struct OffNutriments {
-    #[serde(rename = "energy-kcal_100g")]
-    kcal: Option<f64>,
-    #[serde(rename = "proteins_100g")]
-    protein: Option<f64>,
-    #[serde(rename = "carbohydrates_100g")]
-    carbs: Option<f64>,
-    #[serde(rename = "fat_100g")]
-    fat: Option<f64>,
-}
-
-const OFF_URL: &str = "https://world.openfoodfacts.org/api/v3/product";
-
-fn bad_gateway<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
-    eprintln!("open food facts: {e}");
-    (
-        StatusCode::BAD_GATEWAY,
-        "Couldn't reach Open Food Facts. Try again, or type the food in.".into(),
-    )
-}
-
-async fn lookup_barcode(
-    State(state): State<Arc<AppState>>,
-    AuthUser(_, mut db): AuthUser,
-    Path(barcode): Path<String>,
-) -> ApiResult<Json<Product>> {
-    if !(8..=14).contains(&barcode.len()) || !barcode.bytes().all(|b| b.is_ascii_digit()) {
-        return Err((StatusCode::BAD_REQUEST, "barcode must be 8 to 14 digits".into()));
-    }
-    let not_found = || (StatusCode::NOT_FOUND, "That barcode isn't in Open Food Facts yet.".to_string());
-
-    // 1. Our cache: most people scan the same few products
-    if let Some(r) = one_row(
-        &mut db,
-        "SELECT Name, Brand, Kcal, ProteinG, CarbsG, FatG FROM dbo.FoodProducts \
-         WHERE Barcode = @P1 AND FetchedAt > DATEADD(day, -30, SYSUTCDATETIME())",
-        &[&barcode],
-    )
-    .await?
-    {
-        return Ok(Json(Product {
-            name: r.get::<&str, _>("Name").unwrap_or_default().to_string(),
-            brand: r.get::<&str, _>("Brand").map(str::to_string),
-            kcal: r.get("Kcal").unwrap_or_default(),
-            protein_g: r.get("ProteinG").unwrap_or_default(),
-            carbs_g: r.get("CarbsG").unwrap_or_default(),
-            fat_g: r.get("FatG").unwrap_or_default(),
-            barcode,
-        }));
-    }
-
-    // 2. Open Food Facts, inside its limit for our server's IP
-    if state.off_limiter.check().is_err() {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Too many lookups right now. Try again in a minute, or type the food in.".into(),
-        ));
-    }
-    let res = state
-        .http
-        .get(format!("{OFF_URL}/{barcode}.json?fields=product_name,brands,nutriments"))
-        .send()
-        .await
-        .map_err(bad_gateway)?;
-    if res.status() == reqwest::StatusCode::NOT_FOUND {
-        return Err(not_found());
-    }
-    let body: OffResponse = res
-        .error_for_status()
-        .map_err(bad_gateway)?
-        .json()
-        .await
-        .map_err(bad_gateway)?;
-    let p = body.product.ok_or_else(not_found)?;
-
-    // Outside data: keep only finite numbers in a possible range per 100 g
-    let n = p.nutriments;
-    let sane = |v: Option<f64>, max: f64| v.filter(|x| x.is_finite() && (0.0..=max).contains(x));
-    let Some(kcal) = sane(n.kcal, 1000.0) else {
-        return Err((StatusCode::NOT_FOUND, "Open Food Facts has no calories for this product.".into()));
-    };
-    let cut = |s: &str| s.trim().chars().take(200).collect::<String>();
-    let product = Product {
-        name: p
-            .product_name
-            .map(|s| cut(&s))
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| format!("Product {barcode}")),
-        // brands is a comma-separated list; the first is the one on the pack
-        brand: p
-            .brands
-            .map(|b| cut(b.split(',').next().unwrap_or_default()))
-            .filter(|b| !b.is_empty()),
-        kcal,
-        protein_g: sane(n.protein, 100.0).unwrap_or(0.0),
-        carbs_g: sane(n.carbs, 100.0).unwrap_or(0.0),
-        fat_g: sane(n.fat, 100.0).unwrap_or(0.0),
-        barcode,
-    };
-
-    // 3. Save to the cache; a failed write shouldn't fail the lookup
-    if let Err(e) = db
-        .execute(
-            "UPDATE dbo.FoodProducts SET Name = @P2, Brand = @P3, Kcal = @P4, ProteinG = @P5, CarbsG = @P6, FatG = @P7, \
-             FetchedAt = SYSUTCDATETIME() WHERE Barcode = @P1; \
-             IF @@ROWCOUNT = 0 INSERT INTO dbo.FoodProducts (Barcode, Name, Brand, Kcal, ProteinG, CarbsG, FatG) \
-             VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7)",
-            &[
-                &product.barcode,
-                &product.name,
-                &product.brand,
-                &product.kcal,
-                &product.protein_g,
-                &product.carbs_g,
-                &product.fat_g,
-            ],
-        )
-        .await
-    {
-        eprintln!("food cache write failed: {e}");
-    }
-    Ok(Json(product))
-}
-
-// ---------- exercise library ----------
-
-async fn list_exercises(AuthUser(_, mut db): AuthUser) -> ApiResult<Json<Vec<Exercise>>> {
-    let rows = db
-        .query("SELECT Id, Name, MuscleGroup, Equipment FROM dbo.Exercises ORDER BY Name", &[])
-        .await
-        .map_err(internal)?
-        .into_first_result()
-        .await
-        .map_err(internal)?;
-
-    let text = |r: &Row, col: &str| r.get::<&str, _>(col).unwrap_or_default().to_string();
-    let exercises = rows
-        .iter()
-        .map(|r| Exercise {
-            id: r.get("Id").unwrap_or_default(),
-            name: text(r, "Name"),
-            muscle_group: text(r, "MuscleGroup"),
-            equipment: text(r, "Equipment"),
-        })
-        .collect();
-    Ok(Json(exercises))
-}
-
 // ---------- workout endpoints ----------
 // The user ID comes from the token (AuthUser), never from the request body
 
 async fn list_workouts(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Json<Vec<Workout>>> {
     set_user(&mut db, user_id).await.map_err(internal)?;
-    // shortcut: loads the whole history; add paging once a user has hundreds of workouts
     let rows = db
         .query(
             "SELECT Id, [Date], Name, Notes FROM dbo.Workouts WHERE UserId = @P1 ORDER BY [Date] DESC",
@@ -1198,94 +864,40 @@ async fn list_workouts(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Json<Ve
         .await
         .map_err(internal)?;
 
-    let mut workouts: Vec<Workout> = rows
+    let workouts = rows
         .iter()
         .map(|r| Workout {
             id: r.get("Id").unwrap_or_default(),
             name: r.get::<&str, _>("Name").unwrap_or_default().to_string(),
-            date: r.get::<NaiveDateTime, _>("Date").unwrap_or_default().and_utc(),
+            date: r
+                .get::<NaiveDateTime, _>("Date")
+                .unwrap_or_default()
+                .and_utc(),
             notes: r.get::<&str, _>("Notes").map(|s| s.to_string()),
-            exercises: Vec::new(),
         })
         .collect();
-
-    let set_rows = db
-        .query(
-            "SELECT s.WorkoutId, s.ExerciseId, e.Name, s.Reps, s.WeightKg \
-             FROM dbo.WorkoutSets s JOIN dbo.Exercises e ON e.Id = s.ExerciseId \
-             WHERE s.UserId = @P1 ORDER BY s.Id",
-            &[&user_id],
-        )
-        .await
-        .map_err(internal)?
-        .into_first_result()
-        .await
-        .map_err(internal)?;
-
-    for r in &set_rows {
-        let workout_id: i32 = r.get("WorkoutId").unwrap_or_default();
-        let Some(w) = workouts.iter_mut().find(|w| w.id == workout_id) else {
-            continue;
-        };
-        let exercise_id: i32 = r.get("ExerciseId").unwrap_or_default();
-        let set = SetOut {
-            reps: r.get("Reps").unwrap_or_default(),
-            weight_kg: r.get::<f64, _>("WeightKg"),
-        };
-        // Sets come back in the order they were saved, so a set of the same exercise
-        // belongs to the block that was added last
-        match w.exercises.last_mut() {
-            Some(ex) if ex.exercise_id == exercise_id => ex.sets.push(set),
-            _ => w.exercises.push(WorkoutExercise {
-                exercise_id,
-                name: r.get::<&str, _>("Name").unwrap_or_default().to_string(),
-                sets: vec![set],
-            }),
-        }
-    }
     Ok(Json(workouts))
 }
 
 async fn create_workout(
     AuthUser(user_id, mut db): AuthUser,
     Json(w): Json<NewWorkout>,
-) -> ApiResult<(StatusCode, Json<i32>)> {
-    let bad = |msg: &str| (StatusCode::BAD_REQUEST, msg.to_string());
+) -> ApiResult<(StatusCode, Json<Workout>)> {
     // The Name column is NVARCHAR(200)
     if w.name.trim().is_empty() || !fits(&w.name, 200) {
-        return Err(bad("workout name must be 1 to 200 characters"));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "workout name must be 1 to 200 characters".into(),
+        ));
     }
     // Notes is NVARCHAR(MAX), so without a cap one account could fill the database's disk
     if w.notes.as_deref().is_some_and(|n| !fits(n, 2000)) {
-        return Err(bad("notes must be 2000 characters or fewer"));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "notes must be 2000 characters or fewer".into(),
+        ));
     }
-    if w.exercises.is_empty() || w.exercises.len() > 30 {
-        return Err(bad("add 1 to 30 exercises"));
-    }
-    for ex in &w.exercises {
-        if ex.sets.is_empty() || ex.sets.len() > 20 {
-            return Err(bad("each exercise needs 1 to 20 sets"));
-        }
-        for s in &ex.sets {
-            if !(1..=1000).contains(&s.reps) {
-                return Err(bad("reps must be 1 to 1000"));
-            }
-            if s.weight_kg.is_some_and(|kg| !(0.0..=1000.0).contains(&kg)) {
-                return Err(bad("weight must be 0 to 1000 kg"));
-            }
-        }
-    }
-
     set_user(&mut db, user_id).await.map_err(internal)?;
-    // All or nothing: XACT_ABORT rolls back on any SQL error, and if this handler returns early
-    // the connection closes, which makes SQL Server roll back the open transaction
-    db.simple_query("SET XACT_ABORT ON; BEGIN TRANSACTION")
-        .await
-        .map_err(internal)?
-        .into_results()
-        .await
-        .map_err(internal)?;
-
     let date = w.date.naive_utc();
     let row = db
         .query(
@@ -1298,27 +910,15 @@ async fn create_workout(
         .await
         .map_err(internal)?
         .ok_or_else(|| internal("insert returned no row"))?;
+
     let id: i32 = row.get(0).ok_or_else(|| internal("missing new Id"))?;
-
-    for ex in &w.exercises {
-        for s in &ex.sets {
-            // shortcut: an unknown exerciseId fails the foreign key as a 500; check it first if clients can send any id
-            db.execute(
-                "INSERT INTO dbo.WorkoutSets (WorkoutId, UserId, ExerciseId, Reps, WeightKg) VALUES (@P1, @P2, @P3, @P4, @P5)",
-                &[&id, &user_id, &ex.exercise_id, &s.reps, &s.weight_kg],
-            )
-            .await
-            .map_err(internal)?;
-        }
-    }
-
-    db.simple_query("COMMIT")
-        .await
-        .map_err(internal)?
-        .into_results()
-        .await
-        .map_err(internal)?;
-    Ok((StatusCode::CREATED, Json(id)))
+    let saved = Workout {
+        id,
+        name: w.name,
+        date: w.date,
+        notes: w.notes,
+    };
+    Ok((StatusCode::CREATED, Json(saved)))
 }
 
 // ---------- startup ----------
@@ -1359,99 +959,6 @@ async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
                 Name NVARCHAR(200) NOT NULL,
                 Notes NVARCHAR(MAX) NULL
             );
-         IF OBJECT_ID('dbo.FoodEntries', 'U') IS NULL
-            CREATE TABLE dbo.FoodEntries (
-                Id INT IDENTITY(1,1) PRIMARY KEY,
-                UserId INT NOT NULL REFERENCES dbo.Users(Id),
-                [Date] DATE NOT NULL,
-                Name NVARCHAR(200) NOT NULL,
-                Calories INT NOT NULL,
-                ProteinG INT NOT NULL DEFAULT 0,
-                CarbsG INT NOT NULL DEFAULT 0,
-                FatG INT NOT NULL DEFAULT 0
-            );
-         IF OBJECT_ID('dbo.Exercises', 'U') IS NULL
-            CREATE TABLE dbo.Exercises (
-                Id INT IDENTITY(1,1) PRIMARY KEY,
-                Name NVARCHAR(100) NOT NULL UNIQUE,
-                MuscleGroup NVARCHAR(50) NOT NULL,
-                Equipment NVARCHAR(50) NOT NULL
-            );
-         IF OBJECT_ID('dbo.WorkoutSets', 'U') IS NULL
-            CREATE TABLE dbo.WorkoutSets (
-                Id INT IDENTITY(1,1) PRIMARY KEY,
-                WorkoutId INT NOT NULL REFERENCES dbo.Workouts(Id),
-                UserId INT NOT NULL REFERENCES dbo.Users(Id),
-                ExerciseId INT NOT NULL REFERENCES dbo.Exercises(Id),
-                Reps INT NOT NULL,
-                WeightKg FLOAT NULL
-            );
-         IF OBJECT_ID('dbo.FoodProducts', 'U') IS NULL
-            CREATE TABLE dbo.FoodProducts (
-                Barcode NVARCHAR(14) PRIMARY KEY,
-                Name NVARCHAR(400) NOT NULL,
-                Brand NVARCHAR(400) NULL,
-                Kcal FLOAT NOT NULL,
-                ProteinG FLOAT NOT NULL,
-                CarbsG FLOAT NOT NULL,
-                FatG FLOAT NOT NULL,
-                FetchedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
-            );
-         IF NOT EXISTS (SELECT 1 FROM dbo.Exercises)
-            INSERT INTO dbo.Exercises (Name, MuscleGroup, Equipment) VALUES
-            ('Bench Press (Barbell)', 'Chest', 'Barbell'),
-            ('Incline Bench Press (Barbell)', 'Chest', 'Barbell'),
-            ('Bench Press (Dumbbell)', 'Chest', 'Dumbbell'),
-            ('Incline Bench Press (Dumbbell)', 'Chest', 'Dumbbell'),
-            ('Chest Fly (Dumbbell)', 'Chest', 'Dumbbell'),
-            ('Cable Crossover', 'Chest', 'Cable'),
-            ('Chest Press (Machine)', 'Chest', 'Machine'),
-            ('Push Up', 'Chest', 'Bodyweight'),
-            ('Chest Dip', 'Chest', 'Bodyweight'),
-            ('Deadlift (Barbell)', 'Back', 'Barbell'),
-            ('Bent Over Row (Barbell)', 'Back', 'Barbell'),
-            ('T-Bar Row', 'Back', 'Barbell'),
-            ('Pull Up', 'Back', 'Bodyweight'),
-            ('Chin Up', 'Back', 'Bodyweight'),
-            ('Lat Pulldown (Cable)', 'Back', 'Cable'),
-            ('Seated Cable Row', 'Back', 'Cable'),
-            ('Dumbbell Row', 'Back', 'Dumbbell'),
-            ('Overhead Press (Barbell)', 'Shoulders', 'Barbell'),
-            ('Shoulder Press (Dumbbell)', 'Shoulders', 'Dumbbell'),
-            ('Arnold Press (Dumbbell)', 'Shoulders', 'Dumbbell'),
-            ('Lateral Raise (Dumbbell)', 'Shoulders', 'Dumbbell'),
-            ('Front Raise (Dumbbell)', 'Shoulders', 'Dumbbell'),
-            ('Rear Delt Fly (Dumbbell)', 'Shoulders', 'Dumbbell'),
-            ('Face Pull (Cable)', 'Shoulders', 'Cable'),
-            ('Shrug (Dumbbell)', 'Shoulders', 'Dumbbell'),
-            ('Bicep Curl (Barbell)', 'Biceps', 'Barbell'),
-            ('Bicep Curl (Dumbbell)', 'Biceps', 'Dumbbell'),
-            ('Hammer Curl (Dumbbell)', 'Biceps', 'Dumbbell'),
-            ('Preacher Curl (EZ Bar)', 'Biceps', 'Barbell'),
-            ('Bicep Curl (Cable)', 'Biceps', 'Cable'),
-            ('Triceps Pushdown (Cable)', 'Triceps', 'Cable'),
-            ('Skull Crusher (Barbell)', 'Triceps', 'Barbell'),
-            ('Overhead Triceps Extension (Dumbbell)', 'Triceps', 'Dumbbell'),
-            ('Triceps Dip', 'Triceps', 'Bodyweight'),
-            ('Squat (Barbell)', 'Quads', 'Barbell'),
-            ('Front Squat (Barbell)', 'Quads', 'Barbell'),
-            ('Leg Press (Machine)', 'Quads', 'Machine'),
-            ('Leg Extension (Machine)', 'Quads', 'Machine'),
-            ('Bulgarian Split Squat (Dumbbell)', 'Quads', 'Dumbbell'),
-            ('Lunge (Dumbbell)', 'Quads', 'Dumbbell'),
-            ('Goblet Squat (Dumbbell)', 'Quads', 'Dumbbell'),
-            ('Romanian Deadlift (Barbell)', 'Hamstrings', 'Barbell'),
-            ('Lying Leg Curl (Machine)', 'Hamstrings', 'Machine'),
-            ('Seated Leg Curl (Machine)', 'Hamstrings', 'Machine'),
-            ('Hip Thrust (Barbell)', 'Glutes', 'Barbell'),
-            ('Glute Bridge', 'Glutes', 'Bodyweight'),
-            ('Standing Calf Raise (Machine)', 'Calves', 'Machine'),
-            ('Seated Calf Raise (Machine)', 'Calves', 'Machine'),
-            ('Crunch', 'Core', 'Bodyweight'),
-            ('Hanging Leg Raise', 'Core', 'Bodyweight'),
-            ('Cable Crunch', 'Core', 'Cable'),
-            ('Russian Twist', 'Core', 'Bodyweight'),
-            ('Ab Wheel Rollout', 'Core', 'Other');
          IF COL_LENGTH('dbo.Users', 'IsAdmin') IS NULL
             ALTER TABLE dbo.Users ADD IsAdmin BIT NOT NULL DEFAULT 0;
          IF COL_LENGTH('dbo.Users', 'TotpSecret') IS NULL
@@ -1506,12 +1013,6 @@ async fn main() {
                 .unwrap()
                 .allow_burst(NonZeroU32::new(5).unwrap()),
         ),
-        http: reqwest::Client::builder()
-            .user_agent(env_required("OFF_USER_AGENT"))
-            .timeout(Duration::from_secs(5))
-            .build()
-            .expect("could not build the HTTP client"),
-        off_limiter: RateLimiter::direct(Quota::per_minute(NonZeroU32::new(15).unwrap())),
     });
 
     init_db(&state)
@@ -1554,9 +1055,6 @@ async fn main() {
         .route("/auth/2fa/setup", post(totp_setup))
         .route("/auth/2fa/confirm", post(totp_confirm))
         .route("/workouts", get(list_workouts).post(create_workout))
-        .route("/food", get(list_food).post(create_food))
-        .route("/food/lookup/{barcode}", get(lookup_barcode))
-        .route("/exercises", get(list_exercises))
         .route("/admin/users", get(list_users))
         .route("/admin/users/{id}/reset-link", post(create_reset_link))
         .merge(limited)
