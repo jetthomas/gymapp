@@ -17,7 +17,11 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
     setMessage('');
     try {
       await register(firstName, lastName, email, password);
-      onBack(email, 'Account created. Log in to continue.');
+      // The API answers the same for an email that's already registered, so don't claim a new account
+      onBack(
+        email,
+        "You're all set. Log in to continue. If you already had an account, use its password.",
+      );
     } catch (err) {
       setMessage(err.message);
     } finally {

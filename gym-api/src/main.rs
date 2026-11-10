@@ -384,7 +384,7 @@ async fn reset_password(
     // Also turns 2FA off: an admin reset link is the way back in after losing the phone.
     // Bumping SessionVersion signs out every existing session (e.g. a thief's).
     db.execute(
-        "UPDATE dbo.Users SET PasswordHash = @P1, TotpEnabled = 0, TotpSecret = NULL, SessionVersion = SessionVersion + 1 WHERE Id = @P2",
+        "UPDATE dbo.Users SET PasswordHash = @P1, TotpEnabled = 0, TotpSecret = NULL, TotpFailures = 0, SessionVersion = SessionVersion + 1 WHERE Id = @P2",
         &[&hash, &id],
     )
     .await
@@ -590,9 +590,10 @@ async fn register(
 
     match result {
         Ok(_) => Ok(StatusCode::OK),
-        // 2627 / 2601 = unique constraint violated, so the email already exists
+        // 2627 / 2601 = unique constraint violated, so the email already exists.
+        // Answer exactly as for a new account, so sign-up can't reveal who's a member
         Err(tiberius::error::Error::Server(e)) if e.code() == 2627 || e.code() == 2601 => {
-            Err((StatusCode::CONFLICT, "email already registered".into()))
+            Ok(StatusCode::OK)
         }
         Err(e) => Err(internal(e)),
     }
@@ -695,6 +696,10 @@ async fn totp_confirm(
     Ok(StatusCode::OK)
 }
 
+// Wrong 2FA codes in a row before the account needs an admin reset link.
+// Each guess hits 3 in a million, so 10 tries give an attacker about a 1 in 33,000 chance
+const MAX_TOTP_FAILURES: i32 = 10;
+
 async fn totp_verify(
     State(state): State<Arc<AppState>>,
     Json(r): Json<VerifyRequest>,
@@ -736,6 +741,21 @@ async fn totp_verify(
         .ok_or_else(|| internal("missing SessionVersion"))?;
 
     let totp = make_totp(decode_secret(secret).map_err(internal)?, email).map_err(internal)?;
+    // Spends one try before checking (a correct code gives them all back), so the cap
+    // survives restarts and racing requests can't get past it
+    let reserved = db
+        .execute(
+            "UPDATE dbo.Users SET TotpFailures = TotpFailures + 1 WHERE Id = @P1 AND TotpFailures < @P2",
+            &[&id, &MAX_TOTP_FAILURES],
+        )
+        .await
+        .map_err(internal)?;
+    if reserved.total() == 0 {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many wrong codes. Ask an admin for a reset link.".into(),
+        ));
+    }
     let wrong = || {
         (
             StatusCode::UNAUTHORIZED,
@@ -747,7 +767,7 @@ async fn totp_verify(
     // One UPDATE means two requests racing with the same code can't both pass.
     let saved = db
         .execute(
-            "UPDATE dbo.Users SET LastTotpStep = @P1 WHERE Id = @P2 AND (LastTotpStep IS NULL OR LastTotpStep < @P1)",
+            "UPDATE dbo.Users SET LastTotpStep = @P1, TotpFailures = 0 WHERE Id = @P2 AND (LastTotpStep IS NULL OR LastTotpStep < @P1)",
             &[&step, &id],
         )
         .await
@@ -870,6 +890,13 @@ async fn create_workout(
             "workout name must be 1 to 200 characters".into(),
         ));
     }
+    // Notes is NVARCHAR(MAX), so without a cap one account could fill the database's disk
+    if w.notes.as_deref().is_some_and(|n| !fits(n, 2000)) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "notes must be 2000 characters or fewer".into(),
+        ));
+    }
     set_user(&mut db, user_id).await.map_err(internal)?;
     let date = w.date.naive_utc();
     let row = db
@@ -921,7 +948,8 @@ async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
                 TotpSecret NVARCHAR(64) NULL,
                 TotpEnabled BIT NOT NULL DEFAULT 0,
                 SessionVersion INT NOT NULL DEFAULT 0,
-                LastTotpStep BIGINT NULL
+                LastTotpStep BIGINT NULL,
+                TotpFailures INT NOT NULL DEFAULT 0
             );
          IF OBJECT_ID('dbo.Workouts', 'U') IS NULL
             CREATE TABLE dbo.Workouts (
@@ -940,7 +968,9 @@ async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
          IF COL_LENGTH('dbo.Users', 'SessionVersion') IS NULL
             ALTER TABLE dbo.Users ADD SessionVersion INT NOT NULL DEFAULT 0;
          IF COL_LENGTH('dbo.Users', 'LastTotpStep') IS NULL
-            ALTER TABLE dbo.Users ADD LastTotpStep BIGINT NULL;",
+            ALTER TABLE dbo.Users ADD LastTotpStep BIGINT NULL;
+         IF COL_LENGTH('dbo.Users', 'TotpFailures') IS NULL
+            ALTER TABLE dbo.Users ADD TotpFailures INT NOT NULL DEFAULT 0;",
     )
     .await?
     .into_results()
