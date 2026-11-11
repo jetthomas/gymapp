@@ -59,6 +59,12 @@ export const getUsers = (token) => request('/admin/users', { token });
 export const createResetLink = (token, userId) =>
   request(`/admin/users/${userId}/reset-link`, { method: 'POST', token });
 
+export const makeAdmin = (token, userId) =>
+  request(`/admin/users/${userId}/make-admin`, { method: 'POST', token });
+
+export const removeAdmin = (token, userId) =>
+  request(`/admin/users/${userId}/remove-admin`, { method: 'POST', token });
+
 export const resetPassword = (resetToken, password) =>
   request('/auth/reset', { method: 'POST', body: { token: resetToken, password } });
 
