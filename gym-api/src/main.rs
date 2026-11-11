@@ -16,12 +16,12 @@ use axum::{
     http::{Request, StatusCode, header::AUTHORIZATION, request::Parts},
     routing::{delete, get, post},
 };
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Datelike, NaiveDateTime, Utc};
 use governor::{DefaultKeyedRateLimiter, Quota};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 use tiberius::{AuthMethod, Client, Config, Row, ToSql};
-use tokio::net::TcpStream;
+use tokio::{net::TcpStream, sync::Semaphore};
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 use totp_rs::{Algorithm, Secret, TOTP};
 use tower_governor::{
@@ -35,6 +35,11 @@ static DUMMY_HASH: LazyLock<String> = LazyLock::new(|| {
         .hash_password(b"not-a-real-password", &SaltString::generate(&mut OsRng))
         .expect("hashing a constant can't fail")
         .to_string()
+});
+
+// Caps Argon2 work in flight: each hash takes ~19 MiB and a full core
+static HASH_SLOTS: LazyLock<Semaphore> = LazyLock::new(|| {
+    Semaphore::new(std::thread::available_parallelism().map_or(4, |n| n.get()))
 });
 
 // ---------- shared state ----------
@@ -58,20 +63,30 @@ impl KeyExtractor for ProxyIpKeyExtractor {
     type Key = IpAddr;
 
     fn extract<T>(&self, req: &Request<T>) -> Result<IpAddr, GovernorError> {
-        let forwarded = req
-            .headers()
-            .get("x-forwarded-for")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.rsplit(',').next())
-            .and_then(|ip| ip.trim().parse().ok());
-        let peer = || {
-            req.extensions()
-                .get::<ConnectInfo<SocketAddr>>()
-                .map(|c| c.0.ip())
+        let peer = req
+            .extensions()
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|c| c.0.ip())
+            .ok_or(GovernorError::UnableToExtractKey)?;
+        // Only our proxy (on this machine) may tell us the client's IP
+        let ip = if peer.is_loopback() {
+            req.headers()
+                .get("x-forwarded-for")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.rsplit(',').next())
+                .and_then(|ip| ip.trim().parse().ok())
+                .unwrap_or(peer)
+        } else {
+            peer
         };
-        forwarded
-            .or_else(peer)
-            .ok_or(GovernorError::UnableToExtractKey)
+        // One IPv6 customer usually gets a whole /64, so treat it as one client
+        Ok(match ip {
+            IpAddr::V6(v6) => {
+                let s = v6.segments();
+                IpAddr::V6(std::net::Ipv6Addr::new(s[0], s[1], s[2], s[3], 0, 0, 0, 0))
+            }
+            v4 => v4,
+        })
     }
 }
 
@@ -287,6 +302,7 @@ fn make_challenge(user_id: i32, secret: &str) -> Result<String, jsonwebtoken::er
 
 // Argon2 is deliberately slow, so it runs off the async threads that serve requests
 async fn hash_password(password: String) -> ApiResult<String> {
+    let _slot = HASH_SLOTS.acquire().await.map_err(internal)?;
     tokio::task::spawn_blocking(move || {
         Argon2::default()
             .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
@@ -298,6 +314,7 @@ async fn hash_password(password: String) -> ApiResult<String> {
 }
 
 async fn password_matches(password: String, stored: String) -> ApiResult<bool> {
+    let _slot = HASH_SLOTS.acquire().await.map_err(internal)?;
     tokio::task::spawn_blocking(move || {
         let parsed = PasswordHash::new(&stored)?;
         Ok::<_, argon2::password_hash::Error>(
@@ -384,7 +401,7 @@ async fn reset_password(
     // Also turns 2FA off: an admin reset link is the way back in after losing the phone.
     // Bumping SessionVersion signs out every existing session (e.g. a thief's).
     db.execute(
-        "UPDATE dbo.Users SET PasswordHash = @P1, TotpEnabled = 0, TotpSecret = NULL, TotpFailures = 0, SessionVersion = SessionVersion + 1 WHERE Id = @P2",
+        "UPDATE dbo.Users SET PasswordHash = @P1, TotpEnabled = 0, TotpSecret = NULL, TotpFailures = 0, LoginFailures = 0, LockedUntil = NULL, SessionVersion = SessionVersion + 1 WHERE Id = @P2",
         &[&hash, &id],
     )
     .await
@@ -482,7 +499,7 @@ async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<Account> 
     let email = c.email.to_lowercase();
     let row = one_row(
         db,
-        "SELECT Id, PasswordHash, Active, IsAdmin, TotpEnabled, SessionVersion FROM dbo.Users WHERE Email = @P1",
+        "SELECT Id, PasswordHash, Active, IsAdmin, TotpEnabled, SessionVersion, LockedUntil FROM dbo.Users WHERE Email = @P1",
         &[&email],
     )
     .await?;
@@ -508,9 +525,33 @@ async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<Account> 
     let session_version: i32 = row
         .get("SessionVersion")
         .ok_or_else(|| internal("missing SessionVersion"))?;
-    if !password_matches(c.password.clone(), stored.to_string()).await? {
+    let locked = row
+        .get::<NaiveDateTime, _>("LockedUntil")
+        .is_some_and(|t| t.and_utc() > Utc::now());
+    // Check the password even when locked, so a locked account answers as slowly as a wrong password
+    let ok = password_matches(c.password.clone(), stored.to_string()).await?;
+    if locked {
         return Err(unauthorized());
     }
+    if !ok {
+        // Lock for 15 minutes after 10 wrong passwords in a row; time-based so nobody can lock a member out for good
+        db.execute(
+            "UPDATE dbo.Users SET LoginFailures = LoginFailures + 1,
+                LockedUntil = CASE WHEN LoginFailures + 1 >= 10
+                                   THEN DATEADD(minute, 15, SYSUTCDATETIME()) END
+             WHERE Id = @P1",
+            &[&id],
+        )
+        .await
+        .map_err(internal)?;
+        return Err(unauthorized());
+    }
+    db.execute(
+        "UPDATE dbo.Users SET LoginFailures = 0, LockedUntil = NULL WHERE Id = @P1",
+        &[&id],
+    )
+    .await
+    .map_err(internal)?;
     Ok(Account {
         id,
         active,
@@ -538,6 +579,9 @@ fn fits(s: &str, max: usize) -> bool {
 
 // The length + symbol rule, then rejects guessable passwords (common words, patterns, the user's own name/email)
 fn check_password(password: &str, user_inputs: &[&str]) -> Result<(), String> {
+    if password.chars().count() > 128 {
+        return Err("password must be 128 characters or fewer".into());
+    }
     if password.chars().count() < 10 || password.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Err(
             "password must be at least 10 characters and include a special character".into(),
@@ -855,7 +899,8 @@ async fn list_workouts(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Json<Ve
     set_user(&mut db, user_id).await.map_err(internal)?;
     let rows = db
         .query(
-            "SELECT Id, [Date], Name, Notes FROM dbo.Workouts WHERE UserId = @P1 ORDER BY [Date] DESC",
+            // shortcut: newest 200 only; add paging if members need older history
+            "SELECT TOP 200 Id, [Date], Name, Notes FROM dbo.Workouts WHERE UserId = @P1 ORDER BY [Date] DESC",
             &[&user_id],
         )
         .await
@@ -897,7 +942,22 @@ async fn create_workout(
             "notes must be 2000 characters or fewer".into(),
         ));
     }
+    // Years outside 1..=9999 make the database driver panic
+    if !(1..=9999).contains(&w.date.year()) {
+        return Err((StatusCode::BAD_REQUEST, "date is out of range".into()));
+    }
     set_user(&mut db, user_id).await.map_err(internal)?;
+    let count: i32 = one_row(
+        &mut db,
+        "SELECT COUNT(*) FROM dbo.Workouts WHERE UserId = @P1",
+        &[&user_id],
+    )
+    .await?
+    .and_then(|r| r.get(0))
+    .unwrap_or(0);
+    if count >= 5000 {
+        return Err((StatusCode::BAD_REQUEST, "workout limit reached".into()));
+    }
     let date = w.date.naive_utc();
     let row = db
         .query(
@@ -949,7 +1009,9 @@ async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
                 TotpEnabled BIT NOT NULL DEFAULT 0,
                 SessionVersion INT NOT NULL DEFAULT 0,
                 LastTotpStep BIGINT NULL,
-                TotpFailures INT NOT NULL DEFAULT 0
+                TotpFailures INT NOT NULL DEFAULT 0,
+                LoginFailures INT NOT NULL DEFAULT 0,
+                LockedUntil DATETIME2 NULL
             );
          IF OBJECT_ID('dbo.Workouts', 'U') IS NULL
             CREATE TABLE dbo.Workouts (
@@ -970,7 +1032,11 @@ async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
          IF COL_LENGTH('dbo.Users', 'LastTotpStep') IS NULL
             ALTER TABLE dbo.Users ADD LastTotpStep BIGINT NULL;
          IF COL_LENGTH('dbo.Users', 'TotpFailures') IS NULL
-            ALTER TABLE dbo.Users ADD TotpFailures INT NOT NULL DEFAULT 0;",
+            ALTER TABLE dbo.Users ADD TotpFailures INT NOT NULL DEFAULT 0;
+        IF COL_LENGTH('dbo.Users', 'LoginFailures') IS NULL
+            ALTER TABLE dbo.Users ADD LoginFailures INT NOT NULL DEFAULT 0;
+        IF COL_LENGTH('dbo.Users', 'LockedUntil') IS NULL
+            ALTER TABLE dbo.Users ADD LockedUntil DATETIME2 NULL;",
     )
     .await?
     .into_results()
@@ -1191,6 +1257,26 @@ mod tests {
             ProxyIpKeyExtractor.extract(&req(None)).unwrap(),
             ip("127.0.0.1")
         );
+
+        let from_peer = |peer: SocketAddr, xff: &str| {
+            let mut r = Request::builder()
+                .header("x-forwarded-for", xff)
+                .body(())
+                .unwrap();
+            r.extensions_mut().insert(ConnectInfo(peer));
+            ProxyIpKeyExtractor.extract(&r).unwrap()
+        };
+        // the peer isn't our proxy, so its header is ignored
+        assert_eq!(
+            from_peer(SocketAddr::from(([198, 51, 100, 7], 1)), "203.0.113.9"),
+            ip("198.51.100.7")
+        );
+        // two IPv6 addresses in the same /64 share one bucket
+        let v6 = |s: &str| SocketAddr::new(ip(s), 1);
+        assert_eq!(
+            from_peer(v6("2001:db8:1:2::1"), ""),
+            from_peer(v6("2001:db8:1:2:ffff::9"), "")
+        );
     }
 
     #[test]
@@ -1214,6 +1300,7 @@ mod tests {
             "no symbol"
         );
         assert!(check_password("correct-Horse-battery-staple-9", &[]).is_ok());
+        assert!(check_password(&"a!".repeat(65), &[]).is_err(), "too long");
         assert!(
             check_password("jet.thomas@gym.com!", &["jet.thomas@gym.com"]).is_err(),
             "the user's own email is guessable"

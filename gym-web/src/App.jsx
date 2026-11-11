@@ -19,20 +19,20 @@ export default function App() {
   const [deleteError, setDeleteError] = useState('');
 
   useEffect(() => {
+    // Drop ?reset=... right away so the token doesn't stay in the address bar or history
+    if (resetToken) window.history.replaceState(null, '', window.location.pathname);
     setOnSessionExpired(() => {
       setToken(null);
       setIsAdmin(false);
       setPage('login');
       setNotice('Your session expired. Log in again.');
     });
-  }, []);
+  }, [resetToken]);
 
   function backToLogin(doneEmail, doneNotice = '') {
     if (doneEmail) setEmail(doneEmail);
     setNotice(doneNotice);
     setPage('login');
-    // Drop ?reset=... so a refresh doesn't reopen the reset screen
-    window.history.replaceState(null, '', window.location.pathname);
   }
 
   function logOut() {
