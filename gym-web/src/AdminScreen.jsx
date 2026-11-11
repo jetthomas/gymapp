@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getUsers, createResetLink, makeAdmin, removeAdmin } from './api';
-import './index.css';
+import { getUsers, createResetLink, setAdmin } from './api';
 
 function displayName(u) {
   return [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email;
@@ -17,8 +16,7 @@ export default function AdminScreen({ token, onBack }) {
   const [reset, setReset] = useState(null); // { userId, link } once a link is made
   const [copied, setCopied] = useState(false);
   const [creatingFor, setCreatingFor] = useState(null); // userId while a link is being made
-  const [promotingId, setPromotingId] = useState(null); // userId while being made admin
-  const [demotingId, setDemotingId] = useState(null); // userId while being removed as admin
+  const [savingId, setSavingId] = useState(null); // userId while their admin flag is being saved
 
   const [query, setQuery] = useState('');
 
@@ -43,41 +41,22 @@ export default function AdminScreen({ token, onBack }) {
     }
   }
 
-  async function handleMakeAdmin(userId) {
-    if (
-      !window.confirm(
-        'Make this user an admin? They will see every account and can create reset links.',
-      )
-    )
-      return;
+  async function handleSetAdmin(user) {
+    const question = user.isAdmin
+      ? 'Remove admin privileges from this user? They will no longer see every account or create reset links.'
+      : 'Make this user an admin? They will see every account and can create reset links.';
+    if (!window.confirm(question)) return;
     setError('');
-    setPromotingId(userId);
+    setSavingId(user.id);
     try {
-      await makeAdmin(token, userId);
-      setUsers((list) => list.map((u) => (u.id === userId ? { ...u, isAdmin: true } : u)));
+      await setAdmin(token, user.id, !user.isAdmin);
+      setUsers((list) =>
+        list.map((u) => (u.id === user.id ? { ...u, isAdmin: !user.isAdmin } : u)),
+      );
     } catch (err) {
       setError(err.message);
     } finally {
-      setPromotingId(null);
-    }
-  }
-
-  async function handleRemoveAdmin(userId) {
-    if (
-      !window.confirm(
-        'Remove admin privileges from this user? They will no longer see every account or create reset links.',
-      )
-    )
-      return;
-    setError('');
-    setDemotingId(userId);
-    try {
-      await removeAdmin(token, userId);
-      setUsers((list) => list.map((u) => (u.id === userId ? { ...u, isAdmin: false } : u)));
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setDemotingId(null);
+      setSavingId(null);
     }
   }
 
@@ -93,7 +72,6 @@ export default function AdminScreen({ token, onBack }) {
   const q = query.trim().toLowerCase();
   const shown = users?.filter((u) => `${displayName(u)} ${u.email}`.toLowerCase().includes(q));
   const activeCount = users?.filter((u) => u.active).length ?? 0;
-  const adminCount = users?.filter((u) => u.isAdmin).length ?? 0;
 
   return (
     <div className="admin-page">
@@ -156,26 +134,20 @@ export default function AdminScreen({ token, onBack }) {
                   >
                     {creatingFor === u.id ? 'Creating…' : 'Reset link'}
                   </button>
-                  {!u.isAdmin && (
-                    <button
-                      className="pill-btn"
-                      type="button"
-                      onClick={() => handleMakeAdmin(u.id)}
-                      disabled={promotingId === u.id}
-                    >
-                      {promotingId === u.id ? 'Saving…' : 'Make Admin'}
-                    </button>
-                  )}
-                  {u.isAdmin && (
-                    <button
-                      className="pill-btn"
-                      type="button"
-                      onClick={() => handleRemoveAdmin(u.id)}
-                      disabled={demotingId === u.id}
-                    >
-                      {demotingId === u.id ? 'Saving…' : 'Remove Admin'}
-                    </button>
-                  )}
+                  <button
+                    className="pill-btn"
+                    type="button"
+                    onClick={() => handleSetAdmin(u)}
+                    disabled={savingId === u.id}
+                  >
+                    {savingId === u.id
+                      ? u.isAdmin
+                        ? 'Removing…'
+                        : 'Promoting…'
+                      : u.isAdmin
+                        ? 'Remove admin'
+                        : 'Make admin'}
+                  </button>
                 </div>
 
                 {reset?.userId === u.id && (

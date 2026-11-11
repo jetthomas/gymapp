@@ -2,8 +2,6 @@
 
 A full-stack workout tracker. Users create an account, log in, and record their workouts. Admins can see every user.
 
-**Status:** in development. An admin page and two-factor auth are being built.
-
 ## Features
 
 - Sign up, log in, deactivate your account, and reactivate it later
@@ -92,7 +90,7 @@ Open http://localhost:5173. Vite forwards `/api/*` to the API on port 5080, so k
 
 ### Making yourself an admin
 
-Admin access is controlled by the `IsAdmin` column on `dbo.Users`. Promote your account:
+Admin access is controlled by the `IsAdmin` column on `dbo.Users`. Make the first admin with SQL; after that, admins can make others from the Admin screen:
 
 ```sql
 UPDATE dbo.Users SET IsAdmin = 1 WHERE Email = 'you@example.com';
@@ -105,6 +103,7 @@ UPDATE dbo.Users SET IsAdmin = 1 WHERE Email = 'you@example.com';
 | GET    | `/health`                        | Health check                                                         |
 | POST   | `/auth/register`                 | Create an account (`firstName`, `lastName`, `email`, `password`)     |
 | POST   | `/auth/login`                    | Log in (`email`, `password`); returns a token, or a 2FA `challenge`  |
+| POST   | `/auth/logout`                   | Log out; the current token stops working                             |
 | POST   | `/auth/2fa/verify`               | Finish a 2FA login (`challenge`, `code`) and get a token             |
 | POST   | `/auth/2fa/setup`                | Start turning on 2FA; returns a QR code and secret                   |
 | POST   | `/auth/2fa/confirm`              | Finish turning on 2FA (`code`)                                       |
@@ -114,9 +113,10 @@ UPDATE dbo.Users SET IsAdmin = 1 WHERE Email = 'you@example.com';
 | GET    | `/workouts`                      | List your workouts                                                   |
 | POST   | `/workouts`                      | Add a workout                                                        |
 | GET    | `/admin/users`                   | List all users (admins only)                                         |
+| PUT    | `/admin/users/{id}/admin`        | Make a user an admin or remove it (`isAdmin`) (admins only)          |
 | POST   | `/admin/users/{id}/reset-link`   | Make a 15-minute password reset link for a user (admins only)        |
 
-Login, 2FA verify, reset and reactivate are rate-limited to about 5 attempts a minute per IP.
+Register, login, 2FA verify, reset and reactivate are rate-limited to one attempt every 2 seconds per IP, with bursts of up to 30.
 
 ## Project structure
 

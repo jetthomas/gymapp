@@ -1,32 +1,25 @@
 import { useState } from 'react';
 import { register } from './api';
-import './index.css';
 import PasswordInput from './PasswordInput';
+import useSubmit from './useSubmit';
 
 export default function CreateAccountForm({ onBack, initialEmail = '' }) {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState('');
-  const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(false);
+  const { loading, message, run } = useSubmit();
 
-  async function handleSubmit(event) {
+  function handleSubmit(event) {
     event.preventDefault();
-    setLoading(true);
-    setMessage('');
-    try {
+    run(async () => {
       await register(firstName, lastName, email, password);
       // The API answers the same for an email that's already registered, so don't claim a new account
       onBack(
         email,
         "You're all set. Log in to continue. If you already had an account, use its password.",
       );
-    } catch (err) {
-      setMessage(err.message);
-    } finally {
-      setLoading(false);
-    }
+    });
   }
 
   return (
@@ -72,7 +65,7 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
             value={email}
             maxLength={256}
             onChange={(e) => setEmail(e.target.value)}
-            pattern="[^@\s]+@[^@\s]+\.[^@\s]+"
+            pattern=".*[^A-Za-z0-9].*"
             title="Enter an email like name@example.com"
             required
           />

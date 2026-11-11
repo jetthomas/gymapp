@@ -1,25 +1,18 @@
 import { useState } from 'react';
 import { resetPassword } from './api';
-import './index.css';
 import PasswordInput from './PasswordInput';
+import useSubmit from './useSubmit';
 
 export default function ResetPasswordForm({ token, onBack }) {
   const [password, setPassword] = useState('');
-  const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(false);
+  const { loading, message, run } = useSubmit();
 
-  async function handleSubmit(event) {
+  function handleSubmit(event) {
     event.preventDefault();
-    setLoading(true);
-    setMessage('');
-    try {
+    run(async () => {
       await resetPassword(token, password);
       onBack(undefined, 'Password updated. Log in with your new password.');
-    } catch (err) {
-      setMessage(err.message);
-    } finally {
-      setLoading(false);
-    }
+    });
   }
 
   return (
@@ -44,7 +37,11 @@ export default function ResetPasswordForm({ token, onBack }) {
           </p>
         </div>
 
-        {message && <p className="msg error" role="alert">{message}</p>}
+        {message && (
+          <p className="msg error" role="alert">
+            {message}
+          </p>
+        )}
 
         <button className="login-btn" type="submit" disabled={loading}>
           {loading ? 'Saving…' : 'Save new password'}

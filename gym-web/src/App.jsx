@@ -5,12 +5,13 @@ import ReactivateAccountForm from './ReactivateAccountForm';
 import AdminScreen from './AdminScreen';
 import ResetPasswordForm from './ResetPasswordForm';
 import TwoFactorSetup from './TwoFactorSetup';
-import { deleteaccount, logout, setOnSessionExpired } from './api';
-import './index.css';
+import { deleteAccount, logout, setOnSessionExpired } from './api';
 
 export default function App() {
   const [token, setToken] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  // Logging in with a code means 2FA is on, so there's no need to ask the server
+  const [has2fa, setHas2fa] = useState(false);
   // The reset link opens the app as /?reset=<token>
   const [resetToken] = useState(() => new URLSearchParams(window.location.search).get('reset'));
   const [page, setPage] = useState(resetToken ? 'reset' : 'login');
@@ -35,9 +36,16 @@ export default function App() {
     setPage('login');
   }
 
+  function openPage(next, e) {
+    setEmail(e);
+    setNotice('');
+    setPage(next);
+  }
+
   function logOut() {
     setToken(null);
     setIsAdmin(false);
+    setHas2fa(false);
     setPage('login');
   }
 
@@ -52,7 +60,7 @@ export default function App() {
       return;
     setDeleteError('');
     try {
-      await deleteaccount(token);
+      await deleteAccount(token);
       logOut();
     } catch (err) {
       setDeleteError(err.message);
@@ -73,25 +81,18 @@ export default function App() {
       <LoginForm
         initialEmail={email}
         notice={notice}
-        onLoggedIn={(t, admin) => {
+        onLoggedIn={(t, admin, usedCode = false) => {
           setNotice('');
           setToken(t);
           setIsAdmin(admin);
+          setHas2fa(usedCode);
         }}
-        onCreateAccount={(e) => {
-          setEmail(e);
-          setNotice('');
-          setPage('create');
-        }}
-        onReactivateAccount={(e) => {
-          setEmail(e);
-          setNotice('');
-          setPage('reactivate');
-        }}
+        onCreateAccount={(e) => openPage('create', e)}
+        onReactivateAccount={(e) => openPage('reactivate', e)}
       />
     );
   }
-  if (token && page === 'admin') {
+  if (page === 'admin') {
     return <AdminScreen token={token} onBack={() => setPage('login')} />;
   }
   return (
@@ -106,14 +107,16 @@ export default function App() {
             Manage users
           </button>
         )}
-        <TwoFactorSetup
-          token={token}
-          onEnabled={() => {
-            // Turning 2FA on signs out every session, this one included
-            logOut();
-            setNotice('Two-factor is on. Log in again with your code.');
-          }}
-        />
+        {!has2fa && (
+          <TwoFactorSetup
+            token={token}
+            onEnabled={() => {
+              // Turning 2FA on signs out every session, this one included
+              logOut();
+              setNotice('Two-factor is on. Log in again with your code.');
+            }}
+          />
+        )}
         <button className="link-btn danger" onClick={handleDelete}>
           Delete Account
         </button>

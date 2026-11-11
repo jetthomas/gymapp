@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { login, verify2fa } from './api';
-import './index.css';
 import PasswordInput from './PasswordInput';
+import useSubmit from './useSubmit';
 
 export default function LoginForm({
   onLoggedIn,
@@ -12,28 +12,15 @@ export default function LoginForm({
 }) {
   const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState('');
-  const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(false);
   const [challenge, setChallenge] = useState(null);
   const [code, setCode] = useState('');
-
-  async function run(action) {
-    setLoading(true);
-    setMessage('');
-    try {
-      await action();
-    } catch (err) {
-      setMessage(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
+  const { loading, message, setMessage, run } = useSubmit();
 
   function handleLogin(event) {
     event.preventDefault();
     run(async () => {
       const result = await login(email, password);
-      if (result.needsCode) {
+      if (result.challenge) {
         setChallenge(result.challenge);
       } else {
         onLoggedIn(result.accessToken, result.isAdmin);
@@ -44,8 +31,17 @@ export default function LoginForm({
   function handleCode(event) {
     event.preventDefault();
     run(async () => {
-      const result = await verify2fa(challenge, code);
-      onLoggedIn(result.accessToken, result.isAdmin);
+      try {
+        const result = await verify2fa(challenge, code);
+        onLoggedIn(result.accessToken, result.isAdmin, true);
+      } catch (err) {
+        // 401 = the 5-minute challenge ran out, so start over from the password
+        if (err.status === 401) {
+          setChallenge(null);
+          setCode('');
+        }
+        throw err; // useSubmit shows the message
+      }
     });
   }
 
@@ -68,7 +64,11 @@ export default function LoginForm({
               autoFocus
             />
           </div>
-          {message && <p className="msg error" role="alert">{message}</p>}
+          {message && (
+            <p className="msg error" role="alert">
+              {message}
+            </p>
+          )}
           <button className="login-btn" type="submit" disabled={loading}>
             {loading ? 'Checking…' : 'Continue'}
           </button>
@@ -121,9 +121,15 @@ export default function LoginForm({
         </div>
 
         {message ? (
-          <p className="msg error" role="alert">{message}</p>
+          <p className="msg error" role="alert">
+            {message}
+          </p>
         ) : (
-          notice && <p className="msg success" role="status">{notice}</p>
+          notice && (
+            <p className="msg success" role="status">
+              {notice}
+            </p>
+          )
         )}
 
         <button className="login-btn" type="submit" disabled={loading}>

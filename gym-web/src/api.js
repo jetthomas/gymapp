@@ -45,9 +45,9 @@ export const login = (email, password) =>
 
 export const logout = (token) => request('/auth/logout', { method: 'POST', token });
 
-export const deleteaccount = (token) => request('/auth/delete', { method: 'DELETE', token });
+export const deleteAccount = (token) => request('/auth/delete', { method: 'DELETE', token });
 
-export const reactivateaccount = (email, password) =>
+export const reactivateAccount = (email, password) =>
   request('/auth/reactivate', { method: 'POST', body: { email, password } });
 
 export const getWorkouts = (token) => request('/workouts', { token });
@@ -59,11 +59,8 @@ export const getUsers = (token) => request('/admin/users', { token });
 export const createResetLink = (token, userId) =>
   request(`/admin/users/${userId}/reset-link`, { method: 'POST', token });
 
-export const makeAdmin = (token, userId) =>
-  request(`/admin/users/${userId}/make-admin`, { method: 'POST', token });
-
-export const removeAdmin = (token, userId) =>
-  request(`/admin/users/${userId}/remove-admin`, { method: 'POST', token });
+export const setAdmin = (token, userId, isAdmin) =>
+  request(`/admin/users/${userId}/admin`, { method: 'PUT', token, body: { isAdmin } });
 
 export const resetPassword = (resetToken, password) =>
   request('/auth/reset', { method: 'POST', body: { token: resetToken, password } });

@@ -14,7 +14,7 @@ use axum::{
     Json, Router,
     extract::{ConnectInfo, FromRequestParts, Path, State},
     http::{Request, StatusCode, header::AUTHORIZATION, request::Parts},
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
 };
 use chrono::{DateTime, Datelike, NaiveDateTime, Utc};
 use governor::{DefaultKeyedRateLimiter, Quota};
@@ -92,6 +92,8 @@ impl KeyExtractor for ProxyIpKeyExtractor {
 type Db = Client<Compat<TcpStream>>;
 type ApiResult<T> = Result<T, (StatusCode, String)>;
 
+// shortcut: one new connection per request, because RLS tags each connection read-only;
+// move to a pool that resets connections (sp_reset_connection) if requests get slow under load
 async fn connect(state: &AppState) -> Result<Db, tiberius::error::Error> {
     // Fail after 5 s instead of waiting out the OS timeout when the database host doesn't answer
     let tcp = tokio::time::timeout(
@@ -222,31 +224,21 @@ struct ResetLink {
     link: String,
 }
 
-async fn make_admin(
-    AdminUser(mut db): AdminUser,
-    Path(user_id): Path<i32>,
-) -> ApiResult<StatusCode> {
-    let updated = db
-        .execute(
-            "UPDATE dbo.Users SET IsAdmin = 1 WHERE Id = @P1",
-            &[&user_id],
-        )
-        .await
-        .map_err(internal)?;
-    if updated.total() == 0 {
-        return Err((StatusCode::NOT_FOUND, "user not found".to_string()));
-    }
-    Ok(StatusCode::OK)
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AdminFlag {
+    is_admin: bool,
 }
 
-async fn remove_admin(
+async fn set_admin(
     AdminUser(mut db): AdminUser,
     Path(user_id): Path<i32>,
+    Json(body): Json<AdminFlag>, // Json must be the last argument
 ) -> ApiResult<StatusCode> {
     let updated = db
         .execute(
-            "UPDATE dbo.Users SET IsAdmin = 0 WHERE Id = @P1",
-            &[&user_id],
+            "UPDATE dbo.Users SET IsAdmin = @P2 WHERE Id = @P1",
+            &[&user_id, &body.is_admin],
         )
         .await
         .map_err(internal)?;
@@ -570,7 +562,10 @@ async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<Account> 
     if !ok {
         // Lock for 15 minutes after 10 wrong passwords in a row; time-based so nobody can lock a member out for good
         db.execute(
-            "UPDATE dbo.Users SET LoginFailures = LoginFailures + 1,
+            // The counter goes back to 0 when the lock starts, so one typo after it ends doesn't relock.
+            // SQL Server reads the old LoginFailures in both CASEs.
+            "UPDATE dbo.Users SET
+                LoginFailures = CASE WHEN LoginFailures + 1 >= 10 THEN 0 ELSE LoginFailures + 1 END,
                 LockedUntil = CASE WHEN LoginFailures + 1 >= 10
                                    THEN DATEADD(minute, 15, SYSUTCDATETIME()) END
              WHERE Id = @P1",
@@ -834,9 +829,10 @@ async fn totp_verify(
             "Too many wrong codes. Ask an admin for a reset link.".into(),
         ));
     }
+    // 400, not 401: the frontend reads 401 as "challenge expired, start over"
     let wrong = || {
         (
-            StatusCode::UNAUTHORIZED,
+            StatusCode::BAD_REQUEST,
             "That code didn't match. Try the newest one.".to_string(),
         )
     };
@@ -963,7 +959,8 @@ async fn create_workout(
     Json(w): Json<NewWorkout>,
 ) -> ApiResult<(StatusCode, Json<Workout>)> {
     // The Name column is NVARCHAR(200)
-    if w.name.trim().is_empty() || !fits(&w.name, 200) {
+    let name = w.name.trim();
+    if name.is_empty() || !fits(name, 200) {
         return Err((
             StatusCode::BAD_REQUEST,
             "workout name must be 1 to 200 characters".into(),
@@ -993,22 +990,17 @@ async fn create_workout(
         return Err((StatusCode::BAD_REQUEST, "workout limit reached".into()));
     }
     let date = w.date.naive_utc();
-    let row = db
-        .query(
-            "INSERT INTO dbo.Workouts (UserId, [Date], Name, Notes) OUTPUT INSERTED.Id VALUES (@P1, @P2, @P3, @P4)",
-            &[&user_id, &date, &w.name, &w.notes],
-        )
-        .await
-        .map_err(internal)?
-        .into_row()
-        .await
-        .map_err(internal)?
-        .ok_or_else(|| internal("insert returned no row"))?;
-
-    let id: i32 = row.get(0).ok_or_else(|| internal("missing new Id"))?;
+    let id: i32 = one_row(
+        &mut db,
+        "INSERT INTO dbo.Workouts (UserId, [Date], Name, Notes) OUTPUT INSERTED.Id VALUES (@P1, @P2, @P3, @P4)",
+        &[&user_id, &date, &name, &w.notes],
+    )
+    .await?
+    .and_then(|r| r.get(0))
+    .ok_or_else(|| internal("insert returned no Id"))?;
     let saved = Workout {
         id,
-        name: w.name,
+        name: name.to_string(),
         date: w.date,
         notes: w.notes,
     };
@@ -1054,23 +1046,7 @@ async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
                 [Date] DATETIME2 NOT NULL,
                 Name NVARCHAR(200) NOT NULL,
                 Notes NVARCHAR(MAX) NULL
-            );
-         IF COL_LENGTH('dbo.Users', 'IsAdmin') IS NULL
-            ALTER TABLE dbo.Users ADD IsAdmin BIT NOT NULL DEFAULT 0;
-         IF COL_LENGTH('dbo.Users', 'TotpSecret') IS NULL
-            ALTER TABLE dbo.Users ADD TotpSecret NVARCHAR(64) NULL;
-         IF COL_LENGTH('dbo.Users', 'TotpEnabled') IS NULL
-            ALTER TABLE dbo.Users ADD TotpEnabled BIT NOT NULL DEFAULT 0;
-         IF COL_LENGTH('dbo.Users', 'SessionVersion') IS NULL
-            ALTER TABLE dbo.Users ADD SessionVersion INT NOT NULL DEFAULT 0;
-         IF COL_LENGTH('dbo.Users', 'LastTotpStep') IS NULL
-            ALTER TABLE dbo.Users ADD LastTotpStep BIGINT NULL;
-         IF COL_LENGTH('dbo.Users', 'TotpFailures') IS NULL
-            ALTER TABLE dbo.Users ADD TotpFailures INT NOT NULL DEFAULT 0;
-        IF COL_LENGTH('dbo.Users', 'LoginFailures') IS NULL
-            ALTER TABLE dbo.Users ADD LoginFailures INT NOT NULL DEFAULT 0;
-        IF COL_LENGTH('dbo.Users', 'LockedUntil') IS NULL
-            ALTER TABLE dbo.Users ADD LockedUntil DATETIME2 NULL;",
+            );",
     )
     .await?
     .into_results()
@@ -1156,8 +1132,7 @@ async fn main() {
         .route("/auth/2fa/confirm", post(totp_confirm))
         .route("/workouts", get(list_workouts).post(create_workout))
         .route("/admin/users", get(list_users))
-        .route("/admin/users/{id}/make-admin", post(make_admin))
-        .route("/admin/users/{id}/remove-admin", post(remove_admin))
+        .route("/admin/users/{id}/admin", put(set_admin))
         .route("/admin/users/{id}/reset-link", post(create_reset_link))
         .merge(limited)
         .with_state(state);
