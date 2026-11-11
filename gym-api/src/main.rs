@@ -38,9 +38,8 @@ static DUMMY_HASH: LazyLock<String> = LazyLock::new(|| {
 });
 
 // Caps Argon2 work in flight: each hash takes ~19 MiB and a full core
-static HASH_SLOTS: LazyLock<Semaphore> = LazyLock::new(|| {
-    Semaphore::new(std::thread::available_parallelism().map_or(4, |n| n.get()))
-});
+static HASH_SLOTS: LazyLock<Semaphore> =
+    LazyLock::new(|| Semaphore::new(std::thread::available_parallelism().map_or(4, |n| n.get())));
 
 // ---------- shared state ----------
 
@@ -222,6 +221,41 @@ struct Claims {
 struct ResetLink {
     link: String,
 }
+
+async fn make_admin(
+    AdminUser(mut db): AdminUser,
+    Path(user_id): Path<i32>,
+) -> ApiResult<StatusCode> {
+    let updated = db
+        .execute(
+            "UPDATE dbo.Users SET IsAdmin = 1 WHERE Id = @P1",
+            &[&user_id],
+        )
+        .await
+        .map_err(internal)?;
+    if updated.total() == 0 {
+        return Err((StatusCode::NOT_FOUND, "user not found".to_string()));
+    }
+    Ok(StatusCode::OK)
+}
+
+async fn remove_admin(
+    AdminUser(mut db): AdminUser,
+    Path(user_id): Path<i32>,
+) -> ApiResult<StatusCode> {
+    let updated = db
+        .execute(
+            "UPDATE dbo.Users SET IsAdmin = 0 WHERE Id = @P1",
+            &[&user_id],
+        )
+        .await
+        .map_err(internal)?;
+    if updated.total() == 0 {
+        return Err((StatusCode::NOT_FOUND, "user not found".to_string()));
+    }
+    Ok(StatusCode::OK)
+}
+
 async fn create_reset_link(
     State(state): State<Arc<AppState>>,
     AdminUser(mut db): AdminUser,
@@ -1122,6 +1156,8 @@ async fn main() {
         .route("/auth/2fa/confirm", post(totp_confirm))
         .route("/workouts", get(list_workouts).post(create_workout))
         .route("/admin/users", get(list_users))
+        .route("/admin/users/{id}/make-admin", post(make_admin))
+        .route("/admin/users/{id}/remove-admin", post(remove_admin))
         .route("/admin/users/{id}/reset-link", post(create_reset_link))
         .merge(limited)
         .with_state(state);
