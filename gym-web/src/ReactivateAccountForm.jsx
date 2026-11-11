@@ -1,26 +1,19 @@
-import { useState } from 'react'
-import { reactivateaccount } from './api'
-import './index.css'
-import PasswordInput from './PasswordInput'
+import { useState } from 'react';
+import { reactivateAccount } from './api';
+import PasswordInput from './PasswordInput';
+import useSubmit from './useSubmit';
 
 export default function ReactivateAccountForm({ onBack, initialEmail = '' }) {
-  const [email, setEmail] = useState(initialEmail)
-  const [password, setPassword] = useState('')
-  const [message, setMessage] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [email, setEmail] = useState(initialEmail);
+  const [password, setPassword] = useState('');
+  const { loading, message, run } = useSubmit();
 
-  async function handleSubmit(event) {
-    event.preventDefault()
-    setLoading(true)
-    setMessage('')
-    try {
-      await reactivateaccount(email, password)
-      onBack(email, 'Account reactivated. Log in to continue.')
-    } catch (err) {
-      setMessage(err.message)
-    } finally {
-      setLoading(false)
-    }
+  function handleSubmit(event) {
+    event.preventDefault();
+    run(async () => {
+      await reactivateAccount(email, password);
+      onBack(email, 'Account reactivated. Log in to continue.');
+    });
   }
 
   return (
@@ -54,7 +47,11 @@ export default function ReactivateAccountForm({ onBack, initialEmail = '' }) {
           />
         </div>
 
-        {message && <p className="msg error" role="alert">{message}</p>}
+        {message && (
+          <p className="msg error" role="alert">
+            {message}
+          </p>
+        )}
 
         <button className="login-btn" type="submit" disabled={loading}>
           {loading ? 'Reactivating…' : 'Reactivate Account'}
@@ -65,5 +62,5 @@ export default function ReactivateAccountForm({ onBack, initialEmail = '' }) {
         </button>
       </form>
     </div>
-  )
+  );
 }

@@ -1,23 +1,11 @@
 import { useState } from 'react';
 import { setup2fa, confirm2fa } from './api';
+import useSubmit from './useSubmit';
 
 export default function TwoFactorSetup({ token, onEnabled }) {
-  const [setup, setSetup] = useState(null); // { qr, secret } once started
+  const [setup, setSetup] = useState(null);
   const [code, setCode] = useState('');
-  const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  async function run(action) {
-    setLoading(true);
-    setMessage('');
-    try {
-      await action();
-    } catch (err) {
-      setMessage(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
+  const { loading, message, setMessage, run } = useSubmit();
 
   function start() {
     run(async () => setSetup(await setup2fa(token)));
@@ -43,14 +31,20 @@ export default function TwoFactorSetup({ token, onEnabled }) {
         <button className="link-btn" type="button" onClick={start} disabled={loading}>
           {loading ? 'Starting…' : 'Turn on two-factor'}
         </button>
-        {message && <p className="msg error" role="alert">{message}</p>}
+        {message && (
+          <p className="msg error" role="alert">
+            {message}
+          </p>
+        )}
       </>
     );
   }
 
   return (
     <form onSubmit={confirm}>
-      <p className="hint">Scan this with your authenticator app, then enter the 6-digit code it shows.</p>
+      <p className="hint">
+        Scan this with your authenticator app, then enter the 6-digit code it shows.
+      </p>
       <img
         className="qr"
         src={`data:image/png;base64,${setup.qr}`}
@@ -76,7 +70,11 @@ export default function TwoFactorSetup({ token, onEnabled }) {
           required
         />
       </div>
-      {message && <p className="msg error" role="alert">{message}</p>}
+      {message && (
+        <p className="msg error" role="alert">
+          {message}
+        </p>
+      )}
       <button className="login-btn" type="submit" disabled={loading}>
         {loading ? 'Checking…' : 'Turn on two-factor'}
       </button>
