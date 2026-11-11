@@ -30,3 +30,7 @@ CREATE SECURITY POLICY Security.WorkoutPolicy
     ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.Workouts AFTER UPDATE
     WITH (STATE = ON);
 GO
+
+-- Speeds up each member's workout list (the gym_app login can't create indexes)
+CREATE INDEX IX_Workouts_UserId_Date ON dbo.Workouts (UserId, [Date] DESC);
+GO
