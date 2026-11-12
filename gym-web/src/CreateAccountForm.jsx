@@ -65,7 +65,7 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
             value={email}
             maxLength={256}
             onChange={(e) => setEmail(e.target.value)}
-            pattern=".*[^A-Za-z0-9].*"
+            pattern="[^@\s]+@[^@\s]+\.[^@\s]+"
             title="Enter an email like name@example.com"
             required
           />

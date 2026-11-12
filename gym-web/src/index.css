@@ -10,6 +10,9 @@
   --focus-ring: rgba(0, 113, 227, 0.3);
   --danger: #d70015;
   --success: #248a3d;
+  --input-border: #8e8e93;
+  --accent-fill: #0071e3;
+  --success-text: #1b6e30;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -24,6 +27,9 @@
     --focus-ring: rgba(10, 132, 255, 0.4);
     --danger: #ff453a;
     --success: #30d158;
+    --input-border: #6e6e73;
+    --accent-fill: #0062c4;
+    --success-text: #30d158;
   }
 }
 
@@ -68,7 +74,8 @@ body {
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .login-card {
+  .login-card,
+  .msg {
     animation: card-in 150ms ease-out;
   }
 }
@@ -107,8 +114,8 @@ body {
   font-size: 1rem;
   color: var(--text);
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  border: 1px solid var(--input-border);
+  border-radius: 12px;
   outline: none;
   transition:
     border-color 0.15s,
@@ -121,7 +128,7 @@ body {
 }
 
 .hint {
-  margin: 6px 16px 0;
+  margin: 6px 4px 0;
   font-size: 0.8rem;
   color: var(--text-secondary);
 }
@@ -133,7 +140,7 @@ body {
   font-size: 1rem;
   font-weight: 600;
   color: #fff;
-  background: var(--accent);
+  background: var(--accent-fill);
   border: none;
   border-radius: 999px;
   transition:
@@ -198,7 +205,7 @@ body {
 }
 
 .msg.success {
-  color: var(--success);
+  color: var(--success-text);
 }
 
 .password-wrap {
@@ -440,7 +447,7 @@ body {
 
 .pill-btn.filled {
   color: #fff;
-  background: var(--accent);
+  background: var(--accent-fill);
 }
 
 .pill-btn:active:not(:disabled) {

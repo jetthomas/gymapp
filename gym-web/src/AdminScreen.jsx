@@ -123,9 +123,6 @@ export default function AdminScreen({ token, onBack }) {
                   <div className="user-email">{u.email}</div>
                 </div>
                 <div className="row-actions">
-                  <span className={`badge ${u.active ? 'success' : 'muted'}`}>
-                    {u.active ? 'Active' : 'Inactive'}
-                  </span>
                   <button
                     className="pill-btn"
                     type="button"
