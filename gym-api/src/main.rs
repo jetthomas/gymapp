@@ -163,7 +163,6 @@ struct NewUser {
 struct LoginResponse {
     access_token: Option<String>,
     is_admin: bool,
-    needs_code: bool,
     challenge: Option<String>,
 }
 
@@ -687,7 +686,6 @@ async fn login(
         return Ok(Json(LoginResponse {
             access_token: None,
             is_admin: false,
-            needs_code: true,
             challenge: Some(challenge),
         }));
     }
@@ -697,7 +695,6 @@ async fn login(
     Ok(Json(LoginResponse {
         access_token: Some(token),
         is_admin: account.is_admin,
-        needs_code: false,
         challenge: None,
     }))
 }
@@ -853,7 +850,6 @@ async fn totp_verify(
     Ok(Json(LoginResponse {
         access_token: Some(token),
         is_admin,
-        needs_code: false,
         challenge: None,
     }))
 }

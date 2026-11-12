@@ -26,6 +26,7 @@ export default function App() {
       setToken(null);
       setIsAdmin(false);
       setPage('login');
+      setHas2fa(false);
       setNotice('Your session expired. Log in again.');
     });
   }, [resetToken]);
