@@ -98,34 +98,6 @@ export default function AdminScreen({ token, onBack }) {
             {users.length} {users.length === 1 ? 'account' : 'accounts'} · {activeCount} active
           </p>
         )}
-
-        {stats && (
-          <section aria-labelledby="activity-title">
-            <h2 id="activity-title" className="admin-subtitle">
-              Activity, last 30 days
-            </h2>
-            {[
-              { kind: 'login', title: 'Sign-ins per day' },
-              { kind: 'login_failed', title: 'Failed sign-ins per day', alertAt: 20 },
-              { kind: 'workout', title: 'Workouts logged per day' },
-            ].map(({ kind, title, alertAt }) => {
-              const data = perDay(stats, kind, 30);
-              const total = data.reduce((s, d) => s + d.value, 0);
-              const peak = data.reduce((a, b) => (b.value > a.value ? b : a));
-              return (
-                <BarChart
-                  key={kind}
-                  title={title}
-                  data={data}
-                  alertAt={alertAt}
-                  isAlert={(d) => alertAt != null && d.value > alertAt}
-                  summary={`${total} in 30 days. Busiest: ${peak.label} (${peak.value}).`}
-                />
-              );
-            })}
-          </section>
-        )}
-
         <input
           className="admin-search"
           type="search"
@@ -241,6 +213,35 @@ export default function AdminScreen({ token, onBack }) {
             }}
             onCancel={() => setConfirming(null)}
           />
+        )}
+
+        {stats && (
+          <section aria-labelledby="activity-title">
+            <h2 id="activity-title" className="admin-subtitle">
+              Activity, last 30 days
+            </h2>
+            <div className="chart-grid">
+              {[
+                { kind: 'login', title: 'Sign-ins per day' },
+                { kind: 'login_failed', title: 'Failed sign-ins per day', alertAt: 20 },
+                { kind: 'workout', title: 'Workouts logged per day' },
+              ].map(({ kind, title, alertAt }) => {
+                const data = perDay(stats, kind, 30);
+                const total = data.reduce((s, d) => s + d.value, 0);
+                const peak = data.reduce((a, b) => (b.value > a.value ? b : a));
+                return (
+                  <BarChart
+                    key={kind}
+                    title={title}
+                    data={data}
+                    alertAt={alertAt}
+                    isAlert={(d) => alertAt != null && d.value > alertAt}
+                    summary={`${total} in 30 days. Busiest: ${peak.label} (${peak.value}).`}
+                  />
+                );
+              })}
+            </div>
+          </section>
         )}
       </main>
     </div>

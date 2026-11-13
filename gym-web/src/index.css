@@ -561,6 +561,15 @@ body {
 }
 
 /* Admin activity charts (BarChart.jsx): one quiet grey, red only where something needs attention */
+.chart-grid {
+  display: grid;
+  column-gap: 16px;
+}
+@media (min-width: 640px) {
+  .chart-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
 .chart {
   margin: 24px 0 0;
   padding: 16px;

@@ -3,7 +3,7 @@ import { useState } from 'react';
 // shortcut: hand-drawn SVG bars; switch to a chart library if you ever need lines, zoom or legends
 export default function BarChart({ title, summary, data, isAlert = () => false, alertAt }) {
   const [asTable, setAsTable] = useState(false);
-  const w = 600;
+  const w = 300;
   const h = 140;
   const band = w / data.length;
   const max = Math.max(1, alertAt ?? 0, ...data.map((d) => d.value));
