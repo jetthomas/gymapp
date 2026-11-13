@@ -7,6 +7,7 @@ export default function LoginForm({
   onLoggedIn,
   onCreateAccount,
   onReactivateAccount,
+  onForgotPassword,
   initialEmail = '',
   notice = '',
 }) {
@@ -16,17 +17,25 @@ export default function LoginForm({
   const [code, setCode] = useState('');
   const { loading, message, setMessage, run } = useSubmit();
   const [deactivated, setDeactivated] = useState(false);
+  const [remember, setRemember] = useState(true);
+  const [useRecovery, setUseRecovery] = useState(false);
 
   function handleLogin(event) {
     event.preventDefault();
     run(async () => {
       setDeactivated(false);
       try {
-        const result = await login(email, password);
+        const result = await login(email, password, remember);
         if (result.challenge) {
           setChallenge(result.challenge);
         } else {
-          onLoggedIn(result.accessToken, result.isAdmin);
+          onLoggedIn(
+            result.accessToken,
+            result.isAdmin,
+            false,
+            result.lastLogin,
+            result.failedSince,
+          );
         }
       } catch (err) {
         setDeactivated(err.status === 403); // the API answers 403 only for a deactivated account
@@ -43,8 +52,8 @@ export default function LoginForm({
   function verifyCode(value) {
     run(async () => {
       try {
-        const result = await verify2fa(challenge, value);
-        onLoggedIn(result.accessToken, result.isAdmin, true);
+        const result = await verify2fa(challenge, value, remember);
+        onLoggedIn(result.accessToken, result.isAdmin, true, result.lastLogin, result.failedSince);
       } catch (err) {
         // 401 = the 5-minute challenge ran out, so start over from the password
         if (err.status === 401) {
@@ -62,24 +71,44 @@ export default function LoginForm({
         <form key="code" className="login-card" onSubmit={handleCode}>
           <h1>Enter your code</h1>
           <div className="field">
-            <label htmlFor="code">6-digit code from your authenticator app</label>
-            <input
-              id="code"
-              className="code-input"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              minLength={6}
-              maxLength={6}
-              value={code}
-              onChange={(e) => {
-                const digits = e.target.value.replace(/\D/g, '');
-                setCode(digits);
-                // submit as soon as the last digit lands (typed or autofilled)
-                if (digits.length === 6 && !loading) verifyCode(digits);
-              }}
-              required
-              autoFocus
-            />
+            {useRecovery ? (
+              <>
+                <label htmlFor="code">Recovery code</label>
+                <input
+                  id="code"
+                  className="code-input"
+                  autoComplete="off"
+                  spellCheck={false}
+                  minLength={11}
+                  maxLength={11}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, ''))}
+                  required
+                  autoFocus
+                />
+              </>
+            ) : (
+              <>
+                <label htmlFor="code">6-digit code from your authenticator app</label>
+                <input
+                  id="code"
+                  className="code-input"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  minLength={6}
+                  maxLength={6}
+                  value={code}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, '');
+                    setCode(digits);
+                    // submit as soon as the last digit lands (typed or autofilled)
+                    if (digits.length === 6 && !loading) verifyCode(digits);
+                  }}
+                  required
+                  autoFocus
+                />
+              </>
+            )}
           </div>
           {message && (
             <p className="msg error" role="alert">
@@ -93,9 +122,22 @@ export default function LoginForm({
             className="link-btn"
             type="button"
             onClick={() => {
+              setUseRecovery(!useRecovery);
+              setCode('');
+              setMessage('');
+            }}
+            disabled={loading}
+          >
+            {useRecovery ? 'Use a code from your app' : 'Use a recovery code'}
+          </button>
+          <button
+            className="link-btn"
+            type="button"
+            onClick={() => {
               setChallenge(null);
               setCode('');
               setMessage('');
+              setUseRecovery(false);
             }}
             disabled={loading}
           >
@@ -134,7 +176,24 @@ export default function LoginForm({
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
+          <button
+            className="link-btn"
+            type="button"
+            onClick={() => onForgotPassword(email)}
+            disabled={loading}
+          >
+            Forgot password?
+          </button>
         </div>
+
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={remember}
+            onChange={(e) => setRemember(e.target.checked)}
+          />
+          Stay signed in for 30 days
+        </label>
 
         {message ? (
           <>

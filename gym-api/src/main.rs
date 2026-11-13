@@ -8,17 +8,29 @@ use std::{
 
 use argon2::{
     Argon2,
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
+    password_hash::{
+        PasswordHash, PasswordHasher, PasswordVerifier, SaltString,
+        rand_core::{OsRng, RngCore},
+    },
 };
 use axum::{
     Json, Router,
-    extract::{ConnectInfo, FromRequestParts, Path, State},
-    http::{Request, StatusCode, header::AUTHORIZATION, request::Parts},
+    extract::{ConnectInfo, FromRequestParts, Path, Query, State},
+    http::{
+        HeaderMap, Request, StatusCode,
+        header::{AUTHORIZATION, COOKIE, SET_COOKIE},
+        request::Parts,
+    },
+    response::{IntoResponse, Response},
     routing::{delete, get, post, put},
 };
 use chrono::{DateTime, Datelike, NaiveDateTime, Utc};
 use governor::{DefaultKeyedRateLimiter, Quota};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use lettre::{
+    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor, message::Mailbox,
+    transport::smtp::authentication::Credentials as SmtpCredentials,
+};
 use serde::{Deserialize, Serialize};
 use tiberius::{AuthMethod, Client, Config, Row, ToSql};
 use tokio::{net::TcpStream, sync::Semaphore};
@@ -51,6 +63,8 @@ struct AppState {
     // shortcut: in memory, so it resets on restart and isn't shared between processes;
     // move it to a DB column if the API ever runs as more than one process
     totp_attempts: DefaultKeyedRateLimiter<i32>,
+    mailer: AsyncSmtpTransport<Tokio1Executor>,
+    mail_from: Mailbox,
 }
 
 // The API only listens on 127.0.0.1 behind a proxy, so the client IP is the last
@@ -116,6 +130,39 @@ async fn set_user(db: &mut Db, user_id: i32) -> Result<(), tiberius::error::Erro
     Ok(())
 }
 
+// One row per sign-in, failed sign-in or logged workout; kind is 'login', 'login_failed' or 'workout'
+async fn record(db: &mut Db, user_id: i32, kind: &str) -> ApiResult<()> {
+    db.execute(
+        "INSERT INTO dbo.Events (UserId, Kind) VALUES (@P1, @P2)",
+        &[&user_id, &kind],
+    )
+    .await
+    .map_err(internal)?;
+    Ok(())
+}
+
+// The previous sign-in, and how many wrong passwords were tried since then
+async fn last_visit(db: &mut Db, id: i32) -> ApiResult<(Option<DateTime<Utc>>, i32)> {
+    let row = one_row(
+        db,
+        "SELECT l.LastLogin,
+                (SELECT COUNT(*) FROM dbo.Events
+                 WHERE UserId = @P1 AND Kind = 'login_failed'
+                   AND At > ISNULL(l.LastLogin, '19000101')) AS FailedSince
+         FROM (SELECT MAX(At) AS LastLogin FROM dbo.Events
+               WHERE UserId = @P1 AND Kind = 'login') l",
+        &[&id],
+    )
+    .await?;
+    Ok(match row {
+        Some(r) => (
+            r.get::<NaiveDateTime, _>("LastLogin").map(|t| t.and_utc()),
+            r.get("FailedSince").unwrap_or(0),
+        ),
+        None => (None, 0),
+    })
+}
+
 // Runs a query and returns its first row, if there is one
 async fn one_row(db: &mut Db, sql: &str, params: &[&dyn ToSql]) -> ApiResult<Option<Row>> {
     db.query(sql, params)
@@ -135,18 +182,48 @@ fn internal<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
     )
 }
 
+// Sends in the background: the response must not wait, or its timing would reveal who has an account
+fn send_mail(state: Arc<AppState>, to: String, subject: &'static str, body: String) {
+    tokio::spawn(async move {
+        let Ok(to) = to.parse() else { return };
+        let msg = Message::builder()
+            .from(state.mail_from.clone())
+            .to(to)
+            .subject(subject)
+            .body(body);
+        match msg {
+            Ok(msg) => {
+                if let Err(e) = state.mailer.send(msg).await {
+                    eprintln!("mail error: {e}");
+                }
+            }
+            Err(e) => eprintln!("mail error: {e}"),
+        }
+    });
+}
+
 // ---------- JSON shapes ----------
 
 #[derive(Deserialize)]
 struct Credentials {
     email: String,
     password: String,
+    // "Stay signed in"; old requests without the field still work
+    #[serde(default)]
+    remember: bool,
 }
 
 #[derive(Deserialize)]
 struct ResetRequest {
     token: String,
     password: String,
+    // Self-service links on a 2FA account need the current code too
+    code: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ForgotRequest {
+    email: String,
 }
 
 #[derive(Deserialize)]
@@ -164,12 +241,39 @@ struct LoginResponse {
     access_token: Option<String>,
     is_admin: bool,
     challenge: Option<String>,
+    // So the frontend knows whether to offer "Turn on two-factor" after a page refresh
+    two_factor: bool,
+    // The previous sign-in and wrong passwords since; only set on a fresh sign-in
+    last_login: Option<DateTime<Utc>>,
+    failed_since: i32,
 }
 
 #[derive(Serialize)]
 struct TotpSetup {
     qr: String,     // a PNG image, base64-encoded
     secret: String, // the same secret as text, for people who can't scan
+}
+
+#[derive(Deserialize)]
+struct TokenRequest {
+    token: String,
+}
+
+#[derive(Serialize)]
+struct RecoveryCodes {
+    codes: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct PasswordChange {
+    current: String,
+    new: String,
+}
+
+#[derive(Deserialize)]
+struct DisableRequest {
+    password: String,
+    code: String,
 }
 
 #[derive(Deserialize)]
@@ -181,6 +285,8 @@ struct CodeRequest {
 struct VerifyRequest {
     challenge: String,
     code: String,
+    #[serde(default)]
+    remember: bool,
 }
 
 #[derive(Deserialize)]
@@ -207,6 +313,25 @@ struct UserSummary {
     email: String,
     active: bool,
     is_admin: bool,
+    totp_enabled: bool,
+    created_at: DateTime<Utc>,
+    logins: i32,
+    last_login: Option<DateTime<Utc>>,
+    failed_last_7d: i32,
+    workouts: i32,
+    last_workout: Option<DateTime<Utc>>,
+}
+
+#[derive(Deserialize)]
+struct StatsQuery {
+    days: Option<i32>,
+}
+
+#[derive(Serialize)]
+struct DayCount {
+    day: String, // YYYY-MM-DD, gym time
+    kind: String,
+    n: i32,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -264,7 +389,7 @@ async fn create_reset_link(
         .ok_or_else(|| internal("missing hash"))?;
     let token = make_reset_token(user_id, &state.jwt_secret, stored).map_err(internal)?;
     Ok(Json(ResetLink {
-        link: format!("{}/?reset={token}", state.frontend_url),
+        link: format!("{}/#reset={token}", state.frontend_url),
     }))
 }
 
@@ -299,6 +424,11 @@ fn make_token(
 fn reset_key(secret: &str, password_hash: &str) -> Vec<u8> {
     format!("{secret}{password_hash}").into_bytes()
 }
+// Different from the admin key, so the server can tell the two kinds of link apart
+fn self_reset_key(secret: &str, password_hash: &str) -> Vec<u8> {
+    format!("{secret}{password_hash}:self").into_bytes()
+}
+
 fn make_reset_token(
     user_id: i32,
     secret: &str,
@@ -312,6 +442,42 @@ fn make_reset_token(
     )
 }
 
+fn refresh_key(secret: &str) -> Vec<u8> {
+    format!("{secret}:refresh").into_bytes()
+}
+
+// ver = SessionVersion, so logout, a password reset or a 2FA change also kills this cookie
+fn make_refresh_token(
+    user_id: i32,
+    session_version: i32,
+    secret: &str,
+) -> Result<String, jsonwebtoken::errors::Error> {
+    sign(
+        user_id,
+        session_version,
+        &refresh_key(secret),
+        chrono::Duration::days(30),
+    )
+}
+
+// HttpOnly: JavaScript can't read it. SameSite=Strict: other sites can't make the browser send it.
+// Path=/api/auth: it's only sent to the auth routes, not with every request
+fn refresh_cookie(token: &str) -> String {
+    format!("refresh={token}; HttpOnly; Secure; SameSite=Strict; Path=/api/auth; Max-Age=2592000")
+}
+const CLEAR_REFRESH: &str =
+    "refresh=; HttpOnly; Secure; SameSite=Strict; Path=/api/auth; Max-Age=0";
+
+// Reads one cookie from the Cookie header
+fn cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers
+        .get(COOKIE)?
+        .to_str()
+        .ok()?
+        .split(';')
+        .find_map(|kv| kv.trim().strip_prefix(name)?.strip_prefix('='))
+}
+
 fn challenge_key(secret: &str) -> Vec<u8> {
     format!("{secret}:2fa").into_bytes()
 }
@@ -323,6 +489,14 @@ fn make_challenge(user_id: i32, secret: &str) -> Result<String, jsonwebtoken::er
         &challenge_key(secret),
         chrono::Duration::minutes(5),
     )
+}
+
+fn verify_key(secret: &str) -> Vec<u8> {
+    format!("{secret}:verify").into_bytes()
+}
+
+fn make_verify_token(user_id: i32, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
+    sign(user_id, 0, &verify_key(secret), chrono::Duration::hours(24))
 }
 
 // Argon2 is deliberately slow, so it runs off the async threads that serve requests
@@ -368,6 +542,16 @@ fn make_totp(secret: Vec<u8>, email: &str) -> Result<TOTP, String> {
     .map_err(|e| format!("{e:?}"))
 }
 
+// 32 symbols with no 0/O or 1/I to misread; 32 divides 2^32 evenly, so % 32 has no bias
+const ALPHABET: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+fn recovery_code() -> String {
+    let mut code: String = (0..10)
+        .map(|_| ALPHABET[(OsRng.next_u32() % 32) as usize] as char)
+        .collect();
+    code.insert(5, '-'); // e.g. K7MQX-3RHPA
+    code
+}
+
 // Which 30-second step the code belongs to (this one or one either side), if any
 fn matched_step(totp: &TOTP, code: &str, now: u64) -> Option<i64> {
     let mut exact = totp.clone();
@@ -403,7 +587,7 @@ async fn reset_password(
     let mut db = connect(&state).await.map_err(internal)?;
     let row = one_row(
         &mut db,
-        "SELECT PasswordHash, Email, FirstName, LastName FROM dbo.Users WHERE Id = @P1",
+        "SELECT PasswordHash, Email, FirstName, LastName, TotpEnabled, TotpSecret FROM dbo.Users WHERE Id = @P1",
         &[&id],
     )
     .await?
@@ -411,22 +595,59 @@ async fn reset_password(
     let stored: &str = row
         .get("PasswordHash")
         .ok_or_else(|| internal("missing hash"))?;
-    decode::<Claims>(
-        &r.token,
-        &DecodingKey::from_secret(&reset_key(&state.jwt_secret, stored)),
-        &Validation::default(),
-    )
-    .map_err(|_| invalid())?;
+    let signed_with = |key: Vec<u8>| {
+        decode::<Claims>(
+            &r.token,
+            &DecodingKey::from_secret(&key),
+            &Validation::default(),
+        )
+        .is_ok()
+    };
+    // An admin's link first, as before; then a member's own "Forgot password?" link
+    let by_admin = if signed_with(reset_key(&state.jwt_secret, stored)) {
+        true
+    } else if signed_with(self_reset_key(&state.jwt_secret, stored)) {
+        false
+    } else {
+        return Err(invalid());
+    };
     let user_inputs: Vec<&str> = ["Email", "FirstName", "LastName"]
         .iter()
         .filter_map(|col| row.get::<&str, _>(*col))
         .collect();
     check_password(&r.password, &user_inputs).map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
+
+    if by_admin {
+        let hash = hash_password(r.password).await?;
+        // Also turns 2FA off: an admin reset link is the way back in after losing the phone.
+        // Bumping SessionVersion signs out every existing session (e.g. a thief's).
+        db.execute(
+            "UPDATE dbo.Users SET PasswordHash = @P1, TotpEnabled = 0, TotpSecret = NULL, TotpFailures = 0, LoginFailures = 0, LockedUntil = NULL, SessionVersion = SessionVersion + 1 WHERE Id = @P2",
+            &[&hash, &id],
+        )
+        .await
+        .map_err(internal)?;
+        return Ok(StatusCode::OK);
+    }
+
+    // A self-service reset must not get around 2FA, so it needs the current code
+    if row.get::<bool, _>("TotpEnabled") == Some(true) {
+        let code = r.code.as_deref().ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                "Enter your two-factor code to finish.".to_string(),
+            )
+        })?;
+        let email: &str = row.get("Email").ok_or_else(|| internal("missing Email"))?;
+        let secret: &str = row
+            .get("TotpSecret")
+            .ok_or_else(|| internal("missing TotpSecret"))?;
+        let totp = make_totp(decode_secret(secret).map_err(internal)?, email).map_err(internal)?;
+        use_totp_code(&mut db, id, &totp, code).await?;
+    }
     let hash = hash_password(r.password).await?;
-    // Also turns 2FA off: an admin reset link is the way back in after losing the phone.
-    // Bumping SessionVersion signs out every existing session (e.g. a thief's).
     db.execute(
-        "UPDATE dbo.Users SET PasswordHash = @P1, TotpEnabled = 0, TotpSecret = NULL, TotpFailures = 0, LoginFailures = 0, LockedUntil = NULL, SessionVersion = SessionVersion + 1 WHERE Id = @P2",
+        "UPDATE dbo.Users SET PasswordHash = @P1, LoginFailures = 0, LockedUntil = NULL, SessionVersion = SessionVersion + 1 WHERE Id = @P2",
         &[&hash, &id],
     )
     .await
@@ -511,6 +732,7 @@ struct Account {
     is_admin: bool,
     totp_enabled: bool,
     session_version: i32,
+    email_verified: bool,
 }
 
 // Returns the user's account flags when the email and password match
@@ -524,7 +746,7 @@ async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<Account> 
     let email = c.email.to_lowercase();
     let row = one_row(
         db,
-        "SELECT Id, PasswordHash, Active, IsAdmin, TotpEnabled, SessionVersion, LockedUntil FROM dbo.Users WHERE Email = @P1",
+        "SELECT Id, PasswordHash, Active, IsAdmin, TotpEnabled, SessionVersion, LockedUntil, EmailVerified FROM dbo.Users WHERE Email = @P1",
         &[&email],
     )
     .await?;
@@ -550,6 +772,9 @@ async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<Account> 
     let session_version: i32 = row
         .get("SessionVersion")
         .ok_or_else(|| internal("missing SessionVersion"))?;
+    let email_verified: bool = row
+        .get("EmailVerified")
+        .ok_or_else(|| internal("missing EmailVerified"))?;
     let locked = row
         .get::<NaiveDateTime, _>("LockedUntil")
         .is_some_and(|t| t.and_utc() > Utc::now());
@@ -572,6 +797,7 @@ async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<Account> 
         )
         .await
         .map_err(internal)?;
+        record(db, id, "login_failed").await?;
         return Err(unauthorized());
     }
     db.execute(
@@ -586,6 +812,7 @@ async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<Account> 
         is_admin,
         totp_enabled,
         session_version,
+        email_verified,
     })
 }
 
@@ -653,18 +880,44 @@ async fn register(
     let hash = hash_password(c.password.clone()).await?;
     let email = c.email.to_lowercase();
     let mut db = connect(&state).await.map_err(internal)?;
-    let result = db
-        .execute(
-            "INSERT INTO dbo.Users (FirstName, LastName, Email, PasswordHash) VALUES (@P1, @P2, @P3, @P4)",
+    // The duplicate-email error can surface from either await, so both feed one match
+    let inserted = match db
+        .query(
+            "INSERT INTO dbo.Users (FirstName, LastName, Email, PasswordHash) OUTPUT INSERTED.Id VALUES (@P1, @P2, @P3, @P4)",
             &[&first_name, &last_name, &email, &hash],
         )
-        .await;
+        .await
+    {
+        Ok(stream) => stream.into_row().await,
+        Err(e) => Err(e),
+    };
 
-    match result {
-        Ok(_) => Ok(StatusCode::OK),
+    match inserted {
+        Ok(row) => {
+            let id: i32 = row
+                .and_then(|r| r.get(0))
+                .ok_or_else(|| internal("insert returned no Id"))?;
+            let token = make_verify_token(id, &state.jwt_secret).map_err(internal)?;
+            send_mail(
+                state.clone(),
+                email.clone(),
+                "Confirm your Gym App email",
+                format!(
+                    "Confirm your email to finish signing up:\n{}/#verify={token}\n\nThe link works for 24 hours.",
+                    state.frontend_url
+                ),
+            );
+            Ok(StatusCode::OK)
+        }
         // 2627 / 2601 = unique constraint violated, so the email already exists.
         // Answer exactly as for a new account, so sign-up can't reveal who's a member
         Err(tiberius::error::Error::Server(e)) if e.code() == 2627 || e.code() == 2601 => {
+            send_mail(
+                state.clone(),
+                email.clone(),
+                "Someone tried to sign up with your email",
+                "Someone tried to create a Gym App account with this email. If that was you, log in or use Forgot password.".into(),
+            );
             Ok(StatusCode::OK)
         }
         Err(e) => Err(internal(e)),
@@ -674,12 +927,26 @@ async fn register(
 async fn login(
     State(state): State<Arc<AppState>>,
     Json(c): Json<Credentials>,
-) -> ApiResult<Json<LoginResponse>> {
+) -> ApiResult<Response> {
     let mut db = connect(&state).await.map_err(internal)?;
     let account = verify_credentials(&mut db, &c).await?;
     // Checked after the password so a stranger can't probe which emails are deactivated
     if !account.active {
         return Err((StatusCode::FORBIDDEN, "account is deactivated".into()));
+    }
+    if !account.email_verified {
+        let token = make_verify_token(account.id, &state.jwt_secret).map_err(internal)?;
+        send_mail(
+            state.clone(),
+            c.email.to_lowercase(),
+            "Confirm your Gym App email",
+            format!("{}/#verify={token}", state.frontend_url),
+        );
+        // 409, not 403: the frontend reads 403 as "deactivated" (section 2.5)
+        return Err((
+            StatusCode::CONFLICT,
+            "Check your email: we've sent a new link to finish signing up.".into(),
+        ));
     }
     if account.totp_enabled {
         let challenge = make_challenge(account.id, &state.jwt_secret).map_err(internal)?;
@@ -687,16 +954,31 @@ async fn login(
             access_token: None,
             is_admin: false,
             challenge: Some(challenge),
-        }));
+            two_factor: false,
+            last_login: None,
+            failed_since: 0,
+        })
+        .into_response());
     }
-
+    // Read before recording this sign-in, or "last sign-in" would be this one
+    let (last_login, failed_since) = last_visit(&mut db, account.id).await?;
+    record(&mut db, account.id, "login").await?;
     let token =
         make_token(account.id, account.session_version, &state.jwt_secret).map_err(internal)?;
-    Ok(Json(LoginResponse {
+    let resp = Json(LoginResponse {
         access_token: Some(token),
         is_admin: account.is_admin,
         challenge: None,
-    }))
+        two_factor: false,
+        last_login,
+        failed_since,
+    });
+    if c.remember {
+        let refresh = make_refresh_token(account.id, account.session_version, &state.jwt_secret)
+            .map_err(internal)?;
+        return Ok(([(SET_COOKIE, refresh_cookie(&refresh))], resp).into_response());
+    }
+    Ok(resp.into_response())
 }
 
 async fn totp_setup(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Json<TotpSetup>> {
@@ -733,7 +1015,7 @@ async fn totp_setup(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Json<TotpS
 async fn totp_confirm(
     AuthUser(user_id, mut db): AuthUser,
     Json(r): Json<CodeRequest>,
-) -> ApiResult<StatusCode> {
+) -> ApiResult<Json<RecoveryCodes>> {
     let row = one_row(
         &mut db,
         "SELECT Email, TotpSecret FROM dbo.Users WHERE Id = @P1",
@@ -756,6 +1038,24 @@ async fn totp_confirm(
             "That code didn't match. Try the newest one.".into(),
         ));
     }
+    // Codes first, so a failure here leaves 2FA off rather than on with no way back in.
+    // Only hashes are stored; the plain codes exist only in this one response
+    db.execute(
+        "DELETE FROM dbo.RecoveryCodes WHERE UserId = @P1",
+        &[&user_id],
+    )
+    .await
+    .map_err(internal)?;
+    let codes: Vec<String> = (0..10).map(|_| recovery_code()).collect();
+    for code in &codes {
+        let hash = hash_password(code.clone()).await?;
+        db.execute(
+            "INSERT INTO dbo.RecoveryCodes (UserId, CodeHash) VALUES (@P1, @P2)",
+            &[&user_id, &hash],
+        )
+        .await
+        .map_err(internal)?;
+    }
     // Signs out every session, including this one: they were made without a code
     db.execute(
         "UPDATE dbo.Users SET TotpEnabled = 1, SessionVersion = SessionVersion + 1 WHERE Id = @P1",
@@ -763,17 +1063,97 @@ async fn totp_confirm(
     )
     .await
     .map_err(internal)?;
-    Ok(StatusCode::OK)
+    Ok(Json(RecoveryCodes { codes }))
 }
 
 // Wrong 2FA codes in a row before the account needs an admin reset link.
 // Each guess hits 3 in a million, so 10 tries give an attacker about a 1 in 33,000 chance
 const MAX_TOTP_FAILURES: i32 = 10;
 
+// Spends one of the user's tries, then accepts the code at most once
+async fn use_totp_code(db: &mut Db, id: i32, totp: &TOTP, code: &str) -> ApiResult<()> {
+    // Spends one try before checking (a correct code gives them all back), so the cap
+    // survives restarts and racing requests can't get past it
+    let reserved = db
+        .execute(
+            "UPDATE dbo.Users SET TotpFailures = TotpFailures + 1 WHERE Id = @P1 AND TotpFailures < @P2",
+            &[&id, &MAX_TOTP_FAILURES],
+        )
+        .await
+        .map_err(internal)?;
+    if reserved.total() == 0 {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many wrong codes. Ask an admin for a reset link.".into(),
+        ));
+    }
+    // 400, not 401: the frontend reads 401 as "challenge expired, start over"
+    let wrong = || {
+        (
+            StatusCode::BAD_REQUEST,
+            "That code didn't match. Try the newest one.".to_string(),
+        )
+    };
+    // A recovery code looks like K7MQX-3RHPA; a wrong one has already used up a try above
+    if code.len() == 11 && code.as_bytes()[5] == b'-' {
+        let rows = db
+            .query(
+                "SELECT Id, CodeHash FROM dbo.RecoveryCodes WHERE UserId = @P1 AND UsedAt IS NULL",
+                &[&id],
+            )
+            .await
+            .map_err(internal)?
+            .into_first_result()
+            .await
+            .map_err(internal)?;
+        for r in rows {
+            let hash: &str = r
+                .get("CodeHash")
+                .ok_or_else(|| internal("missing CodeHash"))?;
+            if password_matches(code.to_uppercase(), hash.to_string()).await? {
+                let code_id: i32 = r.get("Id").ok_or_else(|| internal("missing Id"))?;
+                // UsedAt IS NULL again, so two requests racing with one code can't both pass
+                let used = db
+                    .execute(
+                        "UPDATE dbo.RecoveryCodes SET UsedAt = SYSUTCDATETIME() WHERE Id = @P1 AND UsedAt IS NULL",
+                        &[&code_id],
+                    )
+                    .await
+                    .map_err(internal)?;
+                if used.total() == 0 {
+                    return Err(wrong());
+                }
+                db.execute(
+                    "UPDATE dbo.Users SET TotpFailures = 0 WHERE Id = @P1",
+                    &[&id],
+                )
+                .await
+                .map_err(internal)?;
+                return Ok(());
+            }
+        }
+        return Err(wrong());
+    }
+    let step = matched_step(totp, code, Utc::now().timestamp() as u64).ok_or_else(wrong)?;
+    // Saves the step only if it's newer than the last one used, so each code works once.
+    // One UPDATE means two requests racing with the same code can't both pass.
+    let saved = db
+        .execute(
+            "UPDATE dbo.Users SET LastTotpStep = @P1, TotpFailures = 0 WHERE Id = @P2 AND (LastTotpStep IS NULL OR LastTotpStep < @P1)",
+            &[&step, &id],
+        )
+        .await
+        .map_err(internal)?;
+    if saved.total() == 0 {
+        return Err(wrong());
+    }
+    Ok(())
+}
+
 async fn totp_verify(
     State(state): State<Arc<AppState>>,
     Json(r): Json<VerifyRequest>,
-) -> ApiResult<Json<LoginResponse>> {
+) -> ApiResult<Response> {
     let expired = || {
         (
             StatusCode::UNAUTHORIZED,
@@ -811,47 +1191,89 @@ async fn totp_verify(
         .ok_or_else(|| internal("missing SessionVersion"))?;
 
     let totp = make_totp(decode_secret(secret).map_err(internal)?, email).map_err(internal)?;
-    // Spends one try before checking (a correct code gives them all back), so the cap
-    // survives restarts and racing requests can't get past it
-    let reserved = db
-        .execute(
-            "UPDATE dbo.Users SET TotpFailures = TotpFailures + 1 WHERE Id = @P1 AND TotpFailures < @P2",
-            &[&id, &MAX_TOTP_FAILURES],
-        )
-        .await
-        .map_err(internal)?;
-    if reserved.total() == 0 {
-        return Err((
-            StatusCode::TOO_MANY_REQUESTS,
-            "Too many wrong codes. Ask an admin for a reset link.".into(),
-        ));
-    }
-    // 400, not 401: the frontend reads 401 as "challenge expired, start over"
-    let wrong = || {
-        (
-            StatusCode::BAD_REQUEST,
-            "That code didn't match. Try the newest one.".to_string(),
-        )
-    };
-    let step = matched_step(&totp, &r.code, Utc::now().timestamp() as u64).ok_or_else(wrong)?;
-    // Saves the step only if it's newer than the last one used, so each code works once.
-    // One UPDATE means two requests racing with the same code can't both pass.
-    let saved = db
-        .execute(
-            "UPDATE dbo.Users SET LastTotpStep = @P1, TotpFailures = 0 WHERE Id = @P2 AND (LastTotpStep IS NULL OR LastTotpStep < @P1)",
-            &[&step, &id],
-        )
-        .await
-        .map_err(internal)?;
-    if saved.total() == 0 {
-        return Err(wrong());
-    }
+    use_totp_code(&mut db, id, &totp, &r.code).await?;
+    let (last_login, failed_since) = last_visit(&mut db, id).await?;
+    record(&mut db, id, "login").await?;
     let token = make_token(id, session_version, &state.jwt_secret).map_err(internal)?;
-    Ok(Json(LoginResponse {
+    let resp = Json(LoginResponse {
         access_token: Some(token),
         is_admin,
         challenge: None,
-    }))
+        two_factor: true,
+        last_login,
+        failed_since,
+    });
+    if r.remember {
+        let refresh =
+            make_refresh_token(id, session_version, &state.jwt_secret).map_err(internal)?;
+        return Ok(([(SET_COOKIE, refresh_cookie(&refresh))], resp).into_response());
+    }
+    Ok(resp.into_response())
+}
+
+// Always answers 200, so it can't be used to find out who has an account
+async fn forgot_password(
+    State(state): State<Arc<AppState>>,
+    Json(r): Json<ForgotRequest>,
+) -> ApiResult<StatusCode> {
+    let email = r.email.to_lowercase();
+    let mut db = connect(&state).await.map_err(internal)?;
+    let row = one_row(
+        &mut db,
+        "SELECT Id, PasswordHash FROM dbo.Users WHERE Email = @P1 AND Active = 1",
+        &[&email],
+    )
+    .await?;
+    if let Some(row) = row {
+        let id: i32 = row.get("Id").ok_or_else(|| internal("missing Id"))?;
+        let stored: &str = row
+            .get("PasswordHash")
+            .ok_or_else(|| internal("missing hash"))?;
+        let token = sign(
+            id,
+            0,
+            &self_reset_key(&state.jwt_secret, stored),
+            chrono::Duration::minutes(15),
+        )
+        .map_err(internal)?;
+        send_mail(
+            state.clone(),
+            email,
+            "Reset your Gym App password",
+            format!(
+                "Choose a new password:\n{}/#reset={token}\n\nThe link works for 15 minutes. If you didn't ask for this, you can ignore this email.",
+                state.frontend_url
+            ),
+        );
+    }
+    Ok(StatusCode::OK)
+}
+
+async fn verify_email(
+    State(state): State<Arc<AppState>>,
+    Json(r): Json<TokenRequest>,
+) -> ApiResult<StatusCode> {
+    let invalid = || {
+        (
+            StatusCode::BAD_REQUEST,
+            "This link is invalid or has expired.".to_string(),
+        )
+    };
+    let data = decode::<Claims>(
+        &r.token,
+        &DecodingKey::from_secret(&verify_key(&state.jwt_secret)),
+        &Validation::default(),
+    )
+    .map_err(|_| invalid())?;
+    let id: i32 = data.claims.sub.parse().map_err(|_| invalid())?;
+    let mut db = connect(&state).await.map_err(internal)?;
+    db.execute(
+        "UPDATE dbo.Users SET EmailVerified = 1 WHERE Id = @P1",
+        &[&id],
+    )
+    .await
+    .map_err(internal)?;
+    Ok(StatusCode::OK)
 }
 
 async fn delete_account(AuthUser(user_id, mut db): AuthUser) -> ApiResult<StatusCode> {
@@ -881,10 +1303,99 @@ async fn reactivate_account(
     Ok(StatusCode::OK)
 }
 
-// Signs this user out everywhere: every token they hold stops working
-async fn logout(AuthUser(user_id, mut db): AuthUser) -> ApiResult<StatusCode> {
+// 400 for a wrong current password, not 401: the frontend reads 401 as "session expired"
+fn wrong_password() -> (StatusCode, String) {
+    (
+        StatusCode::BAD_REQUEST,
+        "Your current password is wrong.".to_string(),
+    )
+}
+
+async fn change_password(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    AuthUser(user_id, mut db): AuthUser,
+    Json(r): Json<PasswordChange>,
+) -> ApiResult<Response> {
+    let row = one_row(
+        &mut db,
+        "SELECT PasswordHash, Email, FirstName, LastName, IsAdmin, TotpEnabled FROM dbo.Users WHERE Id = @P1",
+        &[&user_id],
+    )
+    .await?
+    .ok_or_else(|| internal("user missing"))?;
+    let stored: &str = row
+        .get("PasswordHash")
+        .ok_or_else(|| internal("missing hash"))?;
+    if !password_matches(r.current, stored.to_string()).await? {
+        return Err(wrong_password());
+    }
+    let user_inputs: Vec<&str> = ["Email", "FirstName", "LastName"]
+        .iter()
+        .filter_map(|col| row.get::<&str, _>(*col))
+        .collect();
+    check_password(&r.new, &user_inputs).map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
+    let hash = hash_password(r.new).await?;
+    // Signs out every other device; this one gets a new token below
+    let new_version: i32 = one_row(
+        &mut db,
+        "UPDATE dbo.Users SET PasswordHash = @P1, SessionVersion = SessionVersion + 1 OUTPUT INSERTED.SessionVersion WHERE Id = @P2",
+        &[&hash, &user_id],
+    )
+    .await?
+    .and_then(|r| r.get(0))
+    .ok_or_else(|| internal("update returned no version"))?;
+    let token = make_token(user_id, new_version, &state.jwt_secret).map_err(internal)?;
+    let resp = Json(LoginResponse {
+        access_token: Some(token),
+        is_admin: row.get("IsAdmin").unwrap_or(false),
+        challenge: None,
+        two_factor: row.get("TotpEnabled").unwrap_or(false),
+        last_login: None,
+        failed_since: 0,
+    });
+    // The version bump also kills this device's "Stay signed in" cookie, so replace it if there was one
+    if cookie(&headers, "refresh").is_some() {
+        let refresh =
+            make_refresh_token(user_id, new_version, &state.jwt_secret).map_err(internal)?;
+        return Ok(([(SET_COOKIE, refresh_cookie(&refresh))], resp).into_response());
+    }
+    Ok(resp.into_response())
+}
+
+async fn totp_disable(
+    AuthUser(user_id, mut db): AuthUser,
+    Json(r): Json<DisableRequest>,
+) -> ApiResult<StatusCode> {
+    let row = one_row(
+        &mut db,
+        "SELECT PasswordHash, Email, TotpSecret, TotpEnabled FROM dbo.Users WHERE Id = @P1",
+        &[&user_id],
+    )
+    .await?
+    .ok_or_else(|| internal("user missing"))?;
+    let stored: &str = row
+        .get("PasswordHash")
+        .ok_or_else(|| internal("missing hash"))?;
+    if !password_matches(r.password, stored.to_string()).await? {
+        return Err(wrong_password());
+    }
+    let secret: &str = match (row.get::<bool, _>("TotpEnabled"), row.get("TotpSecret")) {
+        (Some(true), Some(secret)) => secret,
+        _ => return Err((StatusCode::CONFLICT, "Two-factor is already off.".into())),
+    };
+    let email: &str = row.get("Email").ok_or_else(|| internal("missing Email"))?;
+    let totp = make_totp(decode_secret(secret).map_err(internal)?, email).map_err(internal)?;
+    use_totp_code(&mut db, user_id, &totp, &r.code).await?;
+    // Signs out every session, like turning it on does
     db.execute(
-        "UPDATE dbo.Users SET SessionVersion = SessionVersion + 1 WHERE Id = @P1",
+        "UPDATE dbo.Users SET TotpEnabled = 0, TotpSecret = NULL, LastTotpStep = NULL, TotpFailures = 0, SessionVersion = SessionVersion + 1 WHERE Id = @P1",
+        &[&user_id],
+    )
+    .await
+    .map_err(internal)?;
+    db.execute(
+        "DELETE FROM dbo.RecoveryCodes WHERE UserId = @P1",
         &[&user_id],
     )
     .await
@@ -892,10 +1403,68 @@ async fn logout(AuthUser(user_id, mut db): AuthUser) -> ApiResult<StatusCode> {
     Ok(StatusCode::OK)
 }
 
+// Swaps the "Stay signed in" cookie for a fresh access token; called once per page load
+async fn refresh(State(state): State<Arc<AppState>>, headers: HeaderMap) -> ApiResult<Response> {
+    let expired = || (StatusCode::UNAUTHORIZED, "not signed in".to_string());
+    let token = cookie(&headers, "refresh").ok_or_else(expired)?;
+    let data = decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(&refresh_key(&state.jwt_secret)),
+        &Validation::default(),
+    )
+    .map_err(|_| expired())?;
+    let id: i32 = data.claims.sub.parse().map_err(|_| expired())?;
+    let mut db = connect(&state).await.map_err(internal)?;
+    let row = one_row(
+        &mut db,
+        "SELECT Active, IsAdmin, SessionVersion, TotpEnabled FROM dbo.Users WHERE Id = @P1",
+        &[&id],
+    )
+    .await?
+    .ok_or_else(expired)?;
+    // Same checks as authenticate(): deactivated, or signed out since the cookie was made
+    if row.get::<bool, _>("Active") != Some(true)
+        || row.get::<i32, _>("SessionVersion") != Some(data.claims.ver)
+    {
+        return Ok(([(SET_COOKIE, CLEAR_REFRESH)], expired()).into_response());
+    }
+    let access = make_token(id, data.claims.ver, &state.jwt_secret).map_err(internal)?;
+    Ok(Json(LoginResponse {
+        access_token: Some(access),
+        is_admin: row.get("IsAdmin").unwrap_or(false),
+        challenge: None,
+        two_factor: row.get("TotpEnabled").unwrap_or(false),
+        last_login: None,
+        failed_since: 0,
+    })
+    .into_response())
+}
+
+// Signs this user out everywhere: every token they hold stops working
+async fn logout(AuthUser(user_id, mut db): AuthUser) -> ApiResult<impl IntoResponse> {
+    db.execute(
+        "UPDATE dbo.Users SET SessionVersion = SessionVersion + 1 WHERE Id = @P1",
+        &[&user_id],
+    )
+    .await
+    .map_err(internal)?;
+    // The version bump already kills the cookie; this also deletes it from the browser
+    Ok(([(SET_COOKIE, CLEAR_REFRESH)], StatusCode::OK))
+}
+
 async fn list_users(AdminUser(mut db): AdminUser) -> ApiResult<Json<Vec<UserSummary>>> {
     let rows = db
         .query(
-            "SELECT Id, FirstName, LastName, Email, Active, IsAdmin FROM dbo.Users ORDER BY Email",
+            "SELECT u.Id, u.FirstName, u.LastName, u.Email, u.Active, u.IsAdmin, u.TotpEnabled, u.CreatedAt,
+               COUNT(CASE WHEN e.Kind = 'login' THEN 1 END)    AS Logins,
+               MAX(CASE WHEN e.Kind = 'login' THEN e.At END)   AS LastLogin,
+               COUNT(CASE WHEN e.Kind = 'login_failed' AND e.At > DATEADD(day, -7, SYSUTCDATETIME()) THEN 1 END) AS FailedLast7d,
+               COUNT(CASE WHEN e.Kind = 'workout' THEN 1 END)  AS Workouts,
+               MAX(CASE WHEN e.Kind = 'workout' THEN e.At END) AS LastWorkout
+             FROM dbo.Users u
+             LEFT JOIN dbo.Events e ON e.UserId = u.Id
+             GROUP BY u.Id, u.FirstName, u.LastName, u.Email, u.Active, u.IsAdmin, u.TotpEnabled, u.CreatedAt
+             ORDER BY u.Email",
             &[],
         )
         .await
@@ -913,9 +1482,55 @@ async fn list_users(AdminUser(mut db): AdminUser) -> ApiResult<Json<Vec<UserSumm
             email: r.get::<&str, _>("Email").unwrap_or_default().to_string(),
             active: r.get("Active").unwrap_or_default(),
             is_admin: r.get("IsAdmin").unwrap_or_default(),
+            totp_enabled: r.get("TotpEnabled").unwrap_or_default(),
+            created_at: r
+                .get::<NaiveDateTime, _>("CreatedAt")
+                .unwrap_or_default()
+                .and_utc(),
+            logins: r.get("Logins").unwrap_or_default(),
+            last_login: r.get::<NaiveDateTime, _>("LastLogin").map(|t| t.and_utc()),
+            failed_last_7d: r.get("FailedLast7d").unwrap_or_default(),
+            workouts: r.get("Workouts").unwrap_or_default(),
+            last_workout: r
+                .get::<NaiveDateTime, _>("LastWorkout")
+                .map(|t| t.and_utc()),
         })
         .collect();
     Ok(Json(users))
+}
+
+async fn admin_stats(
+    AdminUser(mut db): AdminUser,
+    Query(q): Query<StatsQuery>,
+) -> ApiResult<Json<Vec<DayCount>>> {
+    // Clamped so nobody can ask for years of rows
+    let days = q.days.unwrap_or(30).clamp(7, 365);
+    let rows = db
+        .query(
+            // Days are counted in Sydney/Melbourne time, so an evening session isn't split across two UTC days
+            "SELECT CONVERT(char(10), Day, 23) AS Day, Kind, N FROM (
+                SELECT CAST(At AT TIME ZONE 'UTC' AT TIME ZONE 'AUS Eastern Standard Time' AS date) AS Day,
+                       Kind, COUNT(*) AS N
+                FROM dbo.Events
+                WHERE At >= DATEADD(day, -@P1, SYSUTCDATETIME())
+                GROUP BY CAST(At AT TIME ZONE 'UTC' AT TIME ZONE 'AUS Eastern Standard Time' AS date), Kind
+             ) t ORDER BY Day",
+            &[&days],
+        )
+        .await
+        .map_err(internal)?
+        .into_first_result()
+        .await
+        .map_err(internal)?;
+    Ok(Json(
+        rows.iter()
+            .map(|r| DayCount {
+                day: r.get::<&str, _>("Day").unwrap_or_default().to_string(),
+                kind: r.get::<&str, _>("Kind").unwrap_or_default().to_string(),
+                n: r.get("N").unwrap_or_default(),
+            })
+            .collect(),
+    ))
 }
 
 // ---------- workout endpoints ----------
@@ -994,6 +1609,7 @@ async fn create_workout(
     .await?
     .and_then(|r| r.get(0))
     .ok_or_else(|| internal("insert returned no Id"))?;
+    record(&mut db, user_id, "workout").await?;
     let saved = Workout {
         id,
         name: name.to_string(),
@@ -1033,7 +1649,8 @@ async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
                 LastTotpStep BIGINT NULL,
                 TotpFailures INT NOT NULL DEFAULT 0,
                 LoginFailures INT NOT NULL DEFAULT 0,
-                LockedUntil DATETIME2 NULL
+                LockedUntil DATETIME2 NULL,
+                EmailVerified BIT NOT NULL DEFAULT 0
             );
          IF OBJECT_ID('dbo.Workouts', 'U') IS NULL
             CREATE TABLE dbo.Workouts (
@@ -1042,6 +1659,20 @@ async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
                 [Date] DATETIME2 NOT NULL,
                 Name NVARCHAR(200) NOT NULL,
                 Notes NVARCHAR(MAX) NULL
+            );
+         IF OBJECT_ID('dbo.Events', 'U') IS NULL
+            CREATE TABLE dbo.Events (
+                Id BIGINT IDENTITY(1,1) PRIMARY KEY,
+                UserId INT NOT NULL REFERENCES dbo.Users(Id),
+                Kind NVARCHAR(20) NOT NULL,
+                At DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+            );
+         IF OBJECT_ID('dbo.RecoveryCodes', 'U') IS NULL
+            CREATE TABLE dbo.RecoveryCodes (
+                Id INT IDENTITY(1,1) PRIMARY KEY,
+                UserId INT NOT NULL REFERENCES dbo.Users(Id),
+                CodeHash NVARCHAR(200) NOT NULL,
+                UsedAt DATETIME2 NULL
             );",
     )
     .await?
@@ -1075,11 +1706,33 @@ async fn main() {
         jwt_secret.len() >= 32,
         "JWT_SECRET must be at least 32 characters. Make one with: openssl rand -base64 48"
     );
+    let smtp_port: u16 = env_or("SMTP_PORT", "587")
+        .parse()
+        .expect("SMTP_PORT must be a number");
+    let smtp_host = env_required("SMTP_HOST");
+    // Port 1025 = Mailpit on this machine, which has no TLS; real providers get TLS via relay()
+    let mut mailer = if smtp_port == 1025 {
+        AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&smtp_host).port(smtp_port)
+    } else {
+        AsyncSmtpTransport::<Tokio1Executor>::relay(&smtp_host)
+            .expect("bad SMTP_HOST")
+            .port(smtp_port)
+    };
+    if let (Ok(u), Ok(p)) = (env::var("SMTP_USER"), env::var("SMTP_PASSWORD")) {
+        mailer = mailer.credentials(SmtpCredentials::new(u, p));
+    }
+    let mailer = mailer.build();
+    let mail_from: Mailbox = env_required("MAIL_FROM")
+        .parse()
+        .expect("MAIL_FROM must look like Gym App <no-reply@yourgym.com>");
+
     let state = Arc::new(AppState {
         db_config,
         jwt_secret,
         frontend_url: env_or("FRONTEND_URL", "http://localhost:5173"),
         // 5 tries, then one more each minute
+        mailer,
+        mail_from,
         totp_attempts: DefaultKeyedRateLimiter::keyed(
             Quota::with_period(Duration::from_secs(60))
                 .unwrap()
@@ -1116,6 +1769,12 @@ async fn main() {
         .route("/auth/login", post(login))
         .route("/auth/2fa/verify", post(totp_verify))
         .route("/auth/reset", post(reset_password))
+        .route("/auth/verify", post(verify_email))
+        .route("/auth/forgot", post(forgot_password))
+        .route("/auth/refresh", post(refresh))
+        // both check a password, so they share the login limit
+        .route("/auth/password", post(change_password))
+        .route("/auth/2fa/disable", post(totp_disable))
         // checks a password, so it needs the same limit as login
         .route("/auth/reactivate", post(reactivate_account))
         .layer(GovernorLayer::new(limit));
@@ -1128,6 +1787,7 @@ async fn main() {
         .route("/auth/2fa/confirm", post(totp_confirm))
         .route("/workouts", get(list_workouts).post(create_workout))
         .route("/admin/users", get(list_users))
+        .route("/admin/stats", get(admin_stats))
         .route("/admin/users/{id}/admin", put(set_admin))
         .route("/admin/users/{id}/reset-link", post(create_reset_link))
         .merge(limited)
@@ -1284,6 +1944,32 @@ mod tests {
             from_peer(v6("2001:db8:1:2::1"), ""),
             from_peer(v6("2001:db8:1:2:ffff::9"), "")
         );
+    }
+
+    #[test]
+    fn cookie_parser_finds_only_the_named_cookie() {
+        let mut h = HeaderMap::new();
+        h.insert(
+            COOKIE,
+            "theme=dark; refresh=abc.def; refreshx=nope"
+                .parse()
+                .unwrap(),
+        );
+        assert_eq!(cookie(&h, "refresh"), Some("abc.def"));
+        assert_eq!(cookie(&h, "missing"), None);
+    }
+
+    #[test]
+    fn recovery_codes_look_right_and_differ() {
+        let a = recovery_code();
+        assert_eq!(a.len(), 11);
+        assert_eq!(a.as_bytes()[5], b'-');
+        assert!(
+            a.chars()
+                .filter(|&c| c != '-')
+                .all(|c| ALPHABET.contains(&(c as u8)))
+        );
+        assert_ne!(a, recovery_code());
     }
 
     #[test]

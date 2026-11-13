@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
-import { getUsers, createResetLink, setAdmin } from './api';
+import { getUsers, getStats, createResetLink, setAdmin } from './api';
+import BarChart from './BarChart';
+import ConfirmDialog from './ConfirmDialog';
+import perDay from './perDay';
 
 function displayName(u) {
   return [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email;
@@ -17,13 +20,18 @@ export default function AdminScreen({ token, onBack }) {
   const [copied, setCopied] = useState(false);
   const [creatingFor, setCreatingFor] = useState(null); // userId while a link is being made
   const [savingId, setSavingId] = useState(null); // userId while their admin flag is being saved
-
   const [query, setQuery] = useState('');
+  const [announce, setAnnounce] = useState('');
+  const [confirming, setConfirming] = useState(null); // the user whose admin flag is about to change
+  const [stats, setStats] = useState(null);
 
   // Runs once when the screen opens (and again only if token changes)
   useEffect(() => {
     getUsers(token)
       .then(setUsers)
+      .catch((err) => setError(err.message));
+    getStats(token)
+      .then(setStats)
       .catch((err) => setError(err.message));
   }, [token]);
 
@@ -41,11 +49,8 @@ export default function AdminScreen({ token, onBack }) {
     }
   }
 
+  // Runs once the confirm dialog's button is pressed
   async function handleSetAdmin(user) {
-    const question = user.isAdmin
-      ? 'Remove admin privileges from this user? They will no longer see every account or create reset links.'
-      : 'Make this user an admin? They will see every account and can create reset links.';
-    if (!window.confirm(question)) return;
     setError('');
     setSavingId(user.id);
     try {
@@ -53,6 +58,7 @@ export default function AdminScreen({ token, onBack }) {
       setUsers((list) =>
         list.map((u) => (u.id === user.id ? { ...u, isAdmin: !user.isAdmin } : u)),
       );
+      setAnnounce(`${displayName(user)} is ${user.isAdmin ? 'no longer' : 'now'} an admin`);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -83,11 +89,41 @@ export default function AdminScreen({ token, onBack }) {
       </header>
 
       <main className="admin-content">
+        <p role="status" className="visually-hidden">
+          {announce}
+        </p>
         <h1 className="admin-title">Users</h1>
         {users && (
           <p className="admin-subtitle">
             {users.length} {users.length === 1 ? 'account' : 'accounts'} · {activeCount} active
           </p>
+        )}
+
+        {stats && (
+          <section aria-labelledby="activity-title">
+            <h2 id="activity-title" className="admin-subtitle">
+              Activity, last 30 days
+            </h2>
+            {[
+              { kind: 'login', title: 'Sign-ins per day' },
+              { kind: 'login_failed', title: 'Failed sign-ins per day', alertAt: 20 },
+              { kind: 'workout', title: 'Workouts logged per day' },
+            ].map(({ kind, title, alertAt }) => {
+              const data = perDay(stats, kind, 30);
+              const total = data.reduce((s, d) => s + d.value, 0);
+              const peak = data.reduce((a, b) => (b.value > a.value ? b : a));
+              return (
+                <BarChart
+                  key={kind}
+                  title={title}
+                  data={data}
+                  alertAt={alertAt}
+                  isAlert={(d) => alertAt != null && d.value > alertAt}
+                  summary={`${total} in 30 days. Busiest: ${peak.label} (${peak.value}).`}
+                />
+              );
+            })}
+          </section>
         )}
 
         <input
@@ -118,12 +154,29 @@ export default function AdminScreen({ token, onBack }) {
                 <div className="user-info">
                   <div className="user-name">
                     {displayName(u)}
-                    {!u.active && <span className="badge">Deactivated</span>}
+                    {u.isAdmin && <span className="badge">Admin</span>}
+                    {!u.active && <span className="badge muted">Deactivated</span>}
                   </div>
                   <div className="user-email">{u.email}</div>
+                  <div className="user-stats">
+                    {u.logins} logins · last{' '}
+                    {u.lastLogin
+                      ? new Date(u.lastLogin).toLocaleDateString(undefined, {
+                          day: 'numeric',
+                          month: 'short',
+                        })
+                      : 'never'}{' '}
+                    · {u.workouts} workouts
+                    {u.failedLast7d >= 5 && (
+                      <span className="badge danger">
+                        {u.failedLast7d} failed sign-ins this week
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="row-actions">
                   <button
+                    aria-label={`Reset link for ${displayName(u)}`}
                     className="pill-btn"
                     type="button"
                     onClick={() => handleReset(u.id)}
@@ -132,9 +185,10 @@ export default function AdminScreen({ token, onBack }) {
                     {creatingFor === u.id ? 'Creating…' : 'Reset link'}
                   </button>
                   <button
+                    aria-label={`${u.isAdmin ? 'Remove admin' : 'Make admin'}: ${displayName(u)}`}
                     className="pill-btn"
                     type="button"
-                    onClick={() => handleSetAdmin(u)}
+                    onClick={() => setConfirming(u)}
                     disabled={savingId === u.id}
                   >
                     {savingId === u.id
@@ -166,6 +220,27 @@ export default function AdminScreen({ token, onBack }) {
               </li>
             ))}
           </ul>
+        )}
+        {confirming && (
+          <ConfirmDialog
+            title={
+              confirming.isAdmin
+                ? `Remove admin from ${displayName(confirming)}?`
+                : `Make ${displayName(confirming)} an admin?`
+            }
+            body={
+              confirming.isAdmin
+                ? 'They will no longer see every account or create reset links.'
+                : 'They will see every account and can create reset links.'
+            }
+            confirmLabel={confirming.isAdmin ? 'Remove admin' : 'Make admin'}
+            danger={confirming.isAdmin}
+            onConfirm={() => {
+              setConfirming(null);
+              handleSetAdmin(confirming);
+            }}
+            onCancel={() => setConfirming(null)}
+          />
         )}
       </main>
     </div>

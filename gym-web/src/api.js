@@ -40,8 +40,11 @@ async function request(path, { method = 'GET', body, token } = {}) {
 export const register = (firstName, lastName, email, password) =>
   request('/auth/register', { method: 'POST', body: { firstName, lastName, email, password } });
 
-export const login = (email, password) =>
-  request('/auth/login', { method: 'POST', body: { email, password } });
+export const login = (email, password, remember) =>
+  request('/auth/login', { method: 'POST', body: { email, password, remember } });
+
+// Uses the "Stay signed in" cookie; fetch sends same-origin cookies by default
+export const refresh = () => request('/auth/refresh', { method: 'POST' });
 
 export const logout = (token) => request('/auth/logout', { method: 'POST', token });
 
@@ -56,19 +59,32 @@ export const createWorkout = (token, workout) =>
   request('/workouts', { method: 'POST', body: workout, token });
 export const getUsers = (token) => request('/admin/users', { token });
 
+export const getStats = (token, days = 30) => request(`/admin/stats?days=${days}`, { token });
+
 export const createResetLink = (token, userId) =>
   request(`/admin/users/${userId}/reset-link`, { method: 'POST', token });
 
 export const setAdmin = (token, userId, isAdmin) =>
   request(`/admin/users/${userId}/admin`, { method: 'PUT', token, body: { isAdmin } });
 
-export const resetPassword = (resetToken, password) =>
-  request('/auth/reset', { method: 'POST', body: { token: resetToken, password } });
+export const resetPassword = (resetToken, password, code) =>
+  request('/auth/reset', { method: 'POST', body: { token: resetToken, password, code } });
+
+export const forgotPassword = (email) =>
+  request('/auth/forgot', { method: 'POST', body: { email } });
+
+export const verifyEmail = (token) => request('/auth/verify', { method: 'POST', body: { token } });
+
+export const changePassword = (token, current, next) =>
+  request('/auth/password', { method: 'POST', token, body: { current, new: next } });
 
 export const setup2fa = (token) => request('/auth/2fa/setup', { method: 'POST', token });
 
 export const confirm2fa = (token, code) =>
   request('/auth/2fa/confirm', { method: 'POST', token, body: { code } });
 
-export const verify2fa = (challenge, code) =>
-  request('/auth/2fa/verify', { method: 'POST', body: { challenge, code } });
+export const verify2fa = (challenge, code, remember) =>
+  request('/auth/2fa/verify', { method: 'POST', body: { challenge, code, remember } });
+
+export const disable2fa = (token, password, code) =>
+  request('/auth/2fa/disable', { method: 'POST', token, body: { password, code } });

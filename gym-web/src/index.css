@@ -13,6 +13,8 @@
   --input-border: #8e8e93;
   --accent-fill: #0071e3;
   --success-text: #1b6e30;
+  --accent-text: #0058b0;
+  --danger-text: #b80012;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -30,6 +32,8 @@
     --input-border: #6e6e73;
     --accent-fill: #0062c4;
     --success-text: #30d158;
+    --accent-text: #4da3ff;
+    --danger-text: #ff6961;
   }
 }
 
@@ -37,6 +41,26 @@ body {
   margin: 0;
   /* matches .login-page so scrolling or bouncing past the edge never shows white */
   background: var(--bg);
+}
+
+.badge {
+  color: var(--accent-text);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.badge.muted {
+  color: var(--text-secondary);
+}
+.pill-btn {
+  color: var(--accent-text);
+}
+.pill-btn.danger {
+  color: var(--danger-text);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.pill-btn:focus-visible,
+.toolbar-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--focus-ring);
 }
 
 .login-page {
@@ -120,6 +144,14 @@ body {
   transition:
     border-color 0.15s,
     box-shadow 0.15s;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .field input:focus-visible {
@@ -526,4 +558,70 @@ body {
   letter-spacing: 0.3em;
   /* balances the trailing letter-spacing so the digits sit truly centered */
   text-indent: 0.3em;
+}
+
+/* Admin activity charts (BarChart.jsx): one quiet grey, red only where something needs attention */
+.chart {
+  margin: 24px 0 0;
+  padding: 16px;
+  background: var(--surface);
+  border-radius: 12px;
+}
+.chart-title {
+  font-weight: 600;
+}
+.chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 8px;
+}
+.bar {
+  fill: var(--text-secondary);
+  opacity: 0.45;
+}
+.bar.alert {
+  fill: var(--danger);
+  opacity: 1;
+}
+.alert-line {
+  stroke: var(--danger);
+  stroke-dasharray: 4 4;
+}
+.axis {
+  fill: var(--text-secondary);
+  font-size: 12px;
+}
+.chart-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.chart-table th,
+.chart-table td {
+  padding: 4px 8px;
+  text-align: left;
+  border-bottom: 0.5px solid var(--border);
+}
+
+/* Not .user-email: that has white-space: nowrap and would cut the badge off */
+.user-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+.badge.danger {
+  color: var(--danger-text);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+/* "Stay signed in" checkbox on the login form */
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9375rem;
 }

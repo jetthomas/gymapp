@@ -5,12 +5,20 @@ import useSubmit from './useSubmit';
 
 export default function ResetPasswordForm({ token, onBack }) {
   const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
+  // A "Forgot password?" link on a 2FA account also needs the current code
+  const [needCode, setNeedCode] = useState(false);
   const { loading, message, run } = useSubmit();
 
   function handleSubmit(event) {
     event.preventDefault();
     run(async () => {
-      await resetPassword(token, password);
+      try {
+        await resetPassword(token, password, needCode ? code : undefined);
+      } catch (err) {
+        if (err.status === 401) setNeedCode(true);
+        throw err;
+      }
       onBack(undefined, 'Password updated. Log in with your new password.');
     });
   }
@@ -36,6 +44,24 @@ export default function ResetPasswordForm({ token, onBack }) {
             At least 10 characters, including a symbol like ! @ # $
           </p>
         </div>
+
+        {needCode && (
+          <div className="field">
+            <label htmlFor="code">6-digit code from your authenticator app</label>
+            <input
+              id="code"
+              className="code-input"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              minLength={6}
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+              required
+              autoFocus
+            />
+          </div>
+        )}
 
         {message && (
           <p className="msg error" role="alert">

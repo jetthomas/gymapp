@@ -1,28 +1,55 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { setup2fa, confirm2fa } from './api';
 import useSubmit from './useSubmit';
 
 export default function TwoFactorSetup({ token, onEnabled }) {
   const [setup, setSetup] = useState(null);
   const [code, setCode] = useState('');
+  const [codes, setCodes] = useState(null); // recovery codes, shown once after turning 2FA on
   const { loading, message, setMessage, run } = useSubmit();
+  // useMemo stops a new download URL being made on every render
+  const downloadUrl = useMemo(
+    () => codes && URL.createObjectURL(new Blob([codes.join('\n')], { type: 'text/plain' })),
+    [codes],
+  );
 
   function start() {
     run(async () => setSetup(await setup2fa(token)));
   }
 
+  // Takes the value directly: in onChange, the `code` state still holds the previous digits
+  function confirmCode(value) {
+    run(async () => {
+      const result = await confirm2fa(token, value);
+      // Not onEnabled() yet: it signs the member out before they've saved the codes
+      setCodes(result.codes);
+    });
+  }
+
   function confirm(event) {
     event.preventDefault();
-    run(async () => {
-      await confirm2fa(token, code);
-      onEnabled();
-    });
+    confirmCode(code);
   }
 
   function cancel() {
     setSetup(null);
     setCode('');
     setMessage('');
+  }
+
+  if (codes) {
+    return (
+      <div>
+        <p className="hint">Save these codes. Each one gets you in once if you lose your phone.</p>
+        <pre className="secret-key">{codes.join('\n')}</pre>
+        <a className="link-btn" download="gym-app-recovery-codes.txt" href={downloadUrl}>
+          Download
+        </a>
+        <button className="login-btn" type="button" onClick={onEnabled}>
+          I've saved them
+        </button>
+      </div>
+    );
   }
 
   if (!setup) {
@@ -67,7 +94,12 @@ export default function TwoFactorSetup({ token, onEnabled }) {
           minLength={6}
           maxLength={6}
           value={code}
-          onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+          onChange={(e) => {
+            const digits = e.target.value.replace(/\D/g, '');
+            setCode(digits);
+            // submit as soon as the last digit lands (typed or autofilled)
+            if (digits.length === 6 && !loading) confirmCode(digits);
+          }}
           required
         />
       </div>
