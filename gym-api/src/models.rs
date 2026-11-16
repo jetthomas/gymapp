@@ -110,6 +110,7 @@ pub struct UserSummary {
     pub email: String,
     pub active: bool,
     pub is_admin: bool,
+    pub is_you: bool, // the admin who asked, so the screen can mark their own row
     pub totp_enabled: bool,
     pub logins: i32,
     pub last_login: Option<DateTime<Utc>>,
@@ -147,4 +148,13 @@ pub struct ResetLink {
 #[serde(rename_all = "camelCase")]
 pub struct AdminFlag {
     pub is_admin: bool,
+}
+
+// Who is logged in, for the Account screen
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Profile {
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub email: String,
 }

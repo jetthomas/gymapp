@@ -50,6 +50,8 @@ export const logout = (token) => request('/auth/logout', { method: 'POST', token
 
 export const deleteAccount = (token) => request('/auth/delete', { method: 'DELETE', token });
 
+export const getProfile = (token) => request('/account', { token });
+
 export const reactivateAccount = (email, password) =>
   request('/auth/reactivate', { method: 'POST', body: { email, password } });
 
@@ -63,6 +65,9 @@ export const getStats = (token, days = 30) => request(`/admin/stats?days=${days}
 
 export const createResetLink = (token, userId) =>
   request(`/admin/users/${userId}/reset-link`, { method: 'POST', token });
+
+export const reactivateUser = (token, userId) =>
+  request(`/admin/users/${userId}/reactivate`, { method: 'POST', token });
 
 export const setAdmin = (token, userId, isAdmin) =>
   request(`/admin/users/${userId}/admin`, { method: 'PUT', token, body: { isAdmin } });

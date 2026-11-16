@@ -9,7 +9,9 @@ use chrono::NaiveDateTime;
 
 use crate::extractors::AdminUser;
 use crate::models::{AdminFlag, DayCount, ResetLink, StatsQuery, UserSummary};
-use crate::state::{ApiResult, AppState, all_rows, col, internal, one_row, record};
+use crate::state::{
+    ApiResult, AppState, all_rows, col, internal, one_row, record, send_security_notice,
+};
 use crate::tokens::make_reset_token;
 
 pub async fn set_admin(
@@ -59,7 +61,37 @@ pub async fn create_reset_link(
     }))
 }
 
-pub async fn list_users(AdminUser(_, mut db): AdminUser) -> ApiResult<Json<Vec<UserSummary>>> {
+// Brings back an account its member deactivated; the member is emailed, as with other account changes
+pub async fn reactivate_user(
+    State(state): State<Arc<AppState>>,
+    AdminUser(admin_id, mut db): AdminUser,
+    Path(user_id): Path<i32>,
+) -> ApiResult<StatusCode> {
+    let row = one_row(
+        &mut db,
+        // Bumps SessionVersion like reactivate_account, so tokens from before the deactivation stay dead
+        "UPDATE dbo.Users SET Active = 1, SessionVersion = SessionVersion + 1 OUTPUT INSERTED.Email WHERE Id = @P1 AND Active = 0",
+        &[&user_id],
+    )
+    .await?
+    .ok_or_else(|| {
+        (
+            StatusCode::NOT_FOUND,
+            "User not found, or already active.".to_string(),
+        )
+    })?;
+    record(&mut db, admin_id, "reactivated").await?;
+    send_security_notice(
+        &state,
+        col(&row, "Email")?,
+        "Your account was reactivated by an admin.",
+    );
+    Ok(StatusCode::OK)
+}
+
+pub async fn list_users(
+    AdminUser(admin_id, mut db): AdminUser,
+) -> ApiResult<Json<Vec<UserSummary>>> {
     let rows = all_rows(
         &mut db,
         "SELECT u.Id, u.FirstName, u.LastName, u.Email, u.Active, u.IsAdmin, u.TotpEnabled,
@@ -84,6 +116,7 @@ pub async fn list_users(AdminUser(_, mut db): AdminUser) -> ApiResult<Json<Vec<U
             email: r.get::<&str, _>("Email").unwrap_or_default().to_string(),
             active: r.get("Active").unwrap_or_default(),
             is_admin: r.get("IsAdmin").unwrap_or_default(),
+            is_you: r.get::<i32, _>("Id") == Some(admin_id),
             totp_enabled: r.get("TotpEnabled").unwrap_or_default(),
             logins: r.get("Logins").unwrap_or_default(),
             last_login: r.get::<NaiveDateTime, _>("LastLogin").map(|t| t.and_utc()),

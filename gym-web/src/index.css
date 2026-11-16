@@ -19,6 +19,7 @@
   --danger-text: #b80012;
   --danger-fill: #d70015;
   --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --warning: #b25000;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -38,6 +39,7 @@
     --success-text: #30d158;
     --accent-text: #4da3ff;
     --danger-text: #ff6961;
+    --warning: #f59e42;
   }
 }
 
@@ -172,7 +174,9 @@ button {
 /* Apple's minimum for a finger is 44 points; desktop keeps the compact size */
 @media (pointer: coarse) {
   .pill-btn,
-  .toolbar-btn {
+  .toolbar-btn,
+  .text-btn,
+  .role-select {
     min-height: 44px;
   }
 }
@@ -205,6 +209,7 @@ button {
   }
 
   .pill-btn:hover:not(:disabled),
+  .text-btn:hover:not(:disabled),
   .toolbar-btn:hover:not(:active) {
     opacity: 0.8;
   }
@@ -234,14 +239,18 @@ button {
 .link-btn:focus-visible,
 .eye-btn:focus-visible,
 .pill-btn:focus-visible,
-.toolbar-btn:focus-visible {
+.toolbar-btn:focus-visible,
+.outline-btn:focus-visible,
+.text-btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
 .login-btn:disabled,
 .link-btn:disabled,
-.pill-btn:disabled {
+.pill-btn:disabled,
+.text-btn:disabled,
+.role-select:disabled {
   opacity: 0.65;
   cursor: not-allowed;
 }
@@ -276,6 +285,7 @@ button {
 
 .field input:focus-visible,
 .admin-search:focus-visible,
+.role-select:focus-visible,
 .reset-field input:focus-visible {
   border-color: var(--accent);
   box-shadow: 0 0 0 4px var(--focus-ring);
@@ -434,8 +444,58 @@ button {
   padding: 24px 16px 64px;
 }
 
+/* The admin screen's table needs more room than the other screens' single column */
+.admin-content.wide {
+  max-width: 1002px;
+  padding-top: 36px;
+}
+
 .admin-content section + section {
   margin-top: 40px;
+}
+
+.last-login {
+  margin: 0 0 16px;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+  margin: 0 0 40px;
+}
+
+.stat,
+.table-wrap,
+.chart {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.stat {
+  padding: 18px 20px;
+}
+
+.stat dt {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.stat dd {
+  margin: 4px 0 0;
+  font-size: 1.625rem;
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A section's title with what sits beside it: the search box, or "Last 30 days" */
+.section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
 }
 
 .section-title {
@@ -447,99 +507,148 @@ button {
 }
 
 .admin-subtitle {
-  margin: 4px 0 0;
-  font-size: 0.9375rem;
+  /* Nudged down so its small text sits on the big title's baseline */
+  margin: 5px 0 0;
+  font-size: 0.8125rem;
   color: var(--text-secondary);
 }
 
 .admin-search {
-  width: 100%;
-  margin: 20px 0 8px;
-  padding: 10px 14px;
-  font-size: 1rem;
+  flex: 0 1 335px;
+  min-width: 0;
+  padding: 9px 14px 9px 38px;
+  font-size: 0.9375rem;
   color: var(--text);
-  background: color-mix(in srgb, var(--text-secondary) 14%, transparent);
-  border: 1px solid transparent;
+  background: var(--surface)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.5-4.5'/%3E%3C/svg%3E")
+    no-repeat 13px center;
+  border: 1px solid var(--border);
   border-radius: 10px;
   outline: none;
+  appearance: none;
   transition:
     border-color 0.15s,
     box-shadow 0.15s;
 }
 
-/* Inset grouped list, like iOS Settings */
-.user-list {
-  margin: 16px 0 0;
-  padding: 0;
-  list-style: none;
-  background: var(--surface);
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+@media (max-width: 600px) {
+  .admin-search {
+    flex-basis: 100%;
+  }
 }
 
-.user-row {
-  position: relative;
-  display: grid;
-  grid-template-columns: auto 1fr auto;
+.table-wrap {
+  margin-top: 16px;
+  overflow-x: auto;
+}
+
+.user-table {
+  width: 100%;
+  /* Below this the table scrolls sideways inside its card */
+  min-width: 780px;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+.user-table th,
+.user-table td {
+  padding: 15px 12px;
+  font-weight: 400;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.user-table th:first-child,
+.user-table td:first-child {
+  padding-left: 20px;
+}
+
+.user-table th:last-child,
+.user-table td:last-child {
+  padding-right: 20px;
+}
+
+.user-table thead th {
+  padding-block: 12px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.user-table tbody tr {
+  border-top: 1px solid var(--border);
+}
+
+.user-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.user-table .actions {
+  text-align: right;
+}
+
+/* The reset link or an error, tucked under the row it belongs to */
+.user-table tbody tr.detail-row {
+  border-top: none;
+}
+
+.detail-row td {
+  padding-top: 0;
+  white-space: normal;
+}
+
+.detail-row .hint {
+  margin: 6px 0 0;
+}
+
+.msg.row-error {
+  margin: 0;
+  text-align: left;
+}
+
+.user-cell {
+  display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 16px;
-}
-
-/* Hairline separator inset past the avatar */
-.user-row + .user-row::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 68px;
-  right: 0;
-  border-top: 0.5px solid var(--border);
 }
 
 .avatar {
   display: grid;
+  flex-shrink: 0;
   place-items: center;
-  width: 40px;
-  height: 40px;
-  font-size: 0.9375rem;
+  width: 36px;
+  height: 36px;
+  font-size: 0.8125rem;
   font-weight: 600;
   color: #fff;
-  background: linear-gradient(180deg, #5ac8fa, var(--accent));
+  background: var(--accent-fill);
   border-radius: 50%;
 }
 
 .avatar.inactive {
-  background: linear-gradient(180deg, #aeaeb2, #8e8e93);
-}
-
-.user-info {
-  min-width: 0;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-secondary) 28%, transparent);
 }
 
 .user-name {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: 500;
+}
+
+.inactive .user-name {
+  color: var(--text-secondary);
+}
+
+.you {
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--text-secondary);
 }
 
 .user-email {
-  overflow: hidden;
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Not .user-email: that has white-space: nowrap and would cut the badge off */
-.user-stats {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
   font-size: 0.8125rem;
   color: var(--text-secondary);
 }
@@ -568,21 +677,59 @@ button {
   background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
-.row-actions {
-  display: flex;
+.role-select {
+  padding: 5px 30px 5px 10px;
+  font-size: 0.875rem;
+  color: var(--text);
+  background: color-mix(in srgb, var(--text-secondary) 16%, transparent)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")
+    no-repeat right 8px center / 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+/* The role dropdown's look at the search box's height, pushed to the right of the title */
+.status-filter {
+  margin-left: auto;
+  padding-block: 9px;
+  font-size: 0.9375rem;
+  background-color: var(--surface);
+}
+
+.tfa {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  color: var(--text-secondary);
 }
 
-/* On a phone the buttons get their own line, so the name and email have room */
-@media (max-width: 600px) {
-  .row-actions {
-    grid-column: 2 / -1;
-  }
+.tfa.on,
+.tfa.warn {
+  color: var(--text);
 }
 
-.reset-panel {
-  grid-column: 2 / -1;
+.tfa.on svg {
+  color: var(--success);
+}
+
+.tfa.warn svg {
+  color: var(--warning);
+}
+
+/* A quiet action at the end of a table row; the negative margin lines its text up with the column edge */
+.text-btn {
+  margin-right: -8px;
+  padding: 6px 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--accent-text);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
 }
 
 .reset-field {
@@ -603,27 +750,11 @@ button {
   outline: none;
 }
 
-.reset-panel .hint {
-  margin: 6px 0 0;
-}
-
-@media (max-width: 480px) {
-  .reset-panel {
-    grid-column: 1 / -1;
-  }
-}
-
-/* An error under the row that caused it, lined up with the row's text */
-.msg.row-error {
-  grid-column: 2 / -1;
-  margin: 0;
-  text-align: left;
-}
-
-/* Admin activity charts (BarChart.jsx): one quiet grey, red only where something needs attention */
+/* Admin activity charts (BarChart.jsx) */
 .chart-grid {
   display: grid;
-  column-gap: 16px;
+  gap: 16px;
+  margin-top: 16px;
 }
 @media (min-width: 640px) {
   .chart-grid {
@@ -631,53 +762,230 @@ button {
   }
 }
 .chart {
-  margin: 24px 0 0;
-  padding: 16px;
-  background: var(--surface);
-  border-radius: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 20px;
 }
 .chart-title {
+  font-size: 0.9375rem;
   font-weight: 600;
 }
-.chart svg {
-  display: block;
-  width: 100%;
-  height: auto;
-  margin-top: 8px;
+.chart-summary {
+  margin: 2px 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+.bars {
+  display: flex;
+  height: 130px;
+  margin-top: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.bar-col {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+}
+.bar-value {
+  font-size: 0.75rem;
+  line-height: 18px;
+  white-space: nowrap;
 }
 .bar {
-  fill: var(--text-secondary);
-  opacity: 0.45;
+  width: 84%;
+  /* --v is the day's share of the tallest bar; 18px stays free for the number above */
+  height: calc((100% - 18px) * var(--v));
+  background: var(--accent-text);
+  border-radius: 3px 3px 0 0;
+}
+.bar.warn {
+  background: var(--warning);
 }
 .bar.alert {
-  fill: var(--danger);
-  opacity: 1;
+  background: var(--danger);
 }
-.alert-line {
-  stroke: var(--danger);
-  stroke-dasharray: 4 4;
+.bar-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
 }
-.axis {
-  fill: var(--text-secondary);
-  font-size: 12px;
+
+/* ---------- Account (AccountScreen.jsx) ---------- */
+
+/* One column of grouped cards, like the Settings app */
+.account {
+  max-width: 512px;
+  padding-top: 40px;
 }
-.chart-table {
-  width: 100%;
-  border-collapse: collapse;
+
+.profile-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.profile-avatar {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent-fill);
+  border-radius: 50%;
+}
+
+.profile-text {
+  min-width: 0;
+}
+
+.profile-name {
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.profile-email {
   font-size: 0.875rem;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
 }
-.chart-table th,
-.chart-table td {
-  padding: 4px 8px;
+
+.group-label {
+  margin: 32px 4px 8px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.group {
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.group.danger {
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 60px;
+  padding: 12px 20px;
+  font-size: 1rem;
+  color: var(--text);
   text-align: left;
-  border-bottom: 0.5px solid var(--border);
+  background: none;
+  border: none;
+  cursor: pointer;
 }
 
-/* ---------- Account ---------- */
+.row.static {
+  padding: 16px 20px;
+  cursor: default;
+}
 
-/* The account card sits centred in the page, as it did on its own screen */
-.admin-content > .login-card {
-  margin: 0 auto;
+/* Hairline between rows, and above a row that follows an open form */
+.row + .row,
+.row-panel + .row {
+  border-top: 1px solid var(--border);
+}
+
+.row-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.row-sub {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.row-chevron {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  transition: transform 0.15s;
+}
+
+.row[aria-expanded='true'] .row-chevron {
+  transform: rotate(90deg);
+}
+
+.row-panel {
+  padding: 0 20px 20px;
+}
+
+/* On / Off pill beside the two-factor row */
+.status {
+  padding: 3px 10px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-secondary) 14%, transparent);
+  border-radius: 999px;
+}
+
+.status.on {
+  color: var(--success-text);
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+}
+
+.outline-btn {
+  display: block;
+  width: 100%;
+  margin-top: 32px;
+  padding: 13px 16px;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.outline-btn.danger {
+  flex-shrink: 0;
+  width: auto;
+  margin: 0;
+  padding: 11px 16px;
+  color: var(--danger-text);
+  border-color: color-mix(in srgb, var(--danger) 70%, transparent);
+  border-radius: 10px;
+}
+
+@media (hover: hover) {
+  button.row:hover,
+  .outline-btn:hover {
+    background: color-mix(in srgb, var(--text) 5%, transparent);
+  }
+}
+
+/* Inside the row: the card clips anything drawn outside its edge */
+button.row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.outline-btn:active,
+button.row:active {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
 }
 
 /* ---------- Dialog (ConfirmDialog.jsx) ---------- */

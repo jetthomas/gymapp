@@ -97,7 +97,7 @@ pub async fn set_user(db: &mut Db, user_id: i32) -> Result<(), tiberius::error::
 }
 
 // One row per login, failed login, logged workout or admin action; kind is 'login', 'login_failed',
-// 'workout', or for admin actions 'admin_changed' / 'reset_link' (stored against the admin's id)
+// 'workout', or for admin actions 'admin_changed' / 'reset_link' / 'reactivated' (stored against the admin's id)
 pub async fn record(db: &mut Db, user_id: i32, kind: &str) -> ApiResult<()> {
     db.execute(
         "INSERT INTO dbo.Events (UserId, Kind) VALUES (@P1, @P2)",

@@ -22,10 +22,10 @@ use lettre::{
 use tiberius::{AuthMethod, Config};
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 
-use crate::admin::{admin_stats, create_reset_link, list_users, set_admin};
+use crate::admin::{admin_stats, create_reset_link, list_users, reactivate_user, set_admin};
 use crate::auth::{
-    change_password, delete_account, forgot_password, login, logout, reactivate_account, refresh,
-    register, reset_password, verify_email,
+    change_password, delete_account, forgot_password, get_profile, login, logout,
+    reactivate_account, refresh, register, reset_password, verify_email,
 };
 use crate::state::{AppState, ProxyIpKeyExtractor, connect};
 use crate::two_factor::{totp_confirm, totp_disable, totp_setup, totp_verify};
@@ -199,6 +199,7 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/auth/logout", post(logout))
+        .route("/account", get(get_profile))
         .route("/auth/delete", delete(delete_account))
         .route("/auth/2fa/setup", post(totp_setup))
         .route("/auth/2fa/confirm", post(totp_confirm))
@@ -207,6 +208,7 @@ async fn main() {
         .route("/admin/stats", get(admin_stats))
         .route("/admin/users/{id}/admin", put(set_admin))
         .route("/admin/users/{id}/reset-link", post(create_reset_link))
+        .route("/admin/users/{id}/reactivate", post(reactivate_user))
         .merge(limited)
         .with_state(state);
 

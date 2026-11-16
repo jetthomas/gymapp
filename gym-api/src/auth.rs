@@ -10,8 +10,8 @@ use jsonwebtoken::{DecodingKey, Validation, decode};
 
 use crate::extractors::{AuthUser, verify_credentials};
 use crate::models::{
-    Claims, Credentials, ForgotRequest, LoginResponse, NewUser, PasswordChange, ResetRequest,
-    TokenRequest,
+    Claims, Credentials, ForgotRequest, LoginResponse, NewUser, PasswordChange, Profile,
+    ResetRequest, TokenRequest,
 };
 use crate::passwords::{
     check_password, fits, hash_password, password_matches, totp_for, use_totp_code, valid_email,
@@ -300,6 +300,21 @@ pub async fn reactivate_account(
     .await
     .map_err(internal)?;
     Ok(StatusCode::OK)
+}
+
+pub async fn get_profile(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Json<Profile>> {
+    let row = one_row(
+        &mut db,
+        "SELECT FirstName, LastName, Email FROM dbo.Users WHERE Id = @P1",
+        &[&user_id],
+    )
+    .await?
+    .ok_or_else(|| internal("user missing"))?;
+    Ok(Json(Profile {
+        first_name: row.get::<&str, _>("FirstName").map(str::to_string),
+        last_name: row.get::<&str, _>("LastName").map(str::to_string),
+        email: col::<&str>(&row, "Email")?.to_string(),
+    }))
 }
 
 pub async fn delete_account(AuthUser(user_id, mut db): AuthUser) -> ApiResult<StatusCode> {
