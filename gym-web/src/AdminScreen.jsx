@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 import { getUsers, getStats, createResetLink, setAdmin } from './api';
 import BarChart from './BarChart';
 import ConfirmDialog from './ConfirmDialog';
+import ErrorMsg from './ErrorMsg';
 import perDay from './perDay';
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 function displayName(u) {
   return [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email;
@@ -13,9 +16,10 @@ function initials(u) {
   return (parts.length ? parts.map((p) => p[0]).join('') : u.email[0]).toUpperCase();
 }
 
-export default function AdminScreen({ token, onBack }) {
+export default function AdminScreen({ token, lastLogin, failedSince, onBack }) {
   const [users, setUsers] = useState(null); // null = still loading
   const [error, setError] = useState('');
+  const [rowError, setRowError] = useState(null); // { userId, message }
   const [reset, setReset] = useState(null); // { userId, link } once a link is made
   const [copied, setCopied] = useState(false);
   const [creatingFor, setCreatingFor] = useState(null); // userId while a link is being made
@@ -36,14 +40,14 @@ export default function AdminScreen({ token, onBack }) {
   }, [token]);
 
   async function handleReset(userId) {
-    setError('');
+    setRowError(null);
     setCopied(false);
     setCreatingFor(userId);
     try {
       const { link } = await createResetLink(token, userId);
       setReset({ userId, link });
     } catch (err) {
-      setError(err.message);
+      setRowError({ userId, message: err.message });
     } finally {
       setCreatingFor(null);
     }
@@ -51,7 +55,7 @@ export default function AdminScreen({ token, onBack }) {
 
   // Runs once the confirm dialog's button is pressed
   async function handleSetAdmin(user) {
-    setError('');
+    setRowError(null);
     setSavingId(user.id);
     try {
       await setAdmin(token, user.id, !user.isAdmin);
@@ -60,7 +64,7 @@ export default function AdminScreen({ token, onBack }) {
       );
       setAnnounce(`${displayName(user)} is ${user.isAdmin ? 'no longer' : 'now'} an admin`);
     } catch (err) {
-      setError(err.message);
+      setRowError({ userId: user.id, message: err.message });
     } finally {
       setSavingId(null);
     }
@@ -71,7 +75,10 @@ export default function AdminScreen({ token, onBack }) {
       await navigator.clipboard.writeText(reset.link);
       setCopied(true);
     } catch {
-      setError("Couldn't copy. Select the link and copy it yourself.");
+      setRowError({
+        userId: reset.userId,
+        message: "Couldn't copy. Select the link and copy it yourself.",
+      });
     }
   }
 
@@ -85,114 +92,166 @@ export default function AdminScreen({ token, onBack }) {
         <button className="toolbar-btn" type="button" onClick={onBack}>
           <span aria-hidden="true">‹</span> Back
         </button>
-        <span className="toolbar-title">Admin</span>
+        <h1 className="toolbar-title">Admin</h1>
       </header>
 
       <main className="admin-content">
         <p role="status" className="visually-hidden">
           {announce}
         </p>
-        <h1 className="admin-title">Users</h1>
-        {users && (
-          <p className="admin-subtitle">
-            {users.length} {users.length === 1 ? 'account' : 'accounts'} · {activeCount} active
+        {lastLogin && (
+          <p className="hint" role="status">
+            Last logged in{' '}
+            {new Date(lastLogin).toLocaleString(undefined, {
+              weekday: 'short',
+              day: 'numeric',
+              month: 'short',
+              hour: 'numeric',
+              minute: '2-digit',
+            })}
+            .
+            {failedSince > 0 &&
+              ` ${failedSince} failed ${failedSince === 1 ? 'attempt' : 'attempts'} since then. If that wasn't you, change your password.`}
           </p>
         )}
-        <input
-          className="admin-search"
-          type="search"
-          placeholder="Search by name or email"
-          aria-label="Search users"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
 
-        {error && (
-          <p className="msg error" role="alert">
-            {error}
-          </p>
-        )}
-        {users === null && !error && <p className="msg">Loading users…</p>}
-        {users?.length === 0 && <p className="msg">No users yet</p>}
-        {users?.length > 0 && shown.length === 0 && <p className="msg">No matches</p>}
+        <section aria-labelledby="users-title">
+          <h2 id="users-title" className="section-title">
+            Users
+          </h2>
+          {users && (
+            <p className="admin-subtitle">
+              {plural(users.length, 'account')} · {activeCount} active
+            </p>
+          )}
+          <input
+            className="admin-search"
+            type="search"
+            placeholder="Search by name or email"
+            aria-label="Search users"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
 
-        {shown?.length > 0 && (
-          <ul className="user-list">
-            {shown.map((u) => (
-              <li key={u.id} className="user-row">
-                <div className={`avatar${u.active ? '' : ' inactive'}`} aria-hidden="true">
-                  {initials(u)}
-                </div>
-                <div className="user-info">
-                  <div className="user-name">
-                    {displayName(u)}
-                    {u.isAdmin && <span className="badge">Admin</span>}
-                    {!u.active && <span className="badge muted">Deactivated</span>}
+          <ErrorMsg>{error}</ErrorMsg>
+          {users === null && !error && <p className="msg">Loading users…</p>}
+          {users?.length === 0 && <p className="msg">No users yet</p>}
+          {users?.length > 0 && shown.length === 0 && <p className="msg">No matches</p>}
+
+          {shown?.length > 0 && (
+            <ul className="user-list">
+              {shown.map((u) => (
+                <li key={u.id} className="user-row">
+                  <div className={`avatar${u.active ? '' : ' inactive'}`} aria-hidden="true">
+                    {initials(u)}
                   </div>
-                  <div className="user-email">{u.email}</div>
-                  <div className="user-stats">
-                    {u.logins} logins · last{' '}
-                    {u.lastLogin
-                      ? new Date(u.lastLogin).toLocaleDateString(undefined, {
+                  <div className="user-info">
+                    <div className="user-name">
+                      {displayName(u)}
+                      {u.isAdmin && <span className="badge">Admin</span>}
+                      {u.totpEnabled && <span className="badge muted">2FA</span>}
+                      {!u.active && <span className="badge muted">Deactivated</span>}
+                    </div>
+                    <div className="user-email">{u.email}</div>
+                    <div className="user-stats">
+                      {plural(u.logins, 'login')}
+                      {u.lastLogin &&
+                        `, last ${new Date(u.lastLogin).toLocaleDateString(undefined, {
                           day: 'numeric',
                           month: 'short',
-                        })
-                      : 'never'}{' '}
-                    · {u.workouts} workouts
-                    {u.failedLast7d >= 5 && (
-                      <span className="badge danger">
-                        {u.failedLast7d} failed sign-ins this week
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="row-actions">
-                  <button
-                    aria-label={`Reset link for ${displayName(u)}`}
-                    className="pill-btn"
-                    type="button"
-                    onClick={() => handleReset(u.id)}
-                    disabled={creatingFor === u.id}
-                  >
-                    {creatingFor === u.id ? 'Creating…' : 'Reset link'}
-                  </button>
-                  <button
-                    aria-label={`${u.isAdmin ? 'Remove admin' : 'Make admin'}: ${displayName(u)}`}
-                    className="pill-btn"
-                    type="button"
-                    onClick={() => setConfirming(u)}
-                    disabled={savingId === u.id}
-                  >
-                    {savingId === u.id
-                      ? u.isAdmin
-                        ? 'Removing…'
-                        : 'Promoting…'
-                      : u.isAdmin
-                        ? 'Remove admin'
-                        : 'Make admin'}
-                  </button>
-                </div>
-
-                {reset?.userId === u.id && (
-                  <div className="reset-panel">
-                    <div className="reset-field">
-                      <input
-                        readOnly
-                        value={reset.link}
-                        aria-label={`Reset link for ${displayName(u)}`}
-                        onFocus={(e) => e.target.select()}
-                      />
-                      <button className="pill-btn filled" type="button" onClick={handleCopy}>
-                        {copied ? 'Copied' : 'Copy'}
-                      </button>
+                        })}`}{' '}
+                      · {plural(u.workouts, 'workout')}
+                      {u.failedLast7d >= 5 && (
+                        <span className="badge danger">
+                          {u.failedLast7d} failed logins this week
+                        </span>
+                      )}
                     </div>
-                    <p className="hint">Works once, for 15 minutes.</p>
                   </div>
-                )}
-              </li>
-            ))}
-          </ul>
+                  <div className="row-actions">
+                    <button
+                      aria-label={`Reset link for ${displayName(u)}`}
+                      className="pill-btn"
+                      type="button"
+                      onClick={() => handleReset(u.id)}
+                      disabled={creatingFor === u.id}
+                    >
+                      {creatingFor === u.id ? 'Creating…' : 'Reset link'}
+                    </button>
+                    <button
+                      aria-label={`${u.isAdmin ? 'Remove admin' : 'Make admin'}: ${displayName(u)}`}
+                      className="pill-btn"
+                      type="button"
+                      onClick={() => setConfirming(u)}
+                      disabled={savingId === u.id}
+                    >
+                      {savingId === u.id
+                        ? u.isAdmin
+                          ? 'Removing…'
+                          : 'Promoting…'
+                        : u.isAdmin
+                          ? 'Remove admin'
+                          : 'Make admin'}
+                    </button>
+                  </div>
+
+                  {reset?.userId === u.id && (
+                    <div className="reset-panel">
+                      <div className="reset-field">
+                        <input
+                          readOnly
+                          value={reset.link}
+                          aria-label={`Reset link for ${displayName(u)}`}
+                          onFocus={(e) => e.target.select()}
+                        />
+                        <button className="pill-btn filled" type="button" onClick={handleCopy}>
+                          {copied ? 'Copied' : 'Copy'}
+                        </button>
+                      </div>
+                      <p className="hint">Works once, for 15 minutes.</p>
+                    </div>
+                  )}
+                  {rowError?.userId === u.id && (
+                    <p className="msg error row-error" role="alert">
+                      {rowError.message}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {stats && (
+          <section aria-labelledby="activity-title">
+            <h2 id="activity-title" className="section-title">
+              Activity
+            </h2>
+            <p className="admin-subtitle">Last 30 days</p>
+            <div className="chart-grid">
+              {[
+                { kind: 'login', title: 'Logins per day' },
+                { kind: 'login_failed', title: 'Failed logins per day', alertAt: 20 },
+                { kind: 'workout', title: 'Workouts logged per day' },
+              ].map(({ kind, title, alertAt }) => {
+                const data = perDay(stats, kind, 30);
+                const total = data.reduce((s, d) => s + d.value, 0);
+                const peak = data.reduce((a, b) => (b.value > a.value ? b : a));
+                return (
+                  <BarChart
+                    key={kind}
+                    title={title}
+                    data={data}
+                    alertAt={alertAt}
+                    isAlert={(d) => alertAt != null && d.value > alertAt}
+                    summary={`${total} in 30 days. Busiest: ${peak.label} (${peak.value}).`}
+                  />
+                );
+              })}
+            </div>
+          </section>
         )}
+
         {confirming && (
           <ConfirmDialog
             title={
@@ -213,35 +272,6 @@ export default function AdminScreen({ token, onBack }) {
             }}
             onCancel={() => setConfirming(null)}
           />
-        )}
-
-        {stats && (
-          <section aria-labelledby="activity-title">
-            <h2 id="activity-title" className="admin-subtitle">
-              Activity, last 30 days
-            </h2>
-            <div className="chart-grid">
-              {[
-                { kind: 'login', title: 'Sign-ins per day' },
-                { kind: 'login_failed', title: 'Failed sign-ins per day', alertAt: 20 },
-                { kind: 'workout', title: 'Workouts logged per day' },
-              ].map(({ kind, title, alertAt }) => {
-                const data = perDay(stats, kind, 30);
-                const total = data.reduce((s, d) => s + d.value, 0);
-                const peak = data.reduce((a, b) => (b.value > a.value ? b : a));
-                return (
-                  <BarChart
-                    key={kind}
-                    title={title}
-                    data={data}
-                    alertAt={alertAt}
-                    isAlert={(d) => alertAt != null && d.value > alertAt}
-                    summary={`${total} in 30 days. Busiest: ${peak.label} (${peak.value}).`}
-                  />
-                );
-              })}
-            </div>
-          </section>
         )}
       </main>
     </div>

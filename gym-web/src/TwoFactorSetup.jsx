@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
 import { setup2fa, confirm2fa } from './api';
+import CodeInput from './CodeInput';
+import ErrorMsg from './ErrorMsg';
 import useSubmit from './useSubmit';
 
 export default function TwoFactorSetup({ token, onEnabled }) {
@@ -39,7 +41,7 @@ export default function TwoFactorSetup({ token, onEnabled }) {
 
   if (codes) {
     return (
-      <div>
+      <div className="recovery-codes">
         <p className="hint">Save these codes. Each one gets you in once if you lose your phone.</p>
         <pre className="secret-key">{codes.join('\n')}</pre>
         <a className="link-btn" download="gym-app-recovery-codes.txt" href={downloadUrl}>
@@ -58,11 +60,7 @@ export default function TwoFactorSetup({ token, onEnabled }) {
         <button className="link-btn" type="button" onClick={start} disabled={loading}>
           {loading ? 'Starting…' : 'Turn on two-factor'}
         </button>
-        {message && (
-          <p className="msg error" role="alert">
-            {message}
-          </p>
-        )}
+        <ErrorMsg>{message}</ErrorMsg>
       </>
     );
   }
@@ -86,28 +84,17 @@ export default function TwoFactorSetup({ token, onEnabled }) {
       </p>
       <div className="field">
         <label htmlFor="setup-code">6-digit code</label>
-        <input
+        <CodeInput
           id="setup-code"
-          className="code-input"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          minLength={6}
-          maxLength={6}
           value={code}
-          onChange={(e) => {
-            const digits = e.target.value.replace(/\D/g, '');
+          onChange={(digits) => {
             setCode(digits);
             // submit as soon as the last digit lands (typed or autofilled)
             if (digits.length === 6 && !loading) confirmCode(digits);
           }}
-          required
         />
       </div>
-      {message && (
-        <p className="msg error" role="alert">
-          {message}
-        </p>
-      )}
+      <ErrorMsg>{message}</ErrorMsg>
       <button className="login-btn" type="submit" disabled={loading}>
         {loading ? 'Checking…' : 'Turn on two-factor'}
       </button>

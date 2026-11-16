@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { changePassword } from './api';
+import ErrorMsg from './ErrorMsg';
+import NewPasswordField from './NewPasswordField';
 import PasswordInput from './PasswordInput';
 import useSubmit from './useSubmit';
 
@@ -28,27 +30,13 @@ export default function ChangePasswordForm({ token, onChanged, onCancel }) {
           onChange={(e) => setCurrent(e.target.value)}
         />
       </div>
-      <div className="field">
-        <label htmlFor="new-password">New password</label>
-        <PasswordInput
-          id="new-password"
-          aria-describedby="new-password-hint"
-          autoComplete="new-password"
-          value={next}
-          onChange={(e) => setNext(e.target.value)}
-          minLength={10}
-          pattern=".*[^A-Za-z0-9].*"
-          title="At least 10 characters, including a special character (e.g. ! @ #$)"
-        />
-        <p className="hint" id="new-password-hint">
-          At least 10 characters, including a symbol like ! @ # $
-        </p>
-      </div>
-      {message && (
-        <p className="msg error" role="alert">
-          {message}
-        </p>
-      )}
+      <NewPasswordField
+        id="new-password"
+        label="New password"
+        value={next}
+        onChange={(e) => setNext(e.target.value)}
+      />
+      <ErrorMsg>{message}</ErrorMsg>
       <button className="login-btn" type="submit" disabled={loading}>
         {loading ? 'Saving…' : 'Change password'}
       </button>

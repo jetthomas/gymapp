@@ -4,7 +4,11 @@ export default function ConfirmDialog({ title, body, confirmLabel, danger, onCon
   const ref = useRef(null);
   // StrictMode runs effects twice in development, so don't reopen an open dialog
   useEffect(() => {
-    if (!ref.current.open) ref.current.showModal();
+    const dialog = ref.current;
+    if (!dialog.open) {
+      dialog.showModal();
+      return () => dialog.close();
+    }
   }, []);
   return (
     <dialog ref={ref} className="sheet" aria-labelledby="sheet-title" onCancel={onCancel}>

@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { reactivateAccount } from './api';
+import EmailField from './EmailField';
+import ErrorMsg from './ErrorMsg';
 import PasswordInput from './PasswordInput';
 import useSubmit from './useSubmit';
 
@@ -19,22 +21,9 @@ export default function ReactivateAccountForm({ onBack, initialEmail = '' }) {
   return (
     <div className="login-page">
       <form className="login-card" onSubmit={handleSubmit}>
-        <h1>Reactivate Account</h1>
+        <h1>Reactivate account</h1>
 
-        <div className="field">
-          <label htmlFor="email">Email address</label>
-          <input
-            id="email"
-            name="email"
-            placeholder="name@example.com"
-            type="email"
-            autoComplete="email"
-            spellCheck={false}
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-        </div>
+        <EmailField value={email} onChange={(e) => setEmail(e.target.value)} />
 
         <div className="field">
           <label htmlFor="password">Password</label>
@@ -47,18 +36,14 @@ export default function ReactivateAccountForm({ onBack, initialEmail = '' }) {
           />
         </div>
 
-        {message && (
-          <p className="msg error" role="alert">
-            {message}
-          </p>
-        )}
+        <ErrorMsg>{message}</ErrorMsg>
 
         <button className="login-btn" type="submit" disabled={loading}>
-          {loading ? 'Reactivating…' : 'Reactivate Account'}
+          {loading ? 'Reactivating…' : 'Reactivate account'}
         </button>
 
         <button className="link-btn" type="button" onClick={() => onBack()} disabled={loading}>
-          Back to Log In
+          Back to login
         </button>
       </form>
     </div>

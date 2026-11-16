@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { disable2fa } from './api';
+import CodeInput from './CodeInput';
+import ErrorMsg from './ErrorMsg';
 import PasswordInput from './PasswordInput';
 import useSubmit from './useSubmit';
 
@@ -46,23 +48,9 @@ export default function TwoFactorDisable({ token, onDisabled }) {
       </div>
       <div className="field">
         <label htmlFor="disable-code">6-digit code from your authenticator app</label>
-        <input
-          id="disable-code"
-          className="code-input"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          minLength={6}
-          maxLength={6}
-          value={code}
-          onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-          required
-        />
+        <CodeInput id="disable-code" value={code} onChange={setCode} />
       </div>
-      {message && (
-        <p className="msg error" role="alert">
-          {message}
-        </p>
-      )}
+      <ErrorMsg>{message}</ErrorMsg>
       <button className="login-btn" type="submit" disabled={loading}>
         {loading ? 'Checking…' : 'Turn off two-factor'}
       </button>

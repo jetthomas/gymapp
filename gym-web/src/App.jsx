@@ -4,12 +4,10 @@ import CreateAccountForm from './CreateAccountForm';
 import ReactivateAccountForm from './ReactivateAccountForm';
 import ForgotPasswordForm from './ForgotPasswordForm';
 import AdminScreen from './AdminScreen';
+import AccountScreen from './AccountScreen';
+import HomeScreen from './HomeScreen';
 import ResetPasswordForm from './ResetPasswordForm';
-import TwoFactorSetup from './TwoFactorSetup';
-import TwoFactorDisable from './TwoFactorDisable';
-import ChangePasswordForm from './ChangePasswordForm';
-import ConfirmDialog from './ConfirmDialog';
-import { deleteAccount, logout, refresh, setOnSessionExpired, verifyEmail } from './api';
+import { logout, refresh, setOnSessionExpired, verifyEmail } from './api';
 
 export default function App() {
   const [token, setToken] = useState(null);
@@ -24,13 +22,9 @@ export default function App() {
   const [page, setPage] = useState(resetToken ? 'reset' : 'login');
   const [email, setEmail] = useState('');
   const [notice, setNotice] = useState('');
-  const [deleteError, setDeleteError] = useState('');
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [changingPassword, setChangingPassword] = useState(false);
-  const [accountNotice, setAccountNotice] = useState('');
   const [lastLogin, setLastLogin] = useState(null);
   const [failedSince, setFailedSince] = useState(0);
-  // True until the "Stay signed in" cookie has been tried, so the login form doesn't flash
+  // True until the "Stay logged in" cookie has been tried, so the login form doesn't flash
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
@@ -81,27 +75,14 @@ export default function App() {
     setHas2fa(false);
     setLastLogin(null);
     setFailedSince(0);
-    setChangingPassword(false);
-    setAccountNotice('');
     setPage('login');
   }
 
   function handleLogOut() {
-    // Tell the server so the token and the "Stay signed in" cookie stop working;
+    // Tell the server so the token and the "Stay logged in" cookie stop working;
     // sign out locally even if that call fails
     logout(token).catch(() => {});
     logOut();
-  }
-
-  async function handleDelete() {
-    setConfirmingDelete(false);
-    setDeleteError('');
-    try {
-      await deleteAccount(token);
-      logOut();
-    } catch (err) {
-      setDeleteError(err.message);
-    }
   }
 
   if (checking) return null;
@@ -138,99 +119,31 @@ export default function App() {
     );
   }
   if (page === 'admin') {
-    return <AdminScreen token={token} onBack={() => setPage('login')} />;
+    return (
+      <AdminScreen
+        token={token}
+        lastLogin={lastLogin}
+        failedSince={failedSince}
+        onBack={() => setPage('account')}
+      />
+    );
   }
-  return (
-    <div className="login-page">
-      <div className="login-card">
-        <h1>Logged In!</h1>
-        {lastLogin && (
-          <p className="hint" role="status">
-            Last signed in{' '}
-            {new Date(lastLogin).toLocaleString(undefined, {
-              weekday: 'short',
-              day: 'numeric',
-              month: 'short',
-              hour: 'numeric',
-              minute: '2-digit',
-            })}
-            .
-            {failedSince > 0 &&
-              ` ${failedSince} failed ${failedSince === 1 ? 'attempt' : 'attempts'} since then. If that wasn't you, change your password.`}
-          </p>
-        )}
-        {accountNotice && (
-          <p className="msg success" role="status">
-            {accountNotice}
-          </p>
-        )}
-        <button className="login-btn" onClick={handleLogOut}>
-          Log Out
-        </button>
-        {isAdmin && (
-          <button className="link-btn" onClick={() => setPage('admin')}>
-            Manage users
-          </button>
-        )}
-        {changingPassword ? (
-          <ChangePasswordForm
-            token={token}
-            onChanged={(t) => {
-              setToken(t);
-              setChangingPassword(false);
-              setAccountNotice('Password changed. Other devices have been signed out.');
-            }}
-            onCancel={() => setChangingPassword(false)}
-          />
-        ) : (
-          <button
-            className="link-btn"
-            onClick={() => {
-              setAccountNotice('');
-              setChangingPassword(true);
-            }}
-          >
-            Change password
-          </button>
-        )}
-        {has2fa ? (
-          <TwoFactorDisable
-            token={token}
-            onDisabled={() => {
-              // Turning 2FA off signs out every session, this one included
-              logOut();
-              setNotice('Two-factor is off. Log in again.');
-            }}
-          />
-        ) : (
-          <TwoFactorSetup
-            token={token}
-            onEnabled={() => {
-              // Turning 2FA on signs out every session, this one included
-              logOut();
-              setNotice('Two-factor is on. Log in again with your code.');
-            }}
-          />
-        )}
-        <button className="link-btn danger" onClick={() => setConfirmingDelete(true)}>
-          Delete Account
-        </button>
-        {deleteError && (
-          <p className="msg error" role="alert">
-            {deleteError}
-          </p>
-        )}
-        {confirmingDelete && (
-          <ConfirmDialog
-            title="Delete your account?"
-            body="You can reactivate it later from the login screen."
-            confirmLabel="Delete Account"
-            danger
-            onConfirm={handleDelete}
-            onCancel={() => setConfirmingDelete(false)}
-          />
-        )}
-      </div>
-    </div>
-  );
+  if (page === 'account') {
+    return (
+      <AccountScreen
+        token={token}
+        isAdmin={isAdmin}
+        has2fa={has2fa}
+        onBack={() => setPage('home')}
+        onTokenChanged={setToken}
+        onManageUsers={() => setPage('admin')}
+        onLogOut={handleLogOut}
+        onSignedOut={(doneNotice = '') => {
+          logOut();
+          setNotice(doneNotice);
+        }}
+      />
+    );
+  }
+  return <HomeScreen onAccount={() => setPage('account')} />;
 }

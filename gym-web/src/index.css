@@ -1,3 +1,5 @@
+/* ---------- Tokens ---------- */
+
 :root {
   color-scheme: light dark;
   --bg: #f5f5f7;
@@ -15,6 +17,8 @@
   --success-text: #1b6e30;
   --accent-text: #0058b0;
   --danger-text: #b80012;
+  --danger-fill: #d70015;
+  --mono: ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -37,39 +41,18 @@
   }
 }
 
+/* ---------- Base ---------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
-  /* matches .login-page so scrolling or bouncing past the edge never shows white */
-  background: var(--bg);
-}
-
-.badge {
-  color: var(--accent-text);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-.badge.muted {
-  color: var(--text-secondary);
-}
-.pill-btn {
-  color: var(--accent-text);
-}
-.pill-btn.danger {
-  color: var(--danger-text);
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-}
-.pill-btn:focus-visible,
-.toolbar-btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 4px var(--focus-ring);
-}
-
-.login-page {
-  box-sizing: border-box;
-  min-height: 100dvh;
-  padding: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  color: var(--text);
+  /* the page colour, so scrolling or bouncing past the edge never shows white */
   background: var(--bg);
   font-family:
     system-ui,
@@ -77,15 +60,281 @@ body {
     'Segoe UI',
     Roboto,
     sans-serif;
-  color: var(--text);
 }
 
-.login-page * {
-  box-sizing: border-box;
+/* Buttons and inputs don't take the page font unless told to */
+button,
+input {
+  font-family: inherit;
 }
 
-.login-page button {
+button {
   touch-action: manipulation;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------- Buttons ---------- */
+
+.login-btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px 16px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent-fill);
+  border: none;
+  border-radius: 999px;
+  transition:
+    background 0.15s,
+    transform 0.1s;
+}
+
+.link-btn {
+  display: block;
+  width: fit-content;
+  margin: 16px auto 0;
+  padding: 4px 8px;
+  font-size: 0.9rem;
+  color: var(--accent);
+  text-decoration: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.1s;
+}
+
+.link-btn.danger {
+  color: var(--danger);
+}
+
+.pill-btn {
+  padding: 6px 14px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--accent-text);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    transform 0.1s ease-out,
+    background 0.15s;
+}
+
+.pill-btn.filled {
+  color: #fff;
+  background: var(--accent-fill);
+}
+
+.pill-btn.danger {
+  color: var(--danger-text);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.pill-btn.filled.danger {
+  color: #fff;
+  background: var(--danger-fill);
+}
+
+.toolbar-btn {
+  justify-self: start;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+  font-size: 1.0625rem;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.1s;
+}
+
+.toolbar-btn span {
+  font-size: 1.6rem;
+  line-height: 0.6;
+}
+
+/* A toolbar button in the right-hand slot */
+.toolbar-btn.end {
+  justify-self: end;
+}
+
+/* Apple's minimum for a finger is 44 points; desktop keeps the compact size */
+@media (pointer: coarse) {
+  .pill-btn,
+  .toolbar-btn {
+    min-height: 44px;
+  }
+}
+
+.eye-btn {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: flex;
+  padding: 12px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  transition: opacity 0.1s;
+}
+
+/* hover only on real pointers, so a tap on iPhone doesn't leave a stuck hover state */
+@media (hover: hover) {
+  .login-btn:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
+
+  .link-btn:hover:not(:disabled) {
+    text-decoration: underline;
+  }
+
+  .eye-btn:hover {
+    opacity: 0.7;
+  }
+
+  .pill-btn:hover:not(:disabled),
+  .toolbar-btn:hover:not(:active) {
+    opacity: 0.8;
+  }
+}
+
+.login-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.link-btn:active:not(:disabled) {
+  opacity: 0.6;
+}
+
+.pill-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.toolbar-btn:active {
+  opacity: 0.5;
+}
+
+.eye-btn:active {
+  opacity: 0.5;
+}
+
+.login-btn:focus-visible,
+.link-btn:focus-visible,
+.eye-btn:focus-visible,
+.pill-btn:focus-visible,
+.toolbar-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.login-btn:disabled,
+.link-btn:disabled,
+.pill-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* ---------- Forms ---------- */
+
+.field {
+  margin-bottom: 16px;
+}
+
+.field label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.field input {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 1rem;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--input-border);
+  border-radius: 12px;
+  outline: none;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.field input:focus-visible,
+.admin-search:focus-visible,
+.reset-field input:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--focus-ring);
+}
+
+.hint {
+  margin: 6px 4px 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.msg {
+  margin: 16px 0 0;
+  overflow-wrap: anywhere;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.msg.error {
+  color: var(--danger);
+}
+
+.msg.success {
+  color: var(--success-text);
+}
+
+.password-wrap {
+  position: relative;
+}
+
+.password-wrap input {
+  padding-right: 52px;
+}
+
+/* "Stay logged in" checkbox on the login form */
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9375rem;
+}
+
+.field input.code-input {
+  text-align: center;
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.3em;
+  /* balances the trailing letter-spacing so the digits sit truly centered */
+  text-indent: 0.3em;
+}
+
+/* ---------- Card pages ---------- */
+
+.login-page {
+  min-height: 100dvh;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .login-card {
@@ -120,170 +369,35 @@ body {
   text-wrap: balance;
 }
 
-.field {
-  margin-bottom: 16px;
-}
+/* ---------- Two-factor ---------- */
 
-.field label {
+/* Scanners need dark-on-light, so the QR keeps a white plate in dark mode too */
+.qr {
   display: block;
-  margin-bottom: 6px;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.field input {
-  width: 100%;
-  padding: 12px 16px;
-  font-size: 1rem;
-  color: var(--text);
-  background: var(--surface);
-  border: 1px solid var(--input-border);
+  margin: 16px auto;
+  padding: 8px;
+  background: #fff;
   border-radius: 12px;
-  outline: none;
-  transition:
-    border-color 0.15s,
-    box-shadow 0.15s;
-}
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
 }
 
-.field input:focus-visible {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 4px var(--focus-ring);
-}
-
-.hint {
-  margin: 6px 4px 0;
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-}
-
-.login-btn {
-  width: 100%;
-  margin-top: 8px;
-  padding: 12px 16px;
-  font-size: 1rem;
-  font-weight: 600;
-  color: #fff;
-  background: var(--accent-fill);
-  border: none;
-  border-radius: 999px;
-  transition:
-    background 0.15s,
-    transform 0.1s;
-}
-
-.login-btn:active:not(:disabled) {
-  transform: scale(0.98);
-}
-
-/* hover only on real pointers, so a tap on iPhone doesn't leave a stuck hover state */
-@media (hover: hover) {
-  .login-btn:hover:not(:disabled) {
-    background: var(--accent-hover);
-  }
-
-  .link-btn:hover:not(:disabled) {
-    text-decoration: underline;
-  }
-
-  .eye-btn:hover {
-    opacity: 0.7;
-  }
-}
-
-.login-btn:disabled,
-.link-btn:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
-}
-
-.link-btn {
-  display: block;
-  margin: 16px auto 0;
-  padding: 4px 8px;
-  font-size: 0.9rem;
-  color: var(--accent);
-  background: none;
-  border: none;
-  cursor: pointer;
-  transition: opacity 0.1s;
-}
-
-.link-btn:active:not(:disabled) {
-  opacity: 0.6;
-}
-
-.link-btn.danger {
-  color: var(--danger);
-}
-
-.msg {
-  margin: 16px 0 0;
+.secret-key {
+  font-family: var(--mono);
   overflow-wrap: anywhere;
+  user-select: all;
+}
+
+/* Every code is the same width, so centring each line keeps them in one tidy column */
+.recovery-codes {
   text-align: center;
-  font-size: 0.9rem;
-}
-
-.msg.error {
-  color: var(--danger);
-}
-
-.msg.success {
-  color: var(--success-text);
-}
-
-.password-wrap {
-  position: relative;
-}
-
-.password-wrap input {
-  padding-right: 52px;
-}
-
-.eye-btn {
-  position: absolute;
-  top: 50%;
-  right: 4px;
-  transform: translateY(-50%);
-  display: flex;
-  padding: 12px;
-  border: none;
-  background: none;
-  cursor: pointer;
-  transition: opacity 0.1s;
-}
-
-.eye-btn:active {
-  opacity: 0.5;
 }
 
 /* ---------- Admin ---------- */
 
 .admin-page {
   min-height: 100dvh;
-  background: var(--bg);
-  color: var(--text);
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
 }
 
-.admin-page * {
-  box-sizing: border-box;
-}
-
-/* Translucent toolbar: content scrolls underneath it */
+/* Translucent toolbar: content scrolls underneath it. The home and account screens use this shell too */
 .admin-toolbar {
   position: sticky;
   top: 0;
@@ -299,34 +413,19 @@ body {
   border-bottom: 0.5px solid color-mix(in srgb, var(--border) 60%, transparent);
 }
 
+@media (prefers-reduced-transparency: reduce) {
+  .admin-toolbar {
+    background: var(--bg);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
 .toolbar-title {
+  margin: 0;
   font-size: 1.0625rem;
   font-weight: 600;
   letter-spacing: -0.01em;
-}
-
-.toolbar-btn {
-  justify-self: start;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px;
-  font-size: 1.0625rem;
-  color: var(--accent);
-  background: none;
-  border: none;
-  cursor: pointer;
-  touch-action: manipulation;
-  transition: opacity 0.1s;
-}
-
-.toolbar-btn span {
-  font-size: 1.6rem;
-  line-height: 0.6;
-}
-
-.toolbar-btn:active {
-  opacity: 0.5;
 }
 
 .admin-content {
@@ -335,12 +434,16 @@ body {
   padding: 24px 16px 64px;
 }
 
-.admin-title {
+.admin-content section + section {
+  margin-top: 40px;
+}
+
+.section-title {
   margin: 0;
-  font-size: 2.125rem;
+  font-size: 1.375rem;
   font-weight: 700;
-  line-height: 1.1;
-  letter-spacing: -0.022em;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
 }
 
 .admin-subtitle {
@@ -362,11 +465,6 @@ body {
   transition:
     border-color 0.15s,
     box-shadow 0.15s;
-}
-
-.admin-search:focus-visible {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 4px var(--focus-ring);
 }
 
 /* Inset grouped list, like iOS Settings */
@@ -421,6 +519,7 @@ body {
 
 .user-name {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   font-weight: 600;
@@ -433,6 +532,16 @@ body {
   color: var(--text-secondary);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Not .user-email: that has white-space: nowrap and would cut the badge off */
+.user-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
 }
 
 .badge {
@@ -454,6 +563,10 @@ body {
   color: var(--text-secondary);
   background: color-mix(in srgb, var(--text-secondary) 12%, transparent);
 }
+.badge.danger {
+  color: var(--danger-text);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
 
 .row-actions {
   display: flex;
@@ -461,34 +574,11 @@ body {
   gap: 8px;
 }
 
-.pill-btn {
-  padding: 6px 14px;
-  font-size: 0.875rem;
-  font-weight: 600;
-  white-space: nowrap;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border: none;
-  border-radius: 999px;
-  cursor: pointer;
-  touch-action: manipulation;
-  transition:
-    transform 0.1s ease-out,
-    background 0.15s;
-}
-
-.pill-btn.filled {
-  color: #fff;
-  background: var(--accent-fill);
-}
-
-.pill-btn:active:not(:disabled) {
-  transform: scale(0.96);
-}
-
-.pill-btn:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
+/* On a phone the buttons get their own line, so the name and email have room */
+@media (max-width: 600px) {
+  .row-actions {
+    grid-column: 2 / -1;
+  }
 }
 
 .reset-panel {
@@ -504,18 +594,13 @@ body {
   flex: 1;
   min-width: 0;
   padding: 8px 12px;
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-family: var(--mono);
   font-size: 0.8125rem;
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 8px;
   outline: none;
-}
-
-.reset-field input:focus-visible {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 4px var(--focus-ring);
 }
 
 .reset-panel .hint {
@@ -528,36 +613,11 @@ body {
   }
 }
 
-@media (prefers-reduced-transparency: reduce) {
-  .admin-toolbar {
-    background: var(--bg);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
-}
-
-/* Scanners need dark-on-light, so the QR keeps a white plate in dark mode too */
-.qr {
-  display: block;
-  margin: 16px auto;
-  padding: 8px;
-  background: #fff;
-  border-radius: 12px;
-}
-
-.secret-key {
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-  overflow-wrap: anywhere;
-  user-select: all;
-}
-
-.field input.code-input {
-  text-align: center;
-  font-size: 1.25rem;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.3em;
-  /* balances the trailing letter-spacing so the digits sit truly centered */
-  text-indent: 0.3em;
+/* An error under the row that caused it, lined up with the row's text */
+.msg.row-error {
+  grid-column: 2 / -1;
+  margin: 0;
+  text-align: left;
 }
 
 /* Admin activity charts (BarChart.jsx): one quiet grey, red only where something needs attention */
@@ -613,24 +673,63 @@ body {
   border-bottom: 0.5px solid var(--border);
 }
 
-/* Not .user-email: that has white-space: nowrap and would cut the badge off */
-.user-stats {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.8125rem;
-  color: var(--text-secondary);
-}
-.badge.danger {
-  color: var(--danger-text);
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
+/* ---------- Account ---------- */
+
+/* The account card sits centred in the page, as it did on its own screen */
+.admin-content > .login-card {
+  margin: 0 auto;
 }
 
-/* "Stay signed in" checkbox on the login form */
-.check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+/* ---------- Dialog (ConfirmDialog.jsx) ---------- */
+
+.sheet {
+  width: min(100% - 32px, 340px);
+  padding: 24px;
+  color: var(--text);
+  background: var(--surface);
+  border: none;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+}
+
+/* Dims the page behind, so the dialog reads as the only task */
+.sheet::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.sheet h2 {
+  margin: 0 0 8px;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.sheet p {
+  margin: 0;
   font-size: 0.9375rem;
+  color: var(--text-secondary);
+}
+
+.sheet-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sheet[open] {
+    animation: sheet-in 200ms ease-out;
+  }
+
+  .sheet[open]::backdrop {
+    animation: card-in 200ms ease-out;
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
 }

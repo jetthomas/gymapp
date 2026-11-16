@@ -43,7 +43,7 @@ export const register = (firstName, lastName, email, password) =>
 export const login = (email, password, remember) =>
   request('/auth/login', { method: 'POST', body: { email, password, remember } });
 
-// Uses the "Stay signed in" cookie; fetch sends same-origin cookies by default
+// Uses the "Stay logged in" cookie; fetch sends same-origin cookies by default
 export const refresh = () => request('/auth/refresh', { method: 'POST' });
 
 export const logout = (token) => request('/auth/logout', { method: 'POST', token });

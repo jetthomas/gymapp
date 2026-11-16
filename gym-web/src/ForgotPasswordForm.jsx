@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { forgotPassword } from './api';
+import EmailField from './EmailField';
+import ErrorMsg from './ErrorMsg';
 import useSubmit from './useSubmit';
 
 export default function ForgotPasswordForm({ onBack, initialEmail = '' }) {
@@ -20,33 +22,16 @@ export default function ForgotPasswordForm({ onBack, initialEmail = '' }) {
       <form className="login-card" onSubmit={handleSubmit}>
         <h1>Forgot password</h1>
 
-        <div className="field">
-          <label htmlFor="email">Email address</label>
-          <input
-            id="email"
-            name="email"
-            placeholder="name@example.com"
-            type="email"
-            autoComplete="email"
-            spellCheck={false}
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-        </div>
+        <EmailField value={email} onChange={(e) => setEmail(e.target.value)} />
 
-        {message && (
-          <p className="msg error" role="alert">
-            {message}
-          </p>
-        )}
+        <ErrorMsg>{message}</ErrorMsg>
 
         <button className="login-btn" type="submit" disabled={loading}>
           {loading ? 'Sending…' : 'Send reset link'}
         </button>
 
         <button className="link-btn" type="button" onClick={() => onBack()} disabled={loading}>
-          Back to Log In
+          Back to login
         </button>
       </form>
     </div>

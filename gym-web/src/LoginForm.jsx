@@ -1,5 +1,8 @@
 import { useState } from 'react';
 import { login, verify2fa } from './api';
+import CodeInput from './CodeInput';
+import EmailField from './EmailField';
+import ErrorMsg from './ErrorMsg';
 import PasswordInput from './PasswordInput';
 import useSubmit from './useSubmit';
 
@@ -90,31 +93,20 @@ export default function LoginForm({
             ) : (
               <>
                 <label htmlFor="code">6-digit code from your authenticator app</label>
-                <input
+                <CodeInput
                   id="code"
-                  className="code-input"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  minLength={6}
-                  maxLength={6}
                   value={code}
-                  onChange={(e) => {
-                    const digits = e.target.value.replace(/\D/g, '');
+                  onChange={(digits) => {
                     setCode(digits);
                     // submit as soon as the last digit lands (typed or autofilled)
                     if (digits.length === 6 && !loading) verifyCode(digits);
                   }}
-                  required
                   autoFocus
                 />
               </>
             )}
           </div>
-          {message && (
-            <p className="msg error" role="alert">
-              {message}
-            </p>
-          )}
+          <ErrorMsg>{message}</ErrorMsg>
           <button className="login-btn" type="submit" disabled={loading}>
             {loading ? 'Checking…' : 'Continue'}
           </button>
@@ -151,21 +143,8 @@ export default function LoginForm({
   return (
     <div className="login-page">
       <form key="password" className="login-card" onSubmit={handleLogin}>
-        <h1>Log In</h1>
-        <div className="field">
-          <label htmlFor="email">Email address</label>
-          <input
-            id="email"
-            name="email"
-            placeholder="name@example.com"
-            type="email"
-            autoComplete="email"
-            spellCheck={false}
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-        </div>
+        <h1>Log in</h1>
+        <EmailField value={email} onChange={(e) => setEmail(e.target.value)} />
 
         <div className="field">
           <label htmlFor="password">Password</label>
@@ -192,14 +171,12 @@ export default function LoginForm({
             checked={remember}
             onChange={(e) => setRemember(e.target.checked)}
           />
-          Stay signed in for 30 days
+          Stay logged in for 30 days
         </label>
 
         {message ? (
           <>
-            <p className="msg error" role="alert">
-              {message}
-            </p>
+            <ErrorMsg>{message}</ErrorMsg>
             {deactivated && (
               <button
                 className="link-btn"
@@ -220,7 +197,7 @@ export default function LoginForm({
         )}
 
         <button className="login-btn" type="submit" disabled={loading}>
-          {loading ? 'Logging In…' : 'Log In'}
+          {loading ? 'Logging in…' : 'Log in'}
         </button>
 
         <button
