@@ -30,16 +30,12 @@ function Icon({ d }) {
 
 // On, Off, or a warning for an admin who has no second factor
 function TwoFactor({ user }) {
-  if (user.totpEnabled)
-    return (
-      <span className="tfa on">
-        <Icon d="M5 12l5 5 9-10" /> On
-      </span>
-    );
+  if (user.totpEnabled) return <span className="tfa on">On</span>;
   if (user.isAdmin && user.active)
     return (
       <span className="tfa warn" title="Admins should turn on two-factor">
-        <Icon d="M12 3L2 20h20L12 3zM12 10v4M12 17v.5" /> Off
+        {' '}
+        Off
         <span className="visually-hidden"> (recommended for admins)</span>
       </span>
     );
