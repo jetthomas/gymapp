@@ -7,9 +7,18 @@ export default function PasswordInput(props) {
   const [show, setShow] = useState(false);
   const [caps, setCaps] = useState(false);
   const capsId = `${props.id}-caps`;
+
   // Keep any aria-describedby passed in (the password hint) and add the Caps Lock one
   const describedBy =
     [props['aria-describedby'], caps && capsId].filter(Boolean).join(' ') || undefined;
+
+  // Check Caps Lock state safely across Keyboard and Mouse events
+  const checkCaps = (e) => {
+    if (typeof e.getModifierState === 'function') {
+      setCaps(e.getModifierState('CapsLock'));
+    }
+  };
+
   // A fragment, because the eye button is positioned inside .password-wrap and would move if the hint went there
   return (
     <>
@@ -19,8 +28,22 @@ export default function PasswordInput(props) {
           required
           {...props}
           aria-describedby={describedBy}
-          onKeyUp={(e) => setCaps(e.getModifierState('CapsLock'))}
-          onBlur={() => setCaps(false)}
+          onKeyDown={(e) => {
+            checkCaps(e);
+            props.onKeyDown?.(e);
+          }}
+          onKeyUp={(e) => {
+            checkCaps(e);
+            props.onKeyUp?.(e);
+          }}
+          onMouseDown={(e) => {
+            checkCaps(e);
+            props.onMouseDown?.(e);
+          }}
+          onBlur={(e) => {
+            setCaps(false);
+            props.onBlur?.(e);
+          }}
         />
         <button
           type="button"
@@ -32,7 +55,7 @@ export default function PasswordInput(props) {
         </button>
       </div>
       {caps && (
-        <p className="hint" id={capsId}>
+        <p className="hint" id={capsId} role="status">
           Caps Lock is on
         </p>
       )}
