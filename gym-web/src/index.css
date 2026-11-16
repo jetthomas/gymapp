@@ -301,6 +301,15 @@ button {
   color: var(--text-secondary);
 }
 
+.caps-lock {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: var(--danger-text);
+}
+
 .msg {
   margin: 16px 0 0;
   overflow-wrap: anywhere;
