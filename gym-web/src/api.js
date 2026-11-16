@@ -48,7 +48,17 @@ export const refresh = () => request('/auth/refresh', { method: 'POST' });
 
 export const logout = (token) => request('/auth/logout', { method: 'POST', token });
 
-export const deleteAccount = (token) => request('/auth/delete', { method: 'DELETE', token });
+export const deleteAccount = (token, password) =>
+  request('/auth/delete', { method: 'DELETE', token, body: { password } });
+
+export const getExercises = (token, q = '', muscle = '') =>
+  request(`/exercises?q=${encodeURIComponent(q)}&muscle=${encodeURIComponent(muscle)}`, { token });
+export const createExercise = (token, exercise) =>
+  request('/admin/exercises', { method: 'POST', token, body: exercise });
+export const updateExercise = (token, id, exercise) =>
+  request(`/admin/exercises/${id}`, { method: 'PUT', token, body: exercise });
+export const deleteExercise = (token, id) =>
+  request(`/admin/exercises/${id}`, { method: 'DELETE', token });
 
 export const getProfile = (token) => request('/account', { token });
 
@@ -83,7 +93,8 @@ export const verifyEmail = (token) => request('/auth/verify', { method: 'POST', 
 export const changePassword = (token, current, next) =>
   request('/auth/password', { method: 'POST', token, body: { current, new: next } });
 
-export const setup2fa = (token) => request('/auth/2fa/setup', { method: 'POST', token });
+export const setup2fa = (token, password) =>
+  request('/auth/2fa/setup', { method: 'POST', token, body: { password } });
 
 export const confirm2fa = (token, code) =>
   request('/auth/2fa/confirm', { method: 'POST', token, body: { code } });

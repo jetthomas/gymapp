@@ -1,0 +1,20 @@
+// The 17 muscle names the API accepts; keep in step with MUSCLES in gym-api/src/exercises.rs
+export const MUSCLES = [
+  'abdominals',
+  'abductors',
+  'adductors',
+  'biceps',
+  'calves',
+  'chest',
+  'forearms',
+  'glutes',
+  'hamstrings',
+  'lats',
+  'lower back',
+  'middle back',
+  'neck',
+  'quadriceps',
+  'shoulders',
+  'traps',
+  'triceps',
+];

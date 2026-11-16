@@ -3,20 +3,24 @@ import { setup2fa, confirm2fa } from './api';
 import CodeInput from './CodeInput';
 import ErrorMsg from './ErrorMsg';
 import useSubmit from './useSubmit';
+import PasswordInput from './PasswordInput';
 
 export default function TwoFactorSetup({ token, onEnabled }) {
   const [setup, setSetup] = useState(null);
   const [code, setCode] = useState('');
   const [codes, setCodes] = useState(null); // recovery codes, shown once after turning 2FA on
   const { loading, message, setMessage, run } = useSubmit();
+  const [asking, setAsking] = useState(false);
+  const [password, setPassword] = useState('');
   // useMemo stops a new download URL being made on every render
   const downloadUrl = useMemo(
     () => codes && URL.createObjectURL(new Blob([codes.join('\n')], { type: 'text/plain' })),
     [codes],
   );
 
-  function start() {
-    run(async () => setSetup(await setup2fa(token)));
+  function start(event) {
+    event.preventDefault();
+    run(async () => setSetup(await setup2fa(token, password)));
   }
 
   // Takes the value directly: in onChange, the `code` state still holds the previous digits
@@ -37,6 +41,8 @@ export default function TwoFactorSetup({ token, onEnabled }) {
     setSetup(null);
     setCode('');
     setMessage('');
+    setAsking(false);
+    setPassword('');
   }
 
   if (codes) {
@@ -55,13 +61,32 @@ export default function TwoFactorSetup({ token, onEnabled }) {
   }
 
   if (!setup) {
-    return (
-      <>
-        <button className="link-btn" type="button" onClick={start} disabled={loading}>
-          {loading ? 'Starting…' : 'Turn on two-factor'}
+    if (!asking) {
+      return (
+        <button className="link-btn" type="button" onClick={() => setAsking(true)}>
+          Turn on two-factor
         </button>
+      );
+    }
+    return (
+      <form onSubmit={start}>
+        <div className="field">
+          <label htmlFor="setup-password">Password</label>
+          <PasswordInput
+            id="setup-password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </div>
         <ErrorMsg>{message}</ErrorMsg>
-      </>
+        <button className="login-btn" type="submit" disabled={loading}>
+          {loading ? 'Starting…' : 'Continue'}
+        </button>
+        <button className="link-btn" type="button" onClick={cancel} disabled={loading}>
+          Cancel
+        </button>
+      </form>
     );
   }
 

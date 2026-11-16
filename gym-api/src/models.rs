@@ -74,6 +74,11 @@ pub struct DisableRequest {
 }
 
 #[derive(Deserialize)]
+pub struct PasswordOnly {
+    pub password: String,
+}
+
+#[derive(Deserialize)]
 pub struct CodeRequest {
     pub code: String,
 }
@@ -99,6 +104,30 @@ pub struct Workout {
     pub name: String,
     pub date: DateTime<Utc>,
     pub notes: Option<String>,
+}
+#[derive(Deserialize)]
+pub struct ExerciseQuery {
+    pub q: Option<String>,
+    pub muscle: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewExercise {
+    pub name: String,
+    pub equipment: Option<String>,
+    pub primary_muscles: Vec<String>,
+    pub secondary_muscles: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Exercise {
+    pub id: i32,
+    pub name: String,
+    pub equipment: Option<String>,
+    pub primary_muscles: Vec<String>,
+    pub secondary_muscles: Vec<String>,
 }
 
 #[derive(Serialize)]

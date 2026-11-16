@@ -118,6 +118,10 @@ button {
   color: var(--danger);
 }
 
+.login-btn.danger {
+  background: var(--danger-fill);
+}
+
 .pill-btn {
   padding: 6px 14px;
   font-size: 0.875rem;
@@ -929,6 +933,34 @@ button {
 
 .row-panel {
   padding: 0 20px 20px;
+}
+
+/* Admin exercises: the list and form sit under the search row */
+.exercise-list,
+.exercise-form {
+  margin-top: 16px;
+}
+
+.exercise-form {
+  max-width: 560px;
+}
+
+/* The two groups of muscle checkboxes on the create-exercise form */
+.muscle-boxes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.muscle-boxes legend {
+  padding: 0 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
 }
 
 /* On / Off pill beside the two-factor row */

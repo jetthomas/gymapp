@@ -10,8 +10,8 @@ use jsonwebtoken::{DecodingKey, Validation, decode};
 
 use crate::extractors::{AuthUser, verify_credentials};
 use crate::models::{
-    Claims, Credentials, ForgotRequest, LoginResponse, NewUser, PasswordChange, Profile,
-    ResetRequest, TokenRequest,
+    Claims, Credentials, ForgotRequest, LoginResponse, NewUser, PasswordChange, PasswordOnly,
+    Profile, ResetRequest, TokenRequest,
 };
 use crate::passwords::{
     check_password, fits, hash_password, password_matches, totp_for, use_totp_code, valid_email,
@@ -317,7 +317,21 @@ pub async fn get_profile(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Json<
     }))
 }
 
-pub async fn delete_account(AuthUser(user_id, mut db): AuthUser) -> ApiResult<StatusCode> {
+pub async fn delete_account(
+    AuthUser(user_id, mut db): AuthUser,
+    Json(r): Json<PasswordOnly>,
+) -> ApiResult<StatusCode> {
+    let row = one_row(
+        &mut db,
+        "SELECT PasswordHash FROM dbo.Users WHERE Id = @P1",
+        &[&user_id],
+    )
+    .await?
+    .ok_or_else(|| internal("user missing"))?;
+    let stored: &str = col(&row, "PasswordHash")?;
+    if !password_matches(r.password, stored.to_string()).await? {
+        return Err(wrong_password());
+    }
     db.execute(
         "UPDATE dbo.Users SET Active = 0 WHERE Id = @P1",
         &[&user_id],
