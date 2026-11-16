@@ -1,5 +1,6 @@
 mod admin;
 mod auth;
+mod exercises;
 mod extractors;
 mod models;
 mod passwords;
@@ -27,6 +28,7 @@ use crate::auth::{
     change_password, delete_account, forgot_password, get_profile, login, logout,
     reactivate_account, refresh, register, reset_password, verify_email,
 };
+use crate::exercises::{create_exercise, delete_exercise, list_exercises, update_exercise};
 use crate::state::{AppState, ProxyIpKeyExtractor, connect};
 use crate::two_factor::{totp_confirm, totp_disable, totp_setup, totp_verify};
 use crate::workouts::{create_workout, list_workouts};
@@ -83,6 +85,22 @@ async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
                 UserId INT NOT NULL REFERENCES dbo.Users(Id),
                 CodeHash NVARCHAR(200) NOT NULL,
                 UsedAt DATETIME2 NULL
+            );
+         IF OBJECT_ID('dbo.Exercises', 'U') IS NULL
+            CREATE TABLE dbo.Exercises (
+                Id INT IDENTITY(1,1) PRIMARY KEY,
+                Name NVARCHAR(200) NOT NULL,
+                Category NVARCHAR(30) NULL,
+                Equipment NVARCHAR(30) NULL,
+                SourceId NVARCHAR(100) NULL,      -- the free-exercise-db id; NULL for ones an admin added
+                CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+            );
+         IF OBJECT_ID('dbo.ExerciseMuscles', 'U') IS NULL
+            CREATE TABLE dbo.ExerciseMuscles (
+                ExerciseId INT NOT NULL REFERENCES dbo.Exercises(Id) ON DELETE CASCADE,
+                Muscle NVARCHAR(20) NOT NULL,
+                Role NVARCHAR(9) NOT NULL CHECK (Role IN ('primary', 'secondary')),
+                PRIMARY KEY (ExerciseId, Muscle)
             );",
     )
     .await?
@@ -123,6 +141,11 @@ async fn main() {
     // Port 1025 = Mailpit on this machine, which has no TLS; real providers get TLS via relay()
     let mut mailer = if smtp_port == 1025 {
         AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&smtp_host).port(smtp_port)
+    } else if smtp_port == 587 {
+        // 587 starts unencrypted and upgrades with STARTTLS; relay() expects TLS from the first byte (465)
+        AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&smtp_host)
+            .expect("bad SMTP_HOST")
+            .port(smtp_port)
     } else {
         AsyncSmtpTransport::<Tokio1Executor>::relay(&smtp_host)
             .expect("bad SMTP_HOST")
@@ -194,14 +217,14 @@ async fn main() {
         .route("/auth/2fa/disable", post(totp_disable))
         // checks a password, so it needs the same limit as login
         .route("/auth/reactivate", post(reactivate_account))
+        .route("/auth/delete", delete(delete_account))
+        .route("/auth/2fa/setup", post(totp_setup))
         .layer(GovernorLayer::new(limit));
 
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/auth/logout", post(logout))
         .route("/account", get(get_profile))
-        .route("/auth/delete", delete(delete_account))
-        .route("/auth/2fa/setup", post(totp_setup))
         .route("/auth/2fa/confirm", post(totp_confirm))
         .route("/workouts", get(list_workouts).post(create_workout))
         .route("/admin/users", get(list_users))
@@ -209,6 +232,12 @@ async fn main() {
         .route("/admin/users/{id}/admin", put(set_admin))
         .route("/admin/users/{id}/reset-link", post(create_reset_link))
         .route("/admin/users/{id}/reactivate", post(reactivate_user))
+        .route("/exercises", get(list_exercises))
+        .route("/admin/exercises", post(create_exercise))
+        .route(
+            "/admin/exercises/{id}",
+            put(update_exercise).delete(delete_exercise),
+        )
         .merge(limited)
         .with_state(state);
 

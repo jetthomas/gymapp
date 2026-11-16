@@ -1,5 +1,7 @@
 .env
 /gym-api/target
+/gym-api/security.sql
 node_modules
 .claude/skills
 .agents/skills
+seed-exercises.sql

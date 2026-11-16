@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { deleteAccount, getProfile } from './api';
 import ChangePasswordForm from './ChangePasswordForm';
-import ConfirmDialog from './ConfirmDialog';
 import ErrorMsg from './ErrorMsg';
 import { displayName, initials } from './names';
+import PasswordInput from './PasswordInput';
 import TwoFactorDisable from './TwoFactorDisable';
 import TwoFactorSetup from './TwoFactorSetup';
 
@@ -42,6 +42,7 @@ export default function AccountScreen({
   const [open, setOpen] = useState(null); // 'password', '2fa' or null: the row whose form is showing
   const [notice, setNotice] = useState('');
   const [deleteError, setDeleteError] = useState('');
+  const [deletePassword, setDeletePassword] = useState('');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   useEffect(() => {
@@ -56,11 +57,11 @@ export default function AccountScreen({
     setOpen(open === row ? null : row);
   }
 
-  async function handleDelete() {
-    setConfirmingDelete(false);
+  async function handleDelete(event) {
+    event.preventDefault();
     setDeleteError('');
     try {
-      await deleteAccount(token);
+      await deleteAccount(token, deletePassword);
       onSignedOut();
     } catch (err) {
       setDeleteError(err.message);
@@ -182,18 +183,40 @@ export default function AccountScreen({
               Delete account
             </button>
           </div>
+          {confirmingDelete && (
+            <div className="row-panel">
+              <form onSubmit={handleDelete}>
+                <p className="hint">
+                  This deactivates your account. You can reactivate it from the login screen.
+                </p>
+                <div className="field">
+                  <label htmlFor="delete-password">Password</label>
+                  <PasswordInput
+                    id="delete-password"
+                    autoComplete="current-password"
+                    value={deletePassword}
+                    onChange={(e) => setDeletePassword(e.target.value)}
+                  />
+                </div>
+                <ErrorMsg>{deleteError}</ErrorMsg>
+                <button className="login-btn danger" type="submit">
+                  Delete account
+                </button>
+                <button
+                  className="link-btn"
+                  type="button"
+                  onClick={() => {
+                    setConfirmingDelete(false);
+                    setDeletePassword('');
+                    setDeleteError('');
+                  }}
+                >
+                  Cancel
+                </button>
+              </form>
+            </div>
+          )}
         </div>
-        <ErrorMsg>{deleteError}</ErrorMsg>
-        {confirmingDelete && (
-          <ConfirmDialog
-            title="Delete your account?"
-            body="You can reactivate it later from the login screen."
-            confirmLabel="Delete account"
-            danger
-            onConfirm={handleDelete}
-            onCancel={() => setConfirmingDelete(false)}
-          />
-        )}
       </main>
     </div>
   );

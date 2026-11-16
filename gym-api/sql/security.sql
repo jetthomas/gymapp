@@ -11,6 +11,8 @@ CREATE USER gym_app FOR LOGIN gym_app;
 -- No DELETE on Users: delete_account only sets Active = 0
 GRANT SELECT, INSERT, UPDATE ON dbo.Users TO gym_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.Workouts TO gym_app;
+GRANT SELECT, INSERT ON dbo.Events TO gym_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.RecoveryCodes TO gym_app;
 GO
 
 -- Part 11: row-level security on dbo.Workouts
@@ -33,4 +35,10 @@ GO
 
 -- Speeds up each member's workout list (the gym_app login can't create indexes)
 CREATE INDEX IX_Workouts_UserId_Date ON dbo.Workouts (UserId, [Date] DESC);
+GO
+
+-- Exercise library: one shared list. Every member reads it; only admins change it,
+-- which the API enforces (AdminUser), so there's no row-level security here
+GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.Exercises TO gym_app;
+GRANT SELECT, INSERT, DELETE ON dbo.ExerciseMuscles TO gym_app;
 GO
