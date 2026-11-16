@@ -19,7 +19,6 @@ export default function PasswordInput(props) {
     }
   };
 
-  // A fragment, because the eye button is positioned inside .password-wrap and would move if the hint went there
   return (
     <>
       <div className="password-wrap">
