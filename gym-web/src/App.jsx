@@ -2,34 +2,60 @@ import { useEffect, useState } from 'react';
 import LoginForm from './LoginForm';
 import CreateAccountForm from './CreateAccountForm';
 import ReactivateAccountForm from './ReactivateAccountForm';
+import ForgotPasswordForm from './ForgotPasswordForm';
 import AdminScreen from './AdminScreen';
+import AccountScreen from './AccountScreen';
+import HomeScreen from './HomeScreen';
 import ResetPasswordForm from './ResetPasswordForm';
-import TwoFactorSetup from './TwoFactorSetup';
-import { deleteAccount, logout, setOnSessionExpired } from './api';
+import { logout, refresh, setOnSessionExpired, verifyEmail } from './api';
 
 export default function App() {
   const [token, setToken] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
   // Logging in with a code means 2FA is on, so there's no need to ask the server
   const [has2fa, setHas2fa] = useState(false);
-  // The reset link opens the app as /?reset=<token>
-  const [resetToken] = useState(() => new URLSearchParams(window.location.search).get('reset'));
+  // Links from emails open the app as /#reset=<token> or /#verify=<token>.
+  // The part after # is never sent to the server, so it stays out of access logs
+  const [link] = useState(() => new URLSearchParams(window.location.hash.slice(1)));
+  const resetToken = link.get('reset');
+  const verifyToken = link.get('verify');
   const [page, setPage] = useState(resetToken ? 'reset' : 'login');
   const [email, setEmail] = useState('');
   const [notice, setNotice] = useState('');
-  const [deleteError, setDeleteError] = useState('');
+  const [lastLogin, setLastLogin] = useState(null);
+  const [failedSince, setFailedSince] = useState(0);
+  // True until the "Stay logged in" cookie has been tried, so the login form doesn't flash
+  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    // Drop ?reset=... right away so the token doesn't stay in the address bar or history
-    if (resetToken) window.history.replaceState(null, '', window.location.pathname);
-    setOnSessionExpired(() => {
-      setToken(null);
-      setIsAdmin(false);
-      setPage('login');
-      setHas2fa(false);
-      setNotice('Your session expired. Log in again.');
-    });
-  }, [resetToken]);
+    // Drop #reset=... / #verify=... right away so the token doesn't stay in the address bar or history
+    if (resetToken || verifyToken) window.history.replaceState(null, '', window.location.pathname);
+    if (verifyToken)
+      verifyEmail(verifyToken)
+        .then(() => setNotice('Email confirmed. Log in to continue.'))
+        .catch((err) => setNotice(err.message));
+    refresh()
+      .then((r) => {
+        setToken(r.accessToken);
+        setIsAdmin(r.isAdmin);
+        setHas2fa(r.twoFactor);
+      })
+      .catch(() => {}) // no cookie, or it expired: show the login form
+      .finally(() => setChecking(false));
+    // When the 1-hour token runs out mid-session, try the cookie before signing out
+    setOnSessionExpired(() =>
+      // shortcut: the request that hit the 401 is not retried; the member just repeats it
+      refresh()
+        .then((r) => setToken(r.accessToken))
+        .catch(() => {
+          setToken(null);
+          setIsAdmin(false);
+          setPage('login');
+          setHas2fa(false);
+          setNotice('Your session expired. Log in again.');
+        }),
+    );
+  }, [resetToken, verifyToken]);
 
   function backToLogin(doneEmail, doneNotice = '') {
     if (doneEmail) setEmail(doneEmail);
@@ -47,32 +73,28 @@ export default function App() {
     setToken(null);
     setIsAdmin(false);
     setHas2fa(false);
+    setLastLogin(null);
+    setFailedSince(0);
     setPage('login');
   }
 
   function handleLogOut() {
-    // Tell the server so the token stops working; sign out locally even if that call fails
+    // Tell the server so the token and the "Stay logged in" cookie stop working;
+    // sign out locally even if that call fails
     logout(token).catch(() => {});
     logOut();
   }
 
-  async function handleDelete() {
-    if (!window.confirm('Delete your account? You can reactivate it later from the login screen.'))
-      return;
-    setDeleteError('');
-    try {
-      await deleteAccount(token);
-      logOut();
-    } catch (err) {
-      setDeleteError(err.message);
-    }
-  }
+  if (checking) return null;
 
   if (!token && page === 'create') {
     return <CreateAccountForm initialEmail={email} onBack={backToLogin} />;
   }
   if (!token && page === 'reactivate') {
     return <ReactivateAccountForm initialEmail={email} onBack={backToLogin} />;
+  }
+  if (!token && page === 'forgot') {
+    return <ForgotPasswordForm initialEmail={email} onBack={backToLogin} />;
   }
   if (!token && page === 'reset') {
     return <ResetPasswordForm token={resetToken} onBack={backToLogin} />;
@@ -82,51 +104,46 @@ export default function App() {
       <LoginForm
         initialEmail={email}
         notice={notice}
-        onLoggedIn={(t, admin, usedCode = false) => {
+        onLoggedIn={(t, admin, usedCode, last, failed) => {
           setNotice('');
           setToken(t);
           setIsAdmin(admin);
           setHas2fa(usedCode);
+          setLastLogin(last);
+          setFailedSince(failed);
         }}
         onCreateAccount={(e) => openPage('create', e)}
         onReactivateAccount={(e) => openPage('reactivate', e)}
+        onForgotPassword={(e) => openPage('forgot', e)}
       />
     );
   }
   if (page === 'admin') {
-    return <AdminScreen token={token} onBack={() => setPage('login')} />;
+    return (
+      <AdminScreen
+        token={token}
+        lastLogin={lastLogin}
+        failedSince={failedSince}
+        onBack={() => setPage('account')}
+      />
+    );
   }
-  return (
-    <div className="login-page">
-      <div className="login-card">
-        <h1>Logged In!</h1>
-        <button className="login-btn" onClick={handleLogOut}>
-          Log Out
-        </button>
-        {isAdmin && (
-          <button className="link-btn" onClick={() => setPage('admin')}>
-            Manage users
-          </button>
-        )}
-        {!has2fa && (
-          <TwoFactorSetup
-            token={token}
-            onEnabled={() => {
-              // Turning 2FA on signs out every session, this one included
-              logOut();
-              setNotice('Two-factor is on. Log in again with your code.');
-            }}
-          />
-        )}
-        <button className="link-btn danger" onClick={handleDelete}>
-          Delete Account
-        </button>
-        {deleteError && (
-          <p className="msg error" role="alert">
-            {deleteError}
-          </p>
-        )}
-      </div>
-    </div>
-  );
+  if (page === 'account') {
+    return (
+      <AccountScreen
+        token={token}
+        isAdmin={isAdmin}
+        has2fa={has2fa}
+        onBack={() => setPage('home')}
+        onTokenChanged={setToken}
+        onManageUsers={() => setPage('admin')}
+        onLogOut={handleLogOut}
+        onSignedOut={(doneNotice = '') => {
+          logOut();
+          setNotice(doneNotice);
+        }}
+      />
+    );
+  }
+  return <HomeScreen onAccount={() => setPage('account')} />;
 }

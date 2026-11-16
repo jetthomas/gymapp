@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { register } from './api';
-import PasswordInput from './PasswordInput';
+import EmailField from './EmailField';
+import ErrorMsg from './ErrorMsg';
+import NewPasswordField from './NewPasswordField';
 import useSubmit from './useSubmit';
 
 export default function CreateAccountForm({ onBack, initialEmail = '' }) {
@@ -25,7 +27,7 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
   return (
     <div className="login-page">
       <form className="login-card" onSubmit={handleSubmit}>
-        <h1>Create Account</h1>
+        <h1>Create account</h1>
 
         <div className="field">
           <label htmlFor="firstName">First name</label>
@@ -53,54 +55,30 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
           />
         </div>
 
-        <div className="field">
-          <label htmlFor="email">Email address</label>
-          <input
-            id="email"
-            name="email"
-            placeholder="name@example.com"
-            type="email"
-            autoComplete="email"
-            spellCheck={false}
-            value={email}
-            maxLength={256}
-            onChange={(e) => setEmail(e.target.value)}
-            pattern="[^@\s]+@[^@\s]+\.[^@\s]+"
-            title="Enter an email like name@example.com"
-            required
-          />
-        </div>
+        <EmailField
+          value={email}
+          maxLength={256}
+          onChange={(e) => setEmail(e.target.value)}
+          pattern="[^@\s]+@[^@\s]+\.[^@\s]+"
+          title="Enter an email like name@example.com"
+        />
 
-        <div className="field">
-          <label htmlFor="password">Password</label>
-          <PasswordInput
-            id="password"
-            name="password"
-            autoComplete="new-password"
-            aria-describedby="password-hint"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            minLength={10}
-            pattern=".*[^A-Za-z0-9].*"
-            title="At least 10 characters, including a special character (e.g. ! @ #$)"
-          />
-          <p className="hint" id="password-hint">
-            At least 10 characters, including a symbol like ! @ # $
-          </p>
-        </div>
+        <NewPasswordField
+          id="password"
+          label="Password"
+          name="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
 
-        {message && (
-          <p className="msg error" role="alert">
-            {message}
-          </p>
-        )}
+        <ErrorMsg>{message}</ErrorMsg>
 
         <button className="login-btn" type="submit" disabled={loading}>
-          {loading ? 'Creating Account…' : 'Create Account'}
+          {loading ? 'Creating account…' : 'Create account'}
         </button>
 
         <button className="link-btn" type="button" onClick={() => onBack()} disabled={loading}>
-          Back to Log In
+          Back to login
         </button>
       </form>
     </div>

@@ -1,3 +1,5 @@
+/* ---------- Tokens ---------- */
+
 :root {
   color-scheme: light dark;
   --bg: #f5f5f7;
@@ -13,6 +15,11 @@
   --input-border: #8e8e93;
   --accent-fill: #0071e3;
   --success-text: #1b6e30;
+  --accent-text: #0058b0;
+  --danger-text: #b80012;
+  --danger-fill: #d70015;
+  --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --warning: #b25000;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -30,22 +37,24 @@
     --input-border: #6e6e73;
     --accent-fill: #0062c4;
     --success-text: #30d158;
+    --accent-text: #4da3ff;
+    --danger-text: #ff6961;
+    --warning: #f59e42;
   }
+}
+
+/* ---------- Base ---------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  /* matches .login-page so scrolling or bouncing past the edge never shows white */
-  background: var(--bg);
-}
-
-.login-page {
-  box-sizing: border-box;
-  min-height: 100dvh;
-  padding: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  color: var(--text);
+  /* the page colour, so scrolling or bouncing past the edge never shows white */
   background: var(--bg);
   font-family:
     system-ui,
@@ -53,15 +62,289 @@ body {
     'Segoe UI',
     Roboto,
     sans-serif;
-  color: var(--text);
 }
 
-.login-page * {
-  box-sizing: border-box;
+/* Buttons and inputs don't take the page font unless told to */
+button,
+input {
+  font-family: inherit;
 }
 
-.login-page button {
+button {
   touch-action: manipulation;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------- Buttons ---------- */
+
+.login-btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px 16px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent-fill);
+  border: none;
+  border-radius: 999px;
+  transition:
+    background 0.15s,
+    transform 0.1s;
+}
+
+.link-btn {
+  display: block;
+  width: fit-content;
+  margin: 16px auto 0;
+  padding: 4px 8px;
+  font-size: 0.9rem;
+  color: var(--accent);
+  text-decoration: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.1s;
+}
+
+.link-btn.danger {
+  color: var(--danger);
+}
+
+.pill-btn {
+  padding: 6px 14px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--accent-text);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    transform 0.1s ease-out,
+    background 0.15s;
+}
+
+.pill-btn.filled {
+  color: #fff;
+  background: var(--accent-fill);
+}
+
+.pill-btn.danger {
+  color: var(--danger-text);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.pill-btn.filled.danger {
+  color: #fff;
+  background: var(--danger-fill);
+}
+
+.toolbar-btn {
+  justify-self: start;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+  font-size: 1.0625rem;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.1s;
+}
+
+.toolbar-btn span {
+  font-size: 1.6rem;
+  line-height: 0.6;
+}
+
+/* A toolbar button in the right-hand slot */
+.toolbar-btn.end {
+  justify-self: end;
+}
+
+/* Apple's minimum for a finger is 44 points; desktop keeps the compact size */
+@media (pointer: coarse) {
+  .pill-btn,
+  .toolbar-btn,
+  .text-btn,
+  .role-select {
+    min-height: 44px;
+  }
+}
+
+.eye-btn {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: flex;
+  padding: 12px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  transition: opacity 0.1s;
+}
+
+/* hover only on real pointers, so a tap on iPhone doesn't leave a stuck hover state */
+@media (hover: hover) {
+  .login-btn:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
+
+  .link-btn:hover:not(:disabled) {
+    text-decoration: underline;
+  }
+
+  .eye-btn:hover {
+    opacity: 0.7;
+  }
+
+  .pill-btn:hover:not(:disabled),
+  .text-btn:hover:not(:disabled),
+  .toolbar-btn:hover:not(:active) {
+    opacity: 0.8;
+  }
+}
+
+.login-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.link-btn:active:not(:disabled) {
+  opacity: 0.6;
+}
+
+.pill-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.toolbar-btn:active {
+  opacity: 0.5;
+}
+
+.eye-btn:active {
+  opacity: 0.5;
+}
+
+.login-btn:focus-visible,
+.link-btn:focus-visible,
+.eye-btn:focus-visible,
+.pill-btn:focus-visible,
+.toolbar-btn:focus-visible,
+.outline-btn:focus-visible,
+.text-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.login-btn:disabled,
+.link-btn:disabled,
+.pill-btn:disabled,
+.text-btn:disabled,
+.role-select:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* ---------- Forms ---------- */
+
+.field {
+  margin-bottom: 16px;
+}
+
+.field label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.field input {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 1rem;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--input-border);
+  border-radius: 12px;
+  outline: none;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.field input:focus-visible,
+.admin-search:focus-visible,
+.role-select:focus-visible,
+.reset-field input:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--focus-ring);
+}
+
+.hint {
+  margin: 6px 4px 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.msg {
+  margin: 16px 0 0;
+  overflow-wrap: anywhere;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.msg.error {
+  color: var(--danger);
+}
+
+.msg.success {
+  color: var(--success-text);
+}
+
+.password-wrap {
+  position: relative;
+}
+
+.password-wrap input {
+  padding-right: 52px;
+}
+
+/* "Stay logged in" checkbox on the login form */
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9375rem;
+}
+
+.field input.code-input {
+  text-align: center;
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.3em;
+  /* balances the trailing letter-spacing so the digits sit truly centered */
+  text-indent: 0.3em;
+}
+
+/* ---------- Card pages ---------- */
+
+.login-page {
+  min-height: 100dvh;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .login-card {
@@ -96,162 +379,35 @@ body {
   text-wrap: balance;
 }
 
-.field {
-  margin-bottom: 16px;
-}
+/* ---------- Two-factor ---------- */
 
-.field label {
+/* Scanners need dark-on-light, so the QR keeps a white plate in dark mode too */
+.qr {
   display: block;
-  margin-bottom: 6px;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.field input {
-  width: 100%;
-  padding: 12px 16px;
-  font-size: 1rem;
-  color: var(--text);
-  background: var(--surface);
-  border: 1px solid var(--input-border);
+  margin: 16px auto;
+  padding: 8px;
+  background: #fff;
   border-radius: 12px;
-  outline: none;
-  transition:
-    border-color 0.15s,
-    box-shadow 0.15s;
 }
 
-.field input:focus-visible {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 4px var(--focus-ring);
-}
-
-.hint {
-  margin: 6px 4px 0;
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-}
-
-.login-btn {
-  width: 100%;
-  margin-top: 8px;
-  padding: 12px 16px;
-  font-size: 1rem;
-  font-weight: 600;
-  color: #fff;
-  background: var(--accent-fill);
-  border: none;
-  border-radius: 999px;
-  transition:
-    background 0.15s,
-    transform 0.1s;
-}
-
-.login-btn:active:not(:disabled) {
-  transform: scale(0.98);
-}
-
-/* hover only on real pointers, so a tap on iPhone doesn't leave a stuck hover state */
-@media (hover: hover) {
-  .login-btn:hover:not(:disabled) {
-    background: var(--accent-hover);
-  }
-
-  .link-btn:hover:not(:disabled) {
-    text-decoration: underline;
-  }
-
-  .eye-btn:hover {
-    opacity: 0.7;
-  }
-}
-
-.login-btn:disabled,
-.link-btn:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
-}
-
-.link-btn {
-  display: block;
-  margin: 16px auto 0;
-  padding: 4px 8px;
-  font-size: 0.9rem;
-  color: var(--accent);
-  background: none;
-  border: none;
-  cursor: pointer;
-  transition: opacity 0.1s;
-}
-
-.link-btn:active:not(:disabled) {
-  opacity: 0.6;
-}
-
-.link-btn.danger {
-  color: var(--danger);
-}
-
-.msg {
-  margin: 16px 0 0;
+.secret-key {
+  font-family: var(--mono);
   overflow-wrap: anywhere;
+  user-select: all;
+}
+
+/* Every code is the same width, so centring each line keeps them in one tidy column */
+.recovery-codes {
   text-align: center;
-  font-size: 0.9rem;
-}
-
-.msg.error {
-  color: var(--danger);
-}
-
-.msg.success {
-  color: var(--success-text);
-}
-
-.password-wrap {
-  position: relative;
-}
-
-.password-wrap input {
-  padding-right: 52px;
-}
-
-.eye-btn {
-  position: absolute;
-  top: 50%;
-  right: 4px;
-  transform: translateY(-50%);
-  display: flex;
-  padding: 12px;
-  border: none;
-  background: none;
-  cursor: pointer;
-  transition: opacity 0.1s;
-}
-
-.eye-btn:active {
-  opacity: 0.5;
 }
 
 /* ---------- Admin ---------- */
 
 .admin-page {
   min-height: 100dvh;
-  background: var(--bg);
-  color: var(--text);
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
 }
 
-.admin-page * {
-  box-sizing: border-box;
-}
-
-/* Translucent toolbar: content scrolls underneath it */
+/* Translucent toolbar: content scrolls underneath it. The home and account screens use this shell too */
 .admin-toolbar {
   position: sticky;
   top: 0;
@@ -267,34 +423,19 @@ body {
   border-bottom: 0.5px solid color-mix(in srgb, var(--border) 60%, transparent);
 }
 
+@media (prefers-reduced-transparency: reduce) {
+  .admin-toolbar {
+    background: var(--bg);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
 .toolbar-title {
+  margin: 0;
   font-size: 1.0625rem;
   font-weight: 600;
   letter-spacing: -0.01em;
-}
-
-.toolbar-btn {
-  justify-self: start;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px;
-  font-size: 1.0625rem;
-  color: var(--accent);
-  background: none;
-  border: none;
-  cursor: pointer;
-  touch-action: manipulation;
-  transition: opacity 0.1s;
-}
-
-.toolbar-btn span {
-  font-size: 1.6rem;
-  line-height: 0.6;
-}
-
-.toolbar-btn:active {
-  opacity: 0.5;
 }
 
 .admin-content {
@@ -303,104 +444,213 @@ body {
   padding: 24px 16px 64px;
 }
 
-.admin-title {
-  margin: 0;
-  font-size: 2.125rem;
+/* The admin screen's table needs more room than the other screens' single column */
+.admin-content.wide {
+  max-width: 1002px;
+  padding-top: 36px;
+}
+
+.admin-content section + section {
+  margin-top: 40px;
+}
+
+.last-login {
+  margin: 0 0 16px;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+  margin: 0 0 40px;
+}
+
+.stat,
+.table-wrap,
+.chart {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.stat {
+  padding: 18px 20px;
+}
+
+.stat dt {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.stat dd {
+  margin: 4px 0 0;
+  font-size: 1.625rem;
   font-weight: 700;
-  line-height: 1.1;
-  letter-spacing: -0.022em;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A section's title with what sits beside it: the search box, or "Last 30 days" */
+.section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.section-title {
+  margin: 0;
+  font-size: 1.375rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
 }
 
 .admin-subtitle {
-  margin: 4px 0 0;
-  font-size: 0.9375rem;
+  /* Nudged down so its small text sits on the big title's baseline */
+  margin: 5px 0 0;
+  font-size: 0.8125rem;
   color: var(--text-secondary);
 }
 
 .admin-search {
-  width: 100%;
-  margin: 20px 0 8px;
-  padding: 10px 14px;
-  font-size: 1rem;
+  flex: 0 1 335px;
+  min-width: 0;
+  padding: 9px 14px 9px 38px;
+  font-size: 0.9375rem;
   color: var(--text);
-  background: color-mix(in srgb, var(--text-secondary) 14%, transparent);
-  border: 1px solid transparent;
+  background: var(--surface)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.5-4.5'/%3E%3C/svg%3E")
+    no-repeat 13px center;
+  border: 1px solid var(--border);
   border-radius: 10px;
   outline: none;
+  appearance: none;
   transition:
     border-color 0.15s,
     box-shadow 0.15s;
 }
 
-.admin-search:focus-visible {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 4px var(--focus-ring);
+@media (max-width: 600px) {
+  .admin-search {
+    flex-basis: 100%;
+  }
 }
 
-/* Inset grouped list, like iOS Settings */
-.user-list {
-  margin: 16px 0 0;
-  padding: 0;
-  list-style: none;
-  background: var(--surface);
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+.table-wrap {
+  margin-top: 16px;
+  overflow-x: auto;
 }
 
-.user-row {
-  position: relative;
-  display: grid;
-  grid-template-columns: auto 1fr auto;
+.user-table {
+  width: 100%;
+  /* Below this the table scrolls sideways inside its card */
+  min-width: 780px;
+  border-collapse: collapse;
+  font-size: 0.9375rem;
+}
+
+.user-table th,
+.user-table td {
+  padding: 15px 12px;
+  font-weight: 400;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.user-table th:first-child,
+.user-table td:first-child {
+  padding-left: 20px;
+}
+
+.user-table th:last-child,
+.user-table td:last-child {
+  padding-right: 20px;
+}
+
+.user-table thead th {
+  padding-block: 12px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.user-table tbody tr {
+  border-top: 1px solid var(--border);
+}
+
+.user-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.user-table .actions {
+  text-align: right;
+}
+
+/* The reset link or an error, tucked under the row it belongs to */
+.user-table tbody tr.detail-row {
+  border-top: none;
+}
+
+.detail-row td {
+  padding-top: 0;
+  white-space: normal;
+}
+
+.detail-row .hint {
+  margin: 6px 0 0;
+}
+
+.msg.row-error {
+  margin: 0;
+  text-align: left;
+}
+
+.user-cell {
+  display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 16px;
-}
-
-/* Hairline separator inset past the avatar */
-.user-row + .user-row::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 68px;
-  right: 0;
-  border-top: 0.5px solid var(--border);
 }
 
 .avatar {
   display: grid;
+  flex-shrink: 0;
   place-items: center;
-  width: 40px;
-  height: 40px;
-  font-size: 0.9375rem;
+  width: 36px;
+  height: 36px;
+  font-size: 0.8125rem;
   font-weight: 600;
   color: #fff;
-  background: linear-gradient(180deg, #5ac8fa, var(--accent));
+  background: var(--accent-fill);
   border-radius: 50%;
 }
 
 .avatar.inactive {
-  background: linear-gradient(180deg, #aeaeb2, #8e8e93);
-}
-
-.user-info {
-  min-width: 0;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-secondary) 28%, transparent);
 }
 
 .user-name {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: 500;
+}
+
+.inactive .user-name {
+  color: var(--text-secondary);
+}
+
+.you {
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--text-secondary);
 }
 
 .user-email {
-  overflow: hidden;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   color: var(--text-secondary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .badge {
@@ -422,45 +672,64 @@ body {
   color: var(--text-secondary);
   background: color-mix(in srgb, var(--text-secondary) 12%, transparent);
 }
-
-.row-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.badge.danger {
+  color: var(--danger-text);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
-.pill-btn {
-  padding: 6px 14px;
+.role-select {
+  padding: 5px 30px 5px 10px;
   font-size: 0.875rem;
-  font-weight: 600;
-  white-space: nowrap;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border: none;
-  border-radius: 999px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--text-secondary) 16%, transparent)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")
+    no-repeat right 8px center / 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  appearance: none;
   cursor: pointer;
-  touch-action: manipulation;
-  transition:
-    transform 0.1s ease-out,
-    background 0.15s;
 }
 
-.pill-btn.filled {
-  color: #fff;
-  background: var(--accent-fill);
+/* The role dropdown's look at the search box's height, pushed to the right of the title */
+.status-filter {
+  margin-left: auto;
+  padding-block: 9px;
+  font-size: 0.9375rem;
+  background-color: var(--surface);
 }
 
-.pill-btn:active:not(:disabled) {
-  transform: scale(0.96);
+.tfa {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
 }
 
-.pill-btn:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
+.tfa.on,
+.tfa.warn {
+  color: var(--text);
 }
 
-.reset-panel {
-  grid-column: 2 / -1;
+.tfa.on svg {
+  color: var(--success);
+}
+
+.tfa.warn svg {
+  color: var(--warning);
+}
+
+/* A quiet action at the end of a table row; the negative margin lines its text up with the column edge */
+.text-btn {
+  margin-right: -8px;
+  padding: 6px 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--accent-text);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
 }
 
 .reset-field {
@@ -472,7 +741,7 @@ body {
   flex: 1;
   min-width: 0;
   padding: 8px 12px;
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-family: var(--mono);
   font-size: 0.8125rem;
   color: var(--text);
   background: var(--bg);
@@ -481,49 +750,294 @@ body {
   outline: none;
 }
 
-.reset-field input:focus-visible {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 4px var(--focus-ring);
+/* Admin activity charts (BarChart.jsx) */
+.chart-grid {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
 }
-
-.reset-panel .hint {
-  margin: 6px 0 0;
-}
-
-@media (max-width: 480px) {
-  .reset-panel {
-    grid-column: 1 / -1;
+@media (min-width: 640px) {
+  .chart-grid {
+    grid-template-columns: 1fr 1fr;
   }
 }
-
-@media (prefers-reduced-transparency: reduce) {
-  .admin-toolbar {
-    background: var(--bg);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
+.chart {
+  min-width: 0;
+  margin: 0;
+  padding: 20px;
+}
+.chart-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+.chart-summary {
+  margin: 2px 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+.bars {
+  display: flex;
+  height: 130px;
+  margin-top: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.bar-col {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+}
+.bar-value {
+  font-size: 0.75rem;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.bar {
+  width: 84%;
+  /* --v is the day's share of the tallest bar; 18px stays free for the number above */
+  height: calc((100% - 18px) * var(--v));
+  background: var(--accent-text);
+  border-radius: 3px 3px 0 0;
+}
+.bar.warn {
+  background: var(--warning);
+}
+.bar.alert {
+  background: var(--danger);
+}
+.bar-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
 }
 
-/* Scanners need dark-on-light, so the QR keeps a white plate in dark mode too */
-.qr {
-  display: block;
-  margin: 16px auto;
-  padding: 8px;
-  background: #fff;
-  border-radius: 12px;
+/* ---------- Account (AccountScreen.jsx) ---------- */
+
+/* One column of grouped cards, like the Settings app */
+.account {
+  max-width: 512px;
+  padding-top: 40px;
 }
 
-.secret-key {
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-  overflow-wrap: anywhere;
-  user-select: all;
+.profile-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
 }
 
-.field input.code-input {
-  text-align: center;
+.profile-avatar {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 56px;
+  height: 56px;
   font-size: 1.25rem;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.3em;
-  /* balances the trailing letter-spacing so the digits sit truly centered */
-  text-indent: 0.3em;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent-fill);
+  border-radius: 50%;
+}
+
+.profile-text {
+  min-width: 0;
+}
+
+.profile-name {
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.profile-email {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.group-label {
+  margin: 32px 4px 8px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.group {
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.group.danger {
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 60px;
+  padding: 12px 20px;
+  font-size: 1rem;
+  color: var(--text);
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.row.static {
+  padding: 16px 20px;
+  cursor: default;
+}
+
+/* Hairline between rows, and above a row that follows an open form */
+.row + .row,
+.row-panel + .row {
+  border-top: 1px solid var(--border);
+}
+
+.row-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.row-sub {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.row-chevron {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  transition: transform 0.15s;
+}
+
+.row[aria-expanded='true'] .row-chevron {
+  transform: rotate(90deg);
+}
+
+.row-panel {
+  padding: 0 20px 20px;
+}
+
+/* On / Off pill beside the two-factor row */
+.status {
+  padding: 3px 10px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-secondary) 14%, transparent);
+  border-radius: 999px;
+}
+
+.status.on {
+  color: var(--success-text);
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+}
+
+.outline-btn {
+  display: block;
+  width: 100%;
+  margin-top: 32px;
+  padding: 13px 16px;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.outline-btn.danger {
+  flex-shrink: 0;
+  width: auto;
+  margin: 0;
+  padding: 11px 16px;
+  color: var(--danger-text);
+  border-color: color-mix(in srgb, var(--danger) 70%, transparent);
+  border-radius: 10px;
+}
+
+@media (hover: hover) {
+  button.row:hover,
+  .outline-btn:hover {
+    background: color-mix(in srgb, var(--text) 5%, transparent);
+  }
+}
+
+/* Inside the row: the card clips anything drawn outside its edge */
+button.row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.outline-btn:active,
+button.row:active {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+}
+
+/* ---------- Dialog (ConfirmDialog.jsx) ---------- */
+
+.sheet {
+  width: min(100% - 32px, 340px);
+  padding: 24px;
+  color: var(--text);
+  background: var(--surface);
+  border: none;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+}
+
+/* Dims the page behind, so the dialog reads as the only task */
+.sheet::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.sheet h2 {
+  margin: 0 0 8px;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.sheet p {
+  margin: 0;
+  font-size: 0.9375rem;
+  color: var(--text-secondary);
+}
+
+.sheet-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sheet[open] {
+    animation: sheet-in 200ms ease-out;
+  }
+
+  .sheet[open]::backdrop {
+    animation: card-in 200ms ease-out;
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
 }

@@ -2,7 +2,7 @@
 -- Replace the password with the output of: openssl rand -base64 24
 -- Change GymApp if your DB_NAME differs.
 
--- Part 10: a login that can only read/write the app's two tables
+-- Part 10: a login that can only read/write the app's five tables
 CREATE LOGIN gym_app WITH PASSWORD = '<a long random password>';
 GO
 USE GymApp;
