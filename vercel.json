@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "gym-api": {
+      "root": "gym-api",
+      "runtime": "rust"
+    },
+    "gym-web": {
+      "root": "gym-web",
+      "framework": "vite"
+    }
+  },
+  "rewrites": []
+}
