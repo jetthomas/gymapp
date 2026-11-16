@@ -288,17 +288,22 @@ export default function AdminScreen({ token, lastLogin, failedSince, onBack }) {
                           </div>
                         </th>
                         <td>
-                          {/* Stays on the saved role until the confirm dialog's change goes through */}
-                          <select
-                            className="role-select"
-                            aria-label={`Role for ${displayName(u)}`}
-                            value={u.isAdmin ? 'admin' : 'member'}
-                            onChange={() => setConfirming({ user: u, kind: 'role' })}
-                            disabled={savingId === u.id}
-                          >
-                            <option value="admin">Admin</option>
-                            <option value="member">Member</option>
-                          </select>
+                          {u.active ? (
+                            <select
+                              className="role-select"
+                              aria-label={`Role for ${displayName(u)}`}
+                              value={u.isAdmin ? 'admin' : 'member'}
+                              onChange={() => setConfirming({ user: u, kind: 'role' })}
+                              disabled={savingId === u.id}
+                            >
+                              <option value="admin">Admin</option>
+                              <option value="member">Member</option>
+                            </select>
+                          ) : (
+                            <span className="role-select muted">
+                              {u.isAdmin ? 'Admin' : 'Member'}
+                            </span>
+                          )}
                         </td>
                         <td>
                           <TwoFactor user={u} />
