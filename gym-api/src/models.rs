@@ -17,6 +17,11 @@ pub struct ResetRequest {
     // Self-service links on a 2FA account need the current code too
     pub code: Option<String>,
 }
+#[derive(Serialize)]
+pub struct MuscleSets {
+    pub muscle: String,
+    pub sets: f64,
+}
 
 #[derive(Deserialize)]
 pub struct ForgotRequest {
@@ -92,18 +97,66 @@ pub struct VerifyRequest {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewSet {
+    pub weight_kg: f64,
+    pub reps: i32,
+    pub rir: Option<i32>, // reps in reserve; only sent when the member has "Show RIR" on
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewWorkoutExercise {
+    pub exercise_id: i32,
+    pub sets: Vec<NewSet>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NewWorkout {
     pub name: String,
     pub date: DateTime<Utc>,
     pub notes: Option<String>,
+    // Made on the phone, so a save that is sent twice is stored once
+    pub client_id: Option<String>,
+    pub duration_sec: Option<i32>,
+    #[serde(default)]
+    pub exercises: Vec<NewWorkoutExercise>,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Workout {
     pub id: i32,
     pub name: String,
     pub date: DateTime<Utc>,
     pub notes: Option<String>,
+    pub duration_sec: Option<i32>,
+    pub sets: i32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoggedSet {
+    pub weight_kg: f64,
+    pub reps: i32,
+    pub rir: Option<i32>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoggedExercise {
+    pub exercise_id: i32,
+    pub name: String,
+    pub sets: Vec<LoggedSet>,
+}
+
+// One workout with everything logged in it
+#[derive(Serialize)]
+pub struct WorkoutDetail {
+    #[serde(flatten)]
+    pub workout: Workout,
+    pub exercises: Vec<LoggedExercise>,
 }
 #[derive(Deserialize)]
 pub struct ExerciseQuery {

@@ -31,7 +31,7 @@ use crate::auth::{
 use crate::exercises::{create_exercise, delete_exercise, list_exercises, update_exercise};
 use crate::state::{AppState, ProxyIpKeyExtractor, connect};
 use crate::two_factor::{totp_confirm, totp_disable, totp_setup, totp_verify};
-use crate::workouts::{create_workout, list_workouts};
+use crate::workouts::{create_workout, get_workout, last_sets, list_workouts, muscle_sets};
 
 fn env_or(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_string())
@@ -226,7 +226,6 @@ async fn main() {
         .route("/auth/logout", post(logout))
         .route("/account", get(get_profile))
         .route("/auth/2fa/confirm", post(totp_confirm))
-        .route("/workouts", get(list_workouts).post(create_workout))
         .route("/admin/users", get(list_users))
         .route("/admin/stats", get(admin_stats))
         .route("/admin/users/{id}/admin", put(set_admin))
@@ -234,6 +233,10 @@ async fn main() {
         .route("/admin/users/{id}/reactivate", post(reactivate_user))
         .route("/exercises", get(list_exercises))
         .route("/admin/exercises", post(create_exercise))
+        .route("/workouts", get(list_workouts).post(create_workout))
+        .route("/me/muscles", get(muscle_sets))
+        .route("/workouts/{id}", get(get_workout))
+        .route("/exercises/{id}/last", get(last_sets))
         .route(
             "/admin/exercises/{id}",
             put(update_exercise).delete(delete_exercise),

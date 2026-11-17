@@ -23,6 +23,7 @@ export default function AccountScreen({
   const [deleteError, setDeleteError] = useState('');
   const [deletePassword, setDeletePassword] = useState('');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [showRir, setShowRir] = useState(() => localStorage.getItem('show-rir') === '1');
 
   useEffect(() => {
     // The card just stays hidden if this fails; nothing else on the screen needs it
@@ -143,7 +144,25 @@ export default function AccountScreen({
               </div>
             )}
           </section>
-
+          <section className="card split" aria-labelledby="training-title">
+            <div>
+              <h2 id="training-title" className="card-title">
+                Training
+              </h2>
+              <p className="row-sub">RIR is how many more reps you could have done.</p>
+            </div>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={showRir}
+                onChange={(e) => {
+                  setShowRir(e.target.checked);
+                  localStorage.setItem('show-rir', e.target.checked ? '1' : '0');
+                }}
+              />
+              Show RIR on sets
+            </label>
+          </section>
           {isAdmin && (
             <section className="card split" aria-labelledby="team-title">
               <div>
