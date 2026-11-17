@@ -7,32 +7,11 @@ import PasswordInput from './PasswordInput';
 import TwoFactorDisable from './TwoFactorDisable';
 import TwoFactorSetup from './TwoFactorSetup';
 
-// Points right when closed, down when its row is open
-function Chevron() {
-  return (
-    <svg
-      className="row-chevron"
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M9 6l6 6-6 6" />
-    </svg>
-  );
-}
-
 // Settings behind the home screen. Its state resets whenever it closes, including on logout.
 export default function AccountScreen({
   token,
   isAdmin,
   has2fa,
-  onBack,
   onTokenChanged,
   onManageUsers,
   onLogOut,
@@ -69,155 +48,170 @@ export default function AccountScreen({
   }
 
   return (
-    <div className="admin-page">
-      <header className="admin-toolbar">
-        <button className="toolbar-btn" type="button" onClick={onBack}>
-          <span aria-hidden="true">‹</span> Back
-        </button>
-        <h1 className="toolbar-title">Account</h1>
-      </header>
+    <main className="admin-content">
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">Account</h1>
+          <p className="admin-subtitle">
+            {isAdmin ? 'Manage your security and team access.' : 'Manage your security.'}
+          </p>
+        </div>
+      </div>
+      {notice && (
+        <p className="msg success" role="status">
+          {notice}
+        </p>
+      )}
 
-      <main className="admin-content account">
-        {profile && (
-          <div className="profile-card">
-            <div className="profile-avatar" aria-hidden="true">
-              {initials(profile)}
-            </div>
-            <div className="profile-text">
+      <div className="account">
+        <aside className="card profile-card">
+          {profile && (
+            <>
+              <div className="profile-avatar" aria-hidden="true">
+                {initials(profile)}
+              </div>
               <div className="profile-name">{displayName(profile)}</div>
               <div className="profile-email">{profile.email}</div>
-            </div>
-          </div>
-        )}
-        {notice && (
-          <p className="msg success" role="status">
-            {notice}
-          </p>
-        )}
-
-        <h2 className="group-label">Security</h2>
-        <div className="group">
-          <button
-            className="row"
-            type="button"
-            aria-expanded={open === 'password'}
-            onClick={() => toggle('password')}
-          >
-            <span className="row-text">Change password</span>
-            <Chevron />
-          </button>
-          {open === 'password' && (
-            <div className="row-panel">
-              <ChangePasswordForm
-                token={token}
-                onChanged={(t) => {
-                  onTokenChanged(t);
-                  setOpen(null);
-                  setNotice('Password changed. Other devices have been logged out.');
-                }}
-                onCancel={() => setOpen(null)}
-              />
-            </div>
+            </>
           )}
-          <button
-            className="row"
-            type="button"
-            aria-expanded={open === '2fa'}
-            onClick={() => toggle('2fa')}
-          >
-            <span className="row-text">
-              Two-factor authentication
-              <span className="row-sub">Authenticator app</span>
-            </span>
-            <span className={`status${has2fa ? ' on' : ''}`}>{has2fa ? 'On' : 'Off'}</span>
-            <Chevron />
+          <button className="outline-btn" type="button" onClick={onLogOut}>
+            Log out
           </button>
-          {open === '2fa' && (
-            <div className="row-panel">
-              {has2fa ? (
-                <TwoFactorDisable
-                  token={token}
-                  // Turning 2FA off signs out every session, this one included
-                  onDisabled={() => onSignedOut('Two-factor is off. Log in again.')}
-                />
-              ) : (
-                <TwoFactorSetup
-                  token={token}
-                  // Turning 2FA on signs out every session, this one included
-                  onEnabled={() => onSignedOut('Two-factor is on. Log in again with your code.')}
-                />
-              )}
-            </div>
-          )}
-        </div>
+        </aside>
 
-        {isAdmin && (
-          <>
-            <h2 className="group-label">Team</h2>
-            <div className="group">
-              <button className="row" type="button" onClick={onManageUsers}>
-                <span className="row-text">Manage users</span>
-                <Chevron />
+        <div className="account-cards">
+          <section className="card" aria-labelledby="security-title">
+            <h2 id="security-title" className="card-title">
+              Security
+            </h2>
+            <p className="row-sub">Keep your account protected.</p>
+            <div className="row static">
+              <span className="row-text">Password</span>
+              <button
+                className="outline-btn"
+                type="button"
+                aria-expanded={open === 'password'}
+                onClick={() => toggle('password')}
+              >
+                Change password
               </button>
             </div>
-          </>
-        )}
-
-        <button className="outline-btn" type="button" onClick={onLogOut}>
-          Log out
-        </button>
-
-        <h2 className="group-label">Danger zone</h2>
-        <div className="group danger">
-          <div className="row static">
-            <span className="row-text">
-              Delete account
-              {/* Deleting only deactivates (see delete_account), so don't promise permanent removal */}
-              <span className="row-sub">Deactivates your account. You can undo this.</span>
-            </span>
-            <button
-              className="outline-btn danger"
-              type="button"
-              onClick={() => setConfirmingDelete(true)}
-            >
-              Delete account
-            </button>
-          </div>
-          {confirmingDelete && (
-            <div className="row-panel">
-              <form onSubmit={handleDelete}>
-                <p className="hint">
-                  This deactivates your account. You can reactivate it from the login screen.
-                </p>
-                <div className="field">
-                  <label htmlFor="delete-password">Password</label>
-                  <PasswordInput
-                    id="delete-password"
-                    autoComplete="current-password"
-                    value={deletePassword}
-                    onChange={(e) => setDeletePassword(e.target.value)}
-                  />
-                </div>
-                <ErrorMsg>{deleteError}</ErrorMsg>
-                <button className="login-btn danger" type="submit">
-                  Delete account
-                </button>
-                <button
-                  className="link-btn"
-                  type="button"
-                  onClick={() => {
-                    setConfirmingDelete(false);
-                    setDeletePassword('');
-                    setDeleteError('');
+            {open === 'password' && (
+              <div className="row-panel">
+                <ChangePasswordForm
+                  token={token}
+                  onChanged={(t) => {
+                    onTokenChanged(t);
+                    setOpen(null);
+                    setNotice('Password changed. Other devices have been logged out.');
                   }}
-                >
-                  Cancel
-                </button>
-              </form>
+                  onCancel={() => setOpen(null)}
+                />
+              </div>
+            )}
+            <div className="row static">
+              <span className="row-text">
+                Two-factor authentication
+                <span className="row-sub">Authenticator app</span>
+              </span>
+              <span className={`status${has2fa ? ' on' : ''}`}>{has2fa ? 'On' : 'Off'}</span>
+              <button
+                className="outline-btn"
+                type="button"
+                aria-expanded={open === '2fa'}
+                aria-label="Manage two-factor authentication"
+                onClick={() => toggle('2fa')}
+              >
+                Manage
+              </button>
             </div>
+            {open === '2fa' && (
+              <div className="row-panel">
+                {has2fa ? (
+                  <TwoFactorDisable
+                    token={token}
+                    // Turning 2FA off signs out every session, this one included
+                    onDisabled={() => onSignedOut('Two-factor is off. Log in again.')}
+                  />
+                ) : (
+                  <TwoFactorSetup
+                    token={token}
+                    // Turning 2FA on signs out every session, this one included
+                    onEnabled={() => onSignedOut('Two-factor is on. Log in again with your code.')}
+                  />
+                )}
+              </div>
+            )}
+          </section>
+
+          {isAdmin && (
+            <section className="card split" aria-labelledby="team-title">
+              <div>
+                <h2 id="team-title" className="card-title">
+                  Team
+                </h2>
+                <p className="row-sub">Manage users</p>
+              </div>
+              <button className="pill-btn filled" type="button" onClick={onManageUsers}>
+                Manage users
+              </button>
+            </section>
           )}
+
+          <section className="card danger" aria-labelledby="danger-title">
+            <h2 id="danger-title" className="card-title">
+              Danger zone
+            </h2>
+            <div className="row static">
+              <span className="row-text">
+                Delete account
+                {/* Deleting only deactivates (see delete_account), so don't promise permanent removal */}
+                <span className="row-sub">Deactivates your account. You can undo this.</span>
+              </span>
+              <button
+                className="outline-btn danger"
+                type="button"
+                onClick={() => setConfirmingDelete(true)}
+              >
+                Delete account
+              </button>
+            </div>
+            {confirmingDelete && (
+              <div className="row-panel">
+                <form onSubmit={handleDelete}>
+                  <p className="hint">
+                    This deactivates your account. You can reactivate it from the login screen.
+                  </p>
+                  <div className="field">
+                    <label htmlFor="delete-password">Password</label>
+                    <PasswordInput
+                      id="delete-password"
+                      autoComplete="current-password"
+                      value={deletePassword}
+                      onChange={(e) => setDeletePassword(e.target.value)}
+                    />
+                  </div>
+                  <ErrorMsg>{deleteError}</ErrorMsg>
+                  <button className="login-btn danger" type="submit">
+                    Delete account
+                  </button>
+                  <button
+                    className="link-btn"
+                    type="button"
+                    onClick={() => {
+                      setConfirmingDelete(false);
+                      setDeletePassword('');
+                      setDeleteError('');
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </form>
+              </div>
+            )}
+          </section>
         </div>
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }

@@ -17,6 +17,8 @@ export default function AdminExercises({ token }) {
   const [editing, setEditing] = useState(null); // null = list; {} = new exercise; an exercise = edit it
   const [deleting, setDeleting] = useState(null); // the exercise awaiting a yes
   const [saved, setSaved] = useState(0); // goes up after each change, to refetch the list
+  // The list is long, so it starts hidden; searching or picking a muscle opens it
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     // An older, slower answer must not replace a newer one
@@ -56,32 +58,50 @@ export default function AdminExercises({ token }) {
   }
 
   return (
-    <section aria-labelledby="exercises-title">
+    <section className="card" aria-labelledby="exercises-title">
       <div className="section-head">
-        <h2 id="exercises-title" className="section-title">
-          Exercises
-        </h2>
+        <div>
+          <h2 id="exercises-title" className="card-title">
+            Exercises
+          </h2>
+          <p className="row-sub">Search and manage your library.</p>
+        </div>
         {!editing && (
           <>
-            <select
-              className="role-select status-filter"
-              aria-label="Muscle"
-              value={muscle}
-              onChange={(e) => setMuscle(e.target.value)}
-            >
-              <option value="">All muscles</option>
-              {MUSCLES.map((m) => (
-                <option key={m}>{m}</option>
-              ))}
-            </select>
             <input
               className="admin-search"
               type="search"
               placeholder="Search exercises"
               aria-label="Search exercises"
               value={q}
-              onChange={(e) => setQ(e.target.value)}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setOpen(true);
+              }}
             />
+            <select
+              className="role-select status-filter"
+              aria-label="Muscle"
+              value={muscle}
+              onChange={(e) => {
+                setMuscle(e.target.value);
+                setOpen(true);
+              }}
+            >
+              <option value="">All muscles</option>
+              {MUSCLES.map((m) => (
+                <option key={m}>{m}</option>
+              ))}
+            </select>
+            <button
+              className="outline-btn"
+              type="button"
+              aria-expanded={open}
+              aria-controls="exercise-results"
+              onClick={() => setOpen(!open)}
+            >
+              {open ? 'Hide list' : 'Show list'}
+            </button>
             <button className="pill-btn filled" type="button" onClick={() => setEditing({})}>
               Add exercise
             </button>
@@ -102,29 +122,32 @@ export default function AdminExercises({ token }) {
       ) : (
         <>
           <ErrorMsg>{error}</ErrorMsg>
-          {exercises === null && !error && <p className="msg">Loading exercises…</p>}
-          {exercises?.length === 0 && <p className="msg">No matches</p>}
-          {exercises?.length > 0 && (
-            <>
-              <div className="group exercise-list">
-                {exercises.slice(0, SHOWN).map((e) => (
-                  <button className="row" type="button" key={e.id} onClick={() => setEditing(e)}>
-                    <span className="row-text">
-                      {e.name}
-                      <span className="row-sub">
-                        {[e.primaryMuscles.join(', '), e.equipment].filter(Boolean).join(' · ')}
+          <div id="exercise-results" hidden={!open}>
+            {exercises === null && !error && <p className="msg">Loading exercises…</p>}
+            {exercises?.length === 0 && <p className="msg">No matches</p>}
+            {exercises?.length > 0 && (
+              <>
+                <div className="group exercise-list">
+                  {exercises.slice(0, SHOWN).map((e) => (
+                    <button className="row" type="button" key={e.id} onClick={() => setEditing(e)}>
+                      <span className="row-text">
+                        {e.name}
+                        <span className="row-sub">
+                          {[e.primaryMuscles.join(', '), e.equipment].filter(Boolean).join(' · ')}
+                        </span>
                       </span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-              {exercises.length > SHOWN && (
-                <p className="hint">
-                  Showing {SHOWN} of {exercises.length}. Search or pick a muscle to narrow it down.
-                </p>
-              )}
-            </>
-          )}
+                    </button>
+                  ))}
+                </div>
+                {exercises.length > SHOWN && (
+                  <p className="hint">
+                    Showing {SHOWN} of {exercises.length}. Search or pick a muscle to narrow it
+                    down.
+                  </p>
+                )}
+              </>
+            )}
+          </div>
         </>
       )}
 
