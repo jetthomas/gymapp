@@ -6,6 +6,7 @@ import ForgotPasswordForm from './ForgotPasswordForm';
 import AdminScreen from './AdminScreen';
 import AccountScreen from './AccountScreen';
 import HomeScreen from './HomeScreen';
+import NavBar from './NavBar';
 import ResetPasswordForm from './ResetPasswordForm';
 import { logout, refresh, setOnSessionExpired, verifyEmail } from './api';
 
@@ -118,32 +119,27 @@ export default function App() {
       />
     );
   }
-  if (page === 'admin') {
-    return (
-      <AdminScreen
-        token={token}
-        lastLogin={lastLogin}
-        failedSince={failedSince}
-        onBack={() => setPage('account')}
-      />
-    );
-  }
-  if (page === 'account') {
-    return (
-      <AccountScreen
-        token={token}
-        isAdmin={isAdmin}
-        has2fa={has2fa}
-        onBack={() => setPage('home')}
-        onTokenChanged={setToken}
-        onManageUsers={() => setPage('admin')}
-        onLogOut={handleLogOut}
-        onSignedOut={(doneNotice = '') => {
-          logOut();
-          setNotice(doneNotice);
-        }}
-      />
-    );
-  }
-  return <HomeScreen onAccount={() => setPage('account')} />;
+  return (
+    <div className="admin-page">
+      <NavBar page={page} isAdmin={isAdmin} onNavigate={setPage} />
+      {page === 'admin' ? (
+        <AdminScreen token={token} lastLogin={lastLogin} failedSince={failedSince} />
+      ) : page === 'account' ? (
+        <AccountScreen
+          token={token}
+          isAdmin={isAdmin}
+          has2fa={has2fa}
+          onTokenChanged={setToken}
+          onManageUsers={() => setPage('admin')}
+          onLogOut={handleLogOut}
+          onSignedOut={(doneNotice = '') => {
+            logOut();
+            setNotice(doneNotice);
+          }}
+        />
+      ) : (
+        <HomeScreen />
+      )}
+    </div>
+  );
 }

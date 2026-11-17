@@ -30,19 +30,18 @@ function Icon({ d }) {
 
 // On, Off, or a warning for an admin who has no second factor
 function TwoFactor({ user }) {
-  if (user.totpEnabled) return <span className="tfa on">On</span>;
+  if (user.totpEnabled) return <span className="tfa on">2FA On</span>;
   if (user.isAdmin && user.active)
     return (
       <span className="tfa warn" title="Admins should turn on two-factor">
-        {' '}
-        Off
+        2FA Off
         <span className="visually-hidden"> (recommended for admins)</span>
       </span>
     );
-  return <span className="tfa">Off</span>;
+  return <span className="tfa">2FA Off</span>;
 }
 
-export default function AdminScreen({ token, lastLogin, failedSince, onBack }) {
+export default function AdminScreen({ token, lastLogin, failedSince }) {
   const [users, setUsers] = useState(null); // null = still loading
   const [error, setError] = useState('');
   const [rowError, setRowError] = useState(null); // { userId, message }
@@ -55,6 +54,7 @@ export default function AdminScreen({ token, lastLogin, failedSince, onBack }) {
   const [announce, setAnnounce] = useState('');
   const [confirming, setConfirming] = useState(null); // { user, kind: 'role' | 'reactivate' } awaiting a yes
   const [stats, setStats] = useState(null);
+  const [view, setView] = useState('users'); // 'users' or 'activity'
 
   // Runs once when the screen opens (and again only if token changes)
   useEffect(() => {
@@ -158,7 +158,9 @@ export default function AdminScreen({ token, lastLogin, failedSince, onBack }) {
         },
       ]
     : [];
-  const chartMax = Math.max(1, ...charts.flatMap((c) => c.data.map((d) => d.value)));
+  // Rounded up to even, so the middle gridline is a whole number
+  const chartMax =
+    2 * Math.ceil(Math.max(1, ...charts.flatMap((c) => c.data.map((d) => d.value))) / 2);
   const tiles = [
     ['Accounts', users?.length],
     ['Active', users?.filter((u) => u.active).length],
@@ -168,264 +170,278 @@ export default function AdminScreen({ token, lastLogin, failedSince, onBack }) {
   const change = confirming && pendingChange(confirming);
 
   return (
-    <div className="admin-page">
-      <header className="admin-toolbar">
-        <button className="toolbar-btn" type="button" onClick={onBack}>
-          <span aria-hidden="true">‹</span> Back
-        </button>
-        <h1 className="toolbar-title">Admin</h1>
-      </header>
-
-      <main className="admin-content wide">
-        <p role="status" className="visually-hidden">
-          {announce}
-        </p>
-        {lastLogin && (
-          <p className="hint last-login" role="status">
-            Last logged in{' '}
-            {new Date(lastLogin).toLocaleString(undefined, {
-              weekday: 'short',
-              day: 'numeric',
-              month: 'short',
-              hour: 'numeric',
-              minute: '2-digit',
-            })}
-            .
-            {failedSince > 0 &&
-              ` ${failedSince} failed ${failedSince === 1 ? 'attempt' : 'attempts'} since then. If that wasn't you, change your password.`}
-          </p>
-        )}
-
-        <dl className="stat-grid">
-          {tiles.map(([label, value]) => (
-            <div key={label} className="stat">
-              <dt>{label}</dt>
-              <dd>{value ?? '–'}</dd>
+    <main className="admin-content">
+      <p role="status" className="visually-hidden">
+        {announce}
+      </p>
+      {view === 'activity' ? (
+        <>
+          <button className="outline-btn back-btn" type="button" onClick={() => setView('users')}>
+            <span aria-hidden="true">‹</span> Back to Admin
+          </button>
+          <div className="page-head">
+            <div>
+              <h1 className="page-title">Activity</h1>
+              <p className="admin-subtitle">Account sign-ins at a glance.</p>
             </div>
-          ))}
-        </dl>
-
-        <section aria-labelledby="users-title">
-          <div className="section-head">
-            <h2 id="users-title" className="section-title">
-              Users
-            </h2>
-            <select
-              className="role-select status-filter"
-              aria-label="Show users"
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-            >
-              <option value="all">All users</option>
-              <option value="active">Active</option>
-              <option value="inactive">Deactivated</option>
-            </select>
-            <input
-              className="admin-search"
-              type="search"
-              placeholder="Search by name or email"
-              aria-label="Search users"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
+            <span className="range">Last 30 days</span>
           </div>
-
           <ErrorMsg>{error}</ErrorMsg>
-          {users === null && !error && <p className="msg">Loading users…</p>}
-          {users?.length === 0 && <p className="msg">No users yet</p>}
-          {users?.length > 0 && shown.length === 0 && <p className="msg">No matches</p>}
+          {!stats && !error && <p className="msg">Loading activity…</p>}
+          <div className="chart-grid">
+            {charts.map(({ title, data, tone, alertAt }) => {
+              const peak = data.reduce((a, b) => (b.value > a.value ? b : a));
+              return (
+                <BarChart
+                  key={title}
+                  title={title}
+                  data={data}
+                  max={chartMax}
+                  tone={tone}
+                  alertAt={alertAt}
+                  total={total(data)}
+                  summary={
+                    peak.value
+                      ? `Busiest day: ${peak.label}, with ${peak.value}.`
+                      : 'None in the last 30 days.'
+                  }
+                />
+              );
+            })}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="page-head">
+            <div>
+              <h1 className="page-title">Admin</h1>
+              <p className="admin-subtitle">Manage people, access, and your exercise library.</p>
+            </div>
+            <button className="outline-btn" type="button" onClick={() => setView('activity')}>
+              View activity
+            </button>
+          </div>
+          {lastLogin && (
+            <p className="hint last-login" role="status">
+              Last logged in{' '}
+              {new Date(lastLogin).toLocaleString(undefined, {
+                weekday: 'short',
+                day: 'numeric',
+                month: 'short',
+                hour: 'numeric',
+                minute: '2-digit',
+              })}
+              .
+              {failedSince > 0 &&
+                ` ${failedSince} failed ${failedSince === 1 ? 'attempt' : 'attempts'} since then. If that wasn't you, change your password.`}
+            </p>
+          )}
 
-          {shown?.length > 0 && (
-            // Scrolls sideways on a phone rather than hiding columns
-            <div className="table-wrap">
-              <table className="user-table">
-                <thead>
-                  <tr>
-                    <th scope="col">User</th>
-                    <th scope="col">Role</th>
-                    <th scope="col">2FA</th>
-                    <th scope="col" className="num">
-                      Logins
-                    </th>
-                    <th scope="col">Last login</th>
-                    <th scope="col" className="num">
-                      Workouts
-                    </th>
-                    <th scope="col" className="actions">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {shown.map((u) => (
-                    <Fragment key={u.id}>
-                      <tr className={u.active ? '' : 'inactive'}>
-                        <th scope="row">
-                          <div className="user-cell">
-                            <div
-                              className={`avatar${u.active ? '' : ' inactive'}`}
-                              aria-hidden="true"
-                            >
-                              {initials(u)}
-                            </div>
-                            <div>
-                              <div className="user-name">
-                                {displayName(u)}
-                                {u.isYou && <span className="you">(you)</span>}
-                                {!u.active && <span className="badge muted">Deactivated</span>}
-                                {u.failedLast7d >= 5 && (
-                                  <span className="badge danger">
-                                    {u.failedLast7d} failed logins this week
-                                  </span>
-                                )}
+          <dl className="stat-grid">
+            {tiles.map(([label, value]) => (
+              <div key={label} className="stat">
+                <dt>{label}</dt>
+                <dd>{value ?? '–'}</dd>
+              </div>
+            ))}
+          </dl>
+
+          <section aria-labelledby="users-title">
+            <div className="section-head">
+              <div>
+                <h2 id="users-title" className="section-title">
+                  Users
+                </h2>
+                {users && (
+                  <p className="admin-subtitle">
+                    {users.length} accounts · {users.filter((u) => u.active).length} active
+                  </p>
+                )}
+              </div>
+              <input
+                className="admin-search"
+                type="search"
+                placeholder="Search by name or email"
+                aria-label="Search users"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <select
+                className="role-select status-filter"
+                aria-label="Show users"
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+              >
+                <option value="all">All users</option>
+                <option value="active">Active</option>
+                <option value="inactive">Deactivated</option>
+              </select>
+            </div>
+
+            <ErrorMsg>{error}</ErrorMsg>
+            {users === null && !error && <p className="msg">Loading users…</p>}
+            {users?.length === 0 && <p className="msg">No users yet</p>}
+            {users?.length > 0 && shown.length === 0 && <p className="msg">No matches</p>}
+
+            {shown?.length > 0 && (
+              // Scrolls sideways on a phone rather than hiding columns
+              <div className="table-wrap">
+                <table className="user-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">User</th>
+                      <th scope="col">Access</th>
+                      <th scope="col">Activity</th>
+                      <th scope="col" className="actions">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shown.map((u) => (
+                      <Fragment key={u.id}>
+                        <tr className={u.active ? '' : 'inactive'}>
+                          <th scope="row">
+                            <div className="user-cell">
+                              <div
+                                className={`avatar${u.active ? '' : ' inactive'}`}
+                                aria-hidden="true"
+                              >
+                                {initials(u)}
                               </div>
-                              <div className="user-email">{u.email}</div>
-                            </div>
-                          </div>
-                        </th>
-                        <td>
-                          {u.active ? (
-                            <select
-                              className="role-select"
-                              aria-label={`Role for ${displayName(u)}`}
-                              value={u.isAdmin ? 'admin' : 'member'}
-                              onChange={() => setConfirming({ user: u, kind: 'role' })}
-                              disabled={savingId === u.id}
-                            >
-                              <option value="admin">Admin</option>
-                              <option value="member">Member</option>
-                            </select>
-                          ) : (
-                            <span className="role-select muted">
-                              {u.isAdmin ? 'Admin' : 'Member'}
-                            </span>
-                          )}
-                        </td>
-                        <td>
-                          <TwoFactor user={u} />
-                        </td>
-                        <td className="num">{u.logins}</td>
-                        <td>
-                          {u.lastLogin
-                            ? new Date(u.lastLogin).toLocaleDateString(undefined, {
-                                day: 'numeric',
-                                month: 'short',
-                              })
-                            : 'Never'}
-                        </td>
-                        <td className="num">{u.workouts}</td>
-                        <td className="actions">
-                          {u.active ? (
-                            <button
-                              aria-label={`Send reset link to ${displayName(u)}`}
-                              className="text-btn"
-                              type="button"
-                              onClick={() => handleReset(u.id)}
-                              disabled={creatingFor === u.id}
-                            >
-                              {creatingFor === u.id ? 'Creating…' : 'Send reset link'}
-                            </button>
-                          ) : (
-                            <button
-                              aria-label={`Reactivate ${displayName(u)}`}
-                              className="text-btn"
-                              type="button"
-                              onClick={() => setConfirming({ user: u, kind: 'reactivate' })}
-                              disabled={savingId === u.id}
-                            >
-                              {savingId === u.id ? 'Reactivating…' : 'Reactivate'}
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                      {(reset?.userId === u.id || rowError?.userId === u.id) && (
-                        <tr className="detail-row">
-                          <td colSpan={7}>
-                            {reset?.userId === u.id && (
-                              <>
-                                <div className="reset-field">
-                                  <input
-                                    readOnly
-                                    value={reset.link}
-                                    aria-label={`Reset link for ${displayName(u)}`}
-                                    onFocus={(e) => e.target.select()}
-                                  />
-                                  <button
-                                    className="pill-btn filled"
-                                    type="button"
-                                    onClick={handleCopy}
-                                  >
-                                    {copied ? 'Copied' : 'Copy'}
-                                  </button>
+                              <div>
+                                <div className="user-name">
+                                  {displayName(u)}
+                                  {u.isYou && <span className="you">(you)</span>}
+                                  {!u.active && <span className="badge muted">Deactivated</span>}
+                                  {u.failedLast7d >= 5 && (
+                                    <span className="badge danger">
+                                      {u.failedLast7d} failed logins this week
+                                    </span>
+                                  )}
                                 </div>
-                                <p className="hint">
-                                  Copy this and send it to them. It works once, for 15 minutes.
-                                </p>
-                              </>
-                            )}
-                            {rowError?.userId === u.id && (
-                              <p className="msg error row-error" role="alert">
-                                {rowError.message}
-                              </p>
+                                <div className="user-email">{u.email}</div>
+                              </div>
+                            </div>
+                          </th>
+                          <td>
+                            <div className="access-cell">
+                              {u.active ? (
+                                <select
+                                  className="role-select"
+                                  aria-label={`Role for ${displayName(u)}`}
+                                  value={u.isAdmin ? 'admin' : 'member'}
+                                  onChange={() => setConfirming({ user: u, kind: 'role' })}
+                                  disabled={savingId === u.id}
+                                >
+                                  <option value="admin">Admin</option>
+                                  <option value="member">Member</option>
+                                </select>
+                              ) : (
+                                <span className="role-select muted">
+                                  {u.isAdmin ? 'Admin' : 'Member'}
+                                </span>
+                              )}
+                              <TwoFactor user={u} />
+                            </div>
+                          </td>
+                          <td>
+                            {u.logins} {u.logins === 1 ? 'login' : 'logins'} · {u.workouts}{' '}
+                            {u.workouts === 1 ? 'workout' : 'workouts'}
+                            <div className="user-email">
+                              {u.lastLogin
+                                ? `Last login ${new Date(u.lastLogin).toLocaleDateString(
+                                    undefined,
+                                    {
+                                      day: 'numeric',
+                                      month: 'short',
+                                    },
+                                  )}`
+                                : 'Never logged in'}
+                            </div>
+                          </td>
+                          <td className="actions">
+                            {u.active ? (
+                              <button
+                                aria-label={`Send reset link to ${displayName(u)}`}
+                                className="outline-btn"
+                                type="button"
+                                onClick={() => handleReset(u.id)}
+                                disabled={creatingFor === u.id}
+                              >
+                                {creatingFor === u.id ? 'Creating…' : 'Send reset link'}
+                              </button>
+                            ) : (
+                              <button
+                                aria-label={`Reactivate ${displayName(u)}`}
+                                className="outline-btn"
+                                type="button"
+                                onClick={() => setConfirming({ user: u, kind: 'reactivate' })}
+                                disabled={savingId === u.id}
+                              >
+                                {savingId === u.id ? 'Reactivating…' : 'Reactivate'}
+                              </button>
                             )}
                           </td>
                         </tr>
-                      )}
-                    </Fragment>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-
-        <AdminExercises token={token} />
-
-        {stats && (
-          <section aria-labelledby="activity-title">
-            <div className="section-head">
-              <h2 id="activity-title" className="section-title">
-                Activity
-              </h2>
-              <p className="admin-subtitle">Last 30 days</p>
-            </div>
-            <div className="chart-grid">
-              {charts.map(({ title, data, tone, alertAt }) => {
-                const peak = data.reduce((a, b) => (b.value > a.value ? b : a));
-                return (
-                  <BarChart
-                    key={title}
-                    title={title}
-                    data={data}
-                    max={chartMax}
-                    tone={tone}
-                    alertAt={alertAt}
-                    summary={
-                      peak.value
-                        ? `${total(data)} total. Busiest day: ${peak.label}, with ${peak.value}.`
-                        : 'None in the last 30 days.'
-                    }
-                  />
-                );
-              })}
-            </div>
+                        {(reset?.userId === u.id || rowError?.userId === u.id) && (
+                          <tr className="detail-row">
+                            <td colSpan={4}>
+                              {reset?.userId === u.id && (
+                                <>
+                                  <div className="reset-field">
+                                    <input
+                                      readOnly
+                                      value={reset.link}
+                                      aria-label={`Reset link for ${displayName(u)}`}
+                                      onFocus={(e) => e.target.select()}
+                                    />
+                                    <button
+                                      className="pill-btn filled"
+                                      type="button"
+                                      onClick={handleCopy}
+                                    >
+                                      {copied ? 'Copied' : 'Copy'}
+                                    </button>
+                                  </div>
+                                  <p className="hint">
+                                    Copy this and send it to them. It works once, for 15 minutes.
+                                  </p>
+                                </>
+                              )}
+                              {rowError?.userId === u.id && (
+                                <p className="msg error row-error" role="alert">
+                                  {rowError.message}
+                                </p>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </section>
-        )}
 
-        {change && (
-          <ConfirmDialog
-            title={change.title}
-            body={change.body}
-            confirmLabel={change.confirmLabel}
-            danger={change.danger}
-            onConfirm={() => {
-              setConfirming(null);
-              change.run();
-            }}
-            onCancel={() => setConfirming(null)}
-          />
-        )}
-      </main>
-    </div>
+          <AdminExercises token={token} />
+        </>
+      )}
+
+      {change && (
+        <ConfirmDialog
+          title={change.title}
+          body={change.body}
+          confirmLabel={change.confirmLabel}
+          danger={change.danger}
+          onConfirm={() => {
+            setConfirming(null);
+            change.run();
+          }}
+          onCancel={() => setConfirming(null)}
+        />
+      )}
+    </main>
   );
 }
