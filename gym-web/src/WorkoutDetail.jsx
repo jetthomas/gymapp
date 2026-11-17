@@ -1,0 +1,76 @@
+import { useEffect, useState } from 'react';
+import { getWorkout } from './api';
+import ErrorMsg from './ErrorMsg';
+
+// One finished workout: its totals, then every set
+export default function WorkoutDetail({ token, id, onBack }) {
+  const [workout, setWorkout] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    getWorkout(token, id)
+      .then(setWorkout)
+      .catch((err) => setError(err.message));
+  }, [token, id]);
+
+  // Total weight moved: weight × reps over every set
+  const volume = workout?.exercises
+    .flatMap((e) => e.sets)
+    .reduce((sum, s) => sum + s.weightKg * s.reps, 0);
+
+  return (
+    <main className="admin-content">
+      <button className="outline-btn back-btn" type="button" onClick={onBack}>
+        <span aria-hidden="true">‹</span> Back
+      </button>
+      <ErrorMsg>{error}</ErrorMsg>
+      {!workout && !error && <p className="msg">Loading workout…</p>}
+      {workout && (
+        <>
+          <div className="page-head">
+            <div>
+              <h1 className="page-title">{workout.name}</h1>
+              <p className="admin-subtitle">
+                {new Date(workout.date).toLocaleDateString(undefined, {
+                  weekday: 'long',
+                  day: 'numeric',
+                  month: 'long',
+                })}
+              </p>
+            </div>
+          </div>
+          <dl className="stat-grid">
+            {[
+              [
+                'Duration',
+                workout.durationSec ? `${Math.round(workout.durationSec / 60)} min` : '–',
+              ],
+              ['Sets', workout.sets],
+              ['Volume', `${Math.round(volume).toLocaleString()} kg`],
+            ].map(([label, value]) => (
+              <div key={label} className="stat">
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
+          </dl>
+          <div className="account-cards">
+            {workout.exercises.map((e, i) => (
+              <section className="card" key={i}>
+                <h2 className="card-title">{e.name}</h2>
+                <ol className="set-list">
+                  {e.sets.map((s, j) => (
+                    <li key={j}>
+                      {s.weightKg} kg × {s.reps}
+                      {s.rir != null && <span className="row-sub"> · RIR {s.rir}</span>}
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            ))}
+          </div>
+        </>
+      )}
+    </main>
+  );
+}

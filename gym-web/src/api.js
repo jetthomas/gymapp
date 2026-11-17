@@ -69,6 +69,13 @@ export const getWorkouts = (token) => request('/workouts', { token });
 
 export const createWorkout = (token, workout) =>
   request('/workouts', { method: 'POST', body: workout, token });
+export const getWorkout = (token, id) => request(`/workouts/${id}`, { token });
+// [{ muscle, sets }] for the muscles trained in the last `days` days
+export const getMuscles = (token, days = 30) => request(`/me/muscles?days=${days}`, { token });
+
+// The sets from the last time the member did this exercise
+export const getLastSets = (token, exerciseId) =>
+  request(`/exercises/${exerciseId}/last`, { token });
 export const getUsers = (token) => request('/admin/users', { token });
 
 export const getStats = (token, days = 30) => request(`/admin/stats?days=${days}`, { token });

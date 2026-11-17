@@ -138,7 +138,7 @@ export default function App() {
           }}
         />
       ) : (
-        <HomeScreen />
+        <HomeScreen token={token} />
       )}
     </div>
   );
