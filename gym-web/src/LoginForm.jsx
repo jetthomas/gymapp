@@ -93,22 +93,13 @@ export default function LoginForm({
             ) : (
               <>
                 <label htmlFor="code">6-digit code from your authenticator app</label>
-                <CodeInput
-                  id="code"
-                  value={code}
-                  onChange={(digits) => {
-                    setCode(digits);
-                    // submit as soon as the last digit lands (typed or autofilled)
-                    if (digits.length === 6 && !loading) verifyCode(digits);
-                  }}
-                  autoFocus
-                />
+                <CodeInput id="code" value={code} onChange={setCode} autoFocus />
               </>
             )}
           </div>
           <ErrorMsg>{message}</ErrorMsg>
           <button className="login-btn" type="submit" disabled={loading}>
-            {loading ? 'Checking…' : 'Continue'}
+            {loading ? 'Checking…' : 'Enter code'}
           </button>
           <button
             className="link-btn"

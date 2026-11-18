@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { deleteAccount, getProfile } from './api';
 import ChangePasswordForm from './ChangePasswordForm';
+import { clock } from './Draft';
 import ErrorMsg from './ErrorMsg';
 import { displayName, initials } from './names';
 import PasswordInput from './PasswordInput';
@@ -25,6 +26,9 @@ export default function AccountScreen({
   const [deletePassword, setDeletePassword] = useState('');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [showRir, setShowRir] = useState(() => localStorage.getItem('show-rir') === '1');
+  const [restSeconds, setRestSeconds] = useState(
+    () => localStorage.getItem('rest-seconds') ?? '90',
+  );
   const waiting = useWaiting(token);
 
   useEffect(() => {
@@ -152,15 +156,18 @@ export default function AccountScreen({
               </div>
             )}
           </section>
-          <section className="card split" aria-labelledby="training-title">
-            <div>
-              <h2 id="training-title" className="card-title">
-                Training
-              </h2>
-              <p className="row-sub">RIR is how many more reps you could have done.</p>
-            </div>
-            <label className="check">
+          <section className="card" aria-labelledby="training-title">
+            <h2 id="training-title" className="card-title">
+              Training
+            </h2>
+            <p className="row-sub">Settings for logging a workout on this device.</p>
+            <div className="row static">
+              <label className="row-text" htmlFor="show-rir">
+                Show RIR on sets
+                <span className="row-sub">How many more reps you could have done.</span>
+              </label>
               <input
+                id="show-rir"
                 type="checkbox"
                 checked={showRir}
                 onChange={(e) => {
@@ -168,8 +175,28 @@ export default function AccountScreen({
                   localStorage.setItem('show-rir', e.target.checked ? '1' : '0');
                 }}
               />
-              Show RIR on sets
-            </label>
+            </div>
+            <div className="row static">
+              <label className="row-text" htmlFor="rest-seconds">
+                Rest timer
+                <span className="row-sub">Starts when you tick a set.</span>
+              </label>
+              <select
+                id="rest-seconds"
+                className="role-select"
+                value={restSeconds}
+                onChange={(e) => {
+                  setRestSeconds(e.target.value);
+                  localStorage.setItem('rest-seconds', e.target.value);
+                }}
+              >
+                {[60, 90, 120, 180, 240, 300].map((s) => (
+                  <option key={s} value={s}>
+                    {clock(s * 1000)}
+                  </option>
+                ))}
+              </select>
+            </div>
           </section>
           {isAdmin && (
             <section className="card split" aria-labelledby="team-title">
