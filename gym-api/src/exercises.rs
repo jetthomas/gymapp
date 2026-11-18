@@ -7,7 +7,7 @@ use axum::{
 use crate::extractors::{AdminUser, AuthUser};
 use crate::models::{Exercise, ExerciseQuery, NewExercise};
 use crate::passwords::fits;
-use crate::state::{ApiResult, Db, all_rows, col, internal, one_row};
+use crate::state::{ApiResult, Db, all_rows, batch, col, internal, one_row};
 
 // The 17 muscle names free-exercise-db uses; admin-added exercises pick from the same list
 pub const MUSCLES: [&str; 17] = [
@@ -129,9 +129,7 @@ pub async fn create_exercise(
 ) -> ApiResult<StatusCode> {
     let name = check_exercise(&e).map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
     // If anything fails before COMMIT, the connection closes and SQL Server undoes it all
-    db.execute("BEGIN TRANSACTION", &[])
-        .await
-        .map_err(internal)?;
+    batch(&mut db, "BEGIN TRANSACTION").await?;
     let id: i32 = one_row(
         &mut db,
         "INSERT INTO dbo.Exercises (Name, Equipment) OUTPUT INSERTED.Id VALUES (@P1, @P2)",
@@ -141,7 +139,7 @@ pub async fn create_exercise(
     .and_then(|r| r.get(0))
     .ok_or_else(|| internal("insert returned no Id"))?;
     save_muscles(&mut db, id, &e).await?;
-    db.execute("COMMIT", &[]).await.map_err(internal)?;
+    batch(&mut db, "COMMIT").await?;
     Ok(StatusCode::CREATED)
 }
 
@@ -152,9 +150,7 @@ pub async fn update_exercise(
 ) -> ApiResult<StatusCode> {
     let name = check_exercise(&e).map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
     // Same as create: an early return closes the connection, which undoes the transaction
-    db.execute("BEGIN TRANSACTION", &[])
-        .await
-        .map_err(internal)?;
+    batch(&mut db, "BEGIN TRANSACTION").await?;
     let updated = db
         .execute(
             "UPDATE dbo.Exercises SET Name = @P2, Equipment = @P3 WHERE Id = @P1",
@@ -172,7 +168,7 @@ pub async fn update_exercise(
     .await
     .map_err(internal)?;
     save_muscles(&mut db, id, &e).await?;
-    db.execute("COMMIT", &[]).await.map_err(internal)?;
+    batch(&mut db, "COMMIT").await?;
     Ok(StatusCode::OK)
 }
 

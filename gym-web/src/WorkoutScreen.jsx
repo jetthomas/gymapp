@@ -5,6 +5,7 @@ import { clearDraft, clock, loadDraft, newDraft, newSet, saveDraft } from './Dra
 import ErrorMsg from './ErrorMsg';
 import ExercisePicker from './ExercisePicker';
 import useSubmit from './useSubmit';
+import PlateSheet from './PlateSheet';
 
 const REST_SECONDS = 90;
 
@@ -16,6 +17,7 @@ export default function WorkoutScreen({ token, onDone }) {
   const [picking, setPicking] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const { loading, message, setMessage, run } = useSubmit();
+  const [plateWeight, setPlateWeight] = useState(null);
   // Set on the Account screen
   const showRir = localStorage.getItem('show-rir') === '1';
 
@@ -35,6 +37,15 @@ export default function WorkoutScreen({ token, onDone }) {
     changeExercise(i, (e) => ({
       ...e,
       sets: e.sets.map((s, k) => (k === j ? { ...s, ...patch } : s)),
+    }));
+  }
+
+  // Last time's set goes too, so the rows below keep their own "previous"
+  function removeSet(i, j) {
+    changeExercise(i, (e) => ({
+      ...e,
+      sets: e.sets.filter((_, k) => k !== j),
+      previous: e.previous.filter((_, k) => k !== j),
     }));
   }
 
@@ -156,8 +167,16 @@ export default function WorkoutScreen({ token, onDone }) {
                 <th scope="col">kg</th>
                 <th scope="col">Reps</th>
                 {showRir && <th scope="col">RIR</th>}
+                {e.equipment === 'barbell' && (
+                  <th scope="col">
+                    <span className="visually-hidden">Plates</span>
+                  </th>
+                )}
                 <th scope="col">
                   <span className="visually-hidden">Done</span>
+                </th>
+                <th scope="col">
+                  <span className="visually-hidden">Remove</span>
                 </th>
               </tr>
             </thead>
@@ -210,6 +229,26 @@ export default function WorkoutScreen({ token, onDone }) {
                         />
                       </td>
                     )}
+                    {e.equipment === 'barbell' && (
+                      <td>
+                        <button
+                          className="tick plate-btn"
+                          type="button"
+                          aria-label={`Plates for set ${j + 1}`}
+                          disabled={ready.weightKg === ''}
+                          onClick={() => setPlateWeight(ready.weightKg)}
+                        >
+                          {/* A bar with two plates each side */}
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M2 12h20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                            <rect x="5" y="6" width="3" height="12" rx="1" />
+                            <rect x="9" y="8" width="2.5" height="8" rx="1" />
+                            <rect x="12.5" y="8" width="2.5" height="8" rx="1" />
+                            <rect x="16" y="6" width="3" height="12" rx="1" />
+                          </svg>
+                        </button>
+                      </td>
+                    )}
                     <td>
                       <button
                         className="tick"
@@ -221,6 +260,18 @@ export default function WorkoutScreen({ token, onDone }) {
                         onClick={() => tick(i, j)}
                       >
                         ✓
+                      </button>
+                    </td>
+                    <td>
+                      <button
+                        className="remove-set"
+                        type="button"
+                        aria-label={`Remove set ${j + 1}`}
+                        // The card's Remove takes the whole exercise
+                        disabled={e.sets.length === 1}
+                        onClick={() => removeSet(i, j)}
+                      >
+                        ×
                       </button>
                     </td>
                   </tr>
@@ -257,6 +308,9 @@ export default function WorkoutScreen({ token, onDone }) {
       )}
       {picking && (
         <ExercisePicker token={token} onPick={addExercise} onClose={() => setPicking(false)} />
+      )}
+      {plateWeight !== null && (
+        <PlateSheet weightKg={plateWeight} onClose={() => setPlateWeight(null)} />
       )}
       {discarding && (
         <ConfirmDialog

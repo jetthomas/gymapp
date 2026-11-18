@@ -13,7 +13,7 @@ use crate::models::{
     LoggedExercise, LoggedSet, MuscleSets, NewWorkout, StatsQuery, Workout, WorkoutDetail,
 };
 use crate::passwords::fits;
-use crate::state::{ApiResult, Db, all_rows, col, internal, one_row, record, set_user};
+use crate::state::{ApiResult, Db, all_rows, batch, col, internal, one_row, record, set_user};
 
 // The user ID comes from the token (AuthUser), never from the request body
 
@@ -164,9 +164,7 @@ pub async fn create_workout(
     }
 
     // If anything fails before COMMIT, the connection closes and SQL Server undoes it all
-    db.execute("BEGIN TRANSACTION", &[])
-        .await
-        .map_err(internal)?;
+    batch(&mut db, "BEGIN TRANSACTION").await?;
     let date = w.date.naive_utc();
     let id: i32 = one_row(
         &mut db,
@@ -209,7 +207,7 @@ pub async fn create_workout(
         }
     }
     record(&mut db, user_id, "workout").await?;
-    db.execute("COMMIT", &[]).await.map_err(internal)?;
+    batch(&mut db, "COMMIT").await?;
     let saved = Workout {
         id,
         name: name.to_string(),
