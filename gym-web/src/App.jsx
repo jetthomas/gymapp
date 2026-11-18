@@ -6,6 +6,7 @@ import ForgotPasswordForm from './ForgotPasswordForm';
 import AdminScreen from './AdminScreen';
 import AccountScreen from './AccountScreen';
 import HomeScreen from './HomeScreen';
+import MuscleMap from './musclemap';
 import NavBar from './NavBar';
 import ResetPasswordForm from './ResetPasswordForm';
 import { logout, refresh, setOnSessionExpired, verifyEmail } from './api';
@@ -140,12 +141,20 @@ export default function App() {
           has2fa={has2fa}
           onTokenChanged={setToken}
           onManageUsers={() => setPage('admin')}
+          onViewProgress={() => setPage('progress')}
           onLogOut={handleLogOut}
           onSignedOut={(doneNotice = '') => {
             logOut();
             setNotice(doneNotice);
           }}
         />
+      ) : page === 'progress' ? (
+        <main className="admin-content">
+          <div className="page-head">
+            <h1 className="page-title">Progress</h1>
+          </div>
+          <MuscleMap token={token} />
+        </main>
       ) : (
         <HomeScreen token={token} />
       )}

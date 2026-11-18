@@ -65,7 +65,7 @@ const shade = (sets) => (sets >= 40 ? 1 : sets >= 20 ? 0.7 : sets > 0 ? 0.4 : 0)
 // A shape and its mirror image, as SVG points strings
 const halves = (shape) => [shape, shape.map(([x, y]) => [200 - x, y])].map((h) => h.join(' '));
 
-function Figure({ shapes, sets, dx }) {
+function Figure({ shapes, sets, dx, label, hovered, onHover }) {
   return (
     // The card colour as the outline is what cuts the body into facets
     <g
@@ -77,15 +77,30 @@ function Figure({ shapes, sets, dx }) {
       {BODY.flatMap(halves).map((points) => (
         <polygon key={points} points={points} fill="var(--border)" />
       ))}
-      {Object.entries(shapes).flatMap(([muscle, list]) => {
+      {Object.entries(shapes).map(([muscle, list]) => {
         const opacity = shade(sets[muscle] ?? 0);
-        return list.flatMap(halves).map((points) => (
-          <g key={points}>
-            <polygon points={points} fill="var(--input-border)" />
-            {opacity > 0 && <polygon points={points} fill="var(--accent)" fillOpacity={opacity} />}
+        return (
+          // A light outline marks the muscle under the pointer, on both figures
+          <g
+            key={muscle}
+            stroke={muscle === hovered ? 'var(--text)' : undefined}
+            onMouseEnter={() => onHover(muscle)}
+            onMouseLeave={() => onHover(null)}
+          >
+            {list.flatMap(halves).map((points) => (
+              <g key={points}>
+                <polygon points={points} fill="var(--input-border)" />
+                {opacity > 0 && (
+                  <polygon points={points} fill="var(--accent)" fillOpacity={opacity} />
+                )}
+              </g>
+            ))}
           </g>
-        ));
+        );
       })}
+      <text x="100" y="324" textAnchor="middle" className="muscle-figure-label">
+        {label}
+      </text>
     </g>
   );
 }
@@ -93,9 +108,10 @@ function Figure({ shapes, sets, dx }) {
 // A front and back body, each muscle shaded by how many sets hit it in the last 30 days
 export default function MuscleMap({ token }) {
   const [sets, setSets] = useState(null); // { chest: 24, ... }; null = still loading
+  const [hovered, setHovered] = useState(null); // the muscle under the pointer
 
   useEffect(() => {
-    // The card just stays hidden if this fails; the dashboard works without it
+    // The card just stays hidden if this fails
     getMuscles(token)
       .then((rows) => setSets(Object.fromEntries(rows.map((r) => [r.muscle, r.sets]))))
       .catch(() => {});
@@ -104,6 +120,7 @@ export default function MuscleMap({ token }) {
   if (!sets) return null;
   const trained = MUSCLES.filter((m) => sets[m] > 0).sort((a, b) => sets[b] - sets[a]);
   const untrained = MUSCLES.filter((m) => !sets[m]);
+  const hoveredSets = sets[hovered] ?? 0;
 
   return (
     <section className="card" aria-labelledby="muscles-title">
@@ -113,10 +130,38 @@ export default function MuscleMap({ token }) {
       <p className="row-sub">Sets in the last 30 days. Brighter means more.</p>
       <div className="muscle-map">
         {/* The figure is a picture; the list beside it carries the same numbers as text */}
-        <svg viewBox="36 0 278 312" aria-hidden="true">
-          <Figure shapes={FRONT} sets={sets} dx={0} />
-          <Figure shapes={BACK} sets={sets} dx={150} />
-        </svg>
+        <div className="muscle-figure" aria-hidden="true">
+          <svg viewBox="36 0 278 332">
+            <Figure
+              shapes={FRONT}
+              sets={sets}
+              dx={0}
+              label="Front"
+              hovered={hovered}
+              onHover={setHovered}
+            />
+            <Figure
+              shapes={BACK}
+              sets={sets}
+              dx={150}
+              label="Back"
+              hovered={hovered}
+              onHover={setHovered}
+            />
+          </svg>
+          <p className="muscle-hover">
+            {hovered ? (
+              <>
+                <strong>{hovered}</strong> ·{' '}
+                {hoveredSets
+                  ? `${hoveredSets} ${hoveredSets === 1 ? 'set' : 'sets'}`
+                  : 'not trained'}
+              </>
+            ) : (
+              'Point at a muscle to see its name'
+            )}
+          </p>
+        </div>
         <div>
           {trained.length === 0 && <p className="hint">Nothing logged in the last 30 days.</p>}
           <dl className="muscle-list">

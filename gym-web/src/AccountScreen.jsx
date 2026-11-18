@@ -16,6 +16,7 @@ export default function AccountScreen({
   has2fa,
   onTokenChanged,
   onManageUsers,
+  onViewProgress,
   onLogOut,
   onSignedOut,
 }) {
@@ -197,6 +198,17 @@ export default function AccountScreen({
                 ))}
               </select>
             </div>
+          </section>
+          <section className="card split" aria-labelledby="progress-title">
+            <div>
+              <h2 id="progress-title" className="card-title">
+                Progress
+              </h2>
+              <p className="row-sub">Muscles trained in the last 30 days</p>
+            </div>
+            <button className="outline-btn" type="button" onClick={onViewProgress}>
+              View progress
+            </button>
           </section>
           {isAdmin && (
             <section className="card split" aria-labelledby="team-title">
