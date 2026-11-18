@@ -1411,6 +1411,35 @@ button.row:active {
   margin: 0 auto;
 }
 
+.muscle-figure {
+  width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+/* "Front" / "Back" under each figure; SVG text takes fill, not color */
+.muscle-figure-label {
+  fill: var(--text-secondary);
+  stroke: none;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* The name of the muscle under the pointer; one line, so the card doesn't jump */
+.muscle-hover {
+  margin: 8px 0 0;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.muscle-hover strong {
+  color: var(--text);
+  text-transform: capitalize;
+}
+
 .muscle-list {
   margin: 0;
 }
@@ -1575,4 +1604,138 @@ button.row:active {
 
 .nav-waiting + .nav-account {
   margin-left: 0;
+}
+
+/* ---------- Dashboard Workout card (WorkoutCard.jsx) ---------- */
+
+.workout-card {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px;
+  margin-bottom: 40px;
+}
+
+.workout-card-label {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.workout-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px 32px;
+}
+
+.workout-card-title {
+  margin: 0;
+  font-size: 2.5rem;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.workout-card-sub {
+  display: block;
+  margin: 4px 0 0;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.workout-card-stats {
+  display: flex;
+  gap: 32px;
+  margin: 0;
+  text-align: right;
+}
+
+/* Number above its label, as in the mockup */
+.workout-card-stats div {
+  display: flex;
+  flex-direction: column-reverse;
+}
+
+.workout-card-stats dt {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.workout-card-stats dd {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.workout-card-bar {
+  height: 8px;
+  overflow: hidden;
+  background: var(--surface-2);
+  border-radius: 4px;
+}
+
+.workout-card-bar div {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+}
+
+.workout-card-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workout-card-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  border-top: 1px solid var(--border);
+}
+
+.workout-card-value {
+  flex-shrink: 0;
+  font-weight: 400;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.workout-card-when {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  margin-top: auto;
+  font-size: 0.9375rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.workout-card-when .workout-card-sub {
+  margin: 0 0 2px;
+  font-size: 0.8125rem;
+}
+
+.workout-card-clock {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  border-radius: 50%;
+}
+
+.workout-card-action {
+  width: 100%;
+  padding-block: 12px;
 }

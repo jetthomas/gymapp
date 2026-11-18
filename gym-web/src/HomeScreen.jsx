@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { getWorkouts } from './api';
 import { loadDraft } from './Draft';
 import ErrorMsg from './ErrorMsg';
+import WorkoutCard from './WorkoutCard';
 import WorkoutDetail from './WorkoutDetail';
 import WorkoutScreen from './WorkoutScreen';
-import MuscleMap from './musclemap';
 import { useRefused, useWaiting } from './outbox';
 
 // The member's home screen: start or resume a workout, and look back at old ones
@@ -35,12 +35,14 @@ export default function HomeScreen({ token }) {
     <main className="admin-content">
       <div className="page-head">
         <h1 className="page-title">Dashboard</h1>
-        <button className="pill-btn filled" type="button" onClick={() => setView('active')}>
-          {loadDraft() ? 'Resume workout' : 'Start workout'}
-        </button>
       </div>
 
-      <MuscleMap token={token} />
+      <WorkoutCard
+        token={token}
+        draft={loadDraft()}
+        lastWorkout={workouts?.[0]}
+        onStart={() => setView('active')}
+      />
 
       <section aria-labelledby="history-title">
         <h2 id="history-title" className="section-title">
