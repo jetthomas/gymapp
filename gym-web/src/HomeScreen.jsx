@@ -5,20 +5,26 @@ import ErrorMsg from './ErrorMsg';
 import WorkoutDetail from './WorkoutDetail';
 import WorkoutScreen from './WorkoutScreen';
 import MuscleMap from './musclemap';
+import { useRefused, useWaiting } from './outbox';
 
 // The member's home screen: start or resume a workout, and look back at old ones
 export default function HomeScreen({ token }) {
   const [view, setView] = useState('home'); // 'home', 'active', or the id of a workout to show
   const [workouts, setWorkouts] = useState(null); // null = still loading
   const [error, setError] = useState('');
+  const waiting = useWaiting(token);
+  const refused = useRefused(token);
 
   // Reloads whenever the member comes back to this screen, so a just-finished workout shows up
   useEffect(() => {
     if (view !== 'home') return;
     getWorkouts(token)
-      .then(setWorkouts)
+      .then((list) => {
+        setWorkouts(list);
+        setError('');
+      })
       .catch((err) => setError(err.message));
-  }, [token, view]);
+  }, [token, view, waiting]);
 
   if (view === 'active') return <WorkoutScreen token={token} onDone={() => setView('home')} />;
   if (view !== 'home') {
@@ -40,7 +46,13 @@ export default function HomeScreen({ token }) {
         <h2 id="history-title" className="section-title">
           History
         </h2>
-        <ErrorMsg>{error}</ErrorMsg>
+        {waiting > 0 && (
+          <p className="hint" role="status">
+            {waiting} {waiting === 1 ? 'workout is' : 'workouts are'} saved on this device and will
+            upload when you're back online.
+          </p>
+        )}
+        <ErrorMsg>{refused && `A workout couldn't be saved: ${refused}`}</ErrorMsg>
         {workouts === null && !error && <p className="msg">Loading workouts…</p>}
         {workouts?.length === 0 && <p className="msg">No workouts yet. Start your first one.</p>}
         {workouts?.length > 0 && (
