@@ -2,107 +2,90 @@ import { useEffect, useState } from 'react';
 import { getMuscles } from './api';
 import { MUSCLES } from './muscles';
 
-// Where each muscle sits on the figure, as [x, y, width, height] boxes.
-// shortcut: a figure made of rounded boxes; swap in drawn <path>s per muscle for a lifelike body
+// One half of each figure (x <= 100), as polygons per muscle; Figure draws each one again mirrored at x = 200 - x
+// prettier-ignore
 const FRONT = {
-  neck: [[92, 46, 16, 12]],
-  traps: [
-    [72, 56, 22, 10],
-    [106, 56, 22, 10],
+  neck: [[[92, 42], [100, 48], [100, 58], [88, 55]]],
+  traps: [[[88, 50], [89, 57], [72, 61], [78, 55]]],
+  shoulders: [[[72, 60], [61, 61], [53, 70], [54, 87], [62, 80], [68, 68]]],
+  chest: [[[99, 61], [75, 62], [68, 70], [70, 87], [84, 94], [99, 92]]],
+  biceps: [[[55, 89], [63, 82], [67, 90], [65, 115], [57, 121], [51, 109]]],
+  forearms: [[[51, 123], [58, 122], [63, 128], [57, 158], [51, 170], [45, 168], [43, 148]]],
+  abdominals: [
+    [[87, 96], [99, 95], [99, 110], [86, 111]],
+    [[86, 113], [99, 112], [99, 127], [86, 127]],
+    [[86, 129], [99, 129], [99, 143], [87, 143]],
+    [[87, 145], [99, 145], [99, 166], [92, 160]],
+    // the obliques
+    [[71, 95], [84, 97], [84, 139], [75, 135], [69, 115]],
   ],
-  shoulders: [
-    [48, 60, 22, 24],
-    [130, 60, 22, 24],
-  ],
-  chest: [
-    [73, 68, 26, 28],
-    [101, 68, 26, 28],
-  ],
-  biceps: [
-    [46, 88, 18, 40],
-    [136, 88, 18, 40],
-  ],
-  forearms: [
-    [40, 132, 18, 46],
-    [142, 132, 18, 46],
-  ],
-  abdominals: [[80, 100, 40, 54]],
-  abductors: [
-    [62, 158, 10, 32],
-    [128, 158, 10, 32],
-  ],
+  abductors: [[[66, 140], [74, 137], [75, 146], [69, 176], [64, 160]]],
   quadriceps: [
-    [74, 160, 16, 78],
-    [110, 160, 16, 78],
+    [[69, 176], [75, 146], [81, 170], [77, 229], [71, 225], [66, 204]],
+    [[81, 170], [75, 146], [86, 152], [92, 176], [90, 220], [83, 234], [77, 229]],
   ],
-  adductors: [
-    [92, 160, 7, 50],
-    [101, 160, 7, 50],
-  ],
+  adductors: [[[87, 152], [98, 164], [96, 184], [92, 196], [92, 176]]],
   calves: [
-    [74, 244, 16, 60],
-    [110, 244, 16, 60],
+    [[71, 244], [79, 241], [80, 276], [75, 282], [69, 262]],
+    [[79, 241], [86, 246], [87, 262], [82, 284], [80, 276]],
   ],
 };
+// prettier-ignore
 const BACK = {
-  neck: [[92, 46, 16, 12]],
-  traps: [[78, 56, 44, 16]],
-  shoulders: [
-    [48, 60, 22, 24],
-    [130, 60, 22, 24],
-  ],
-  'middle back': [[84, 74, 32, 26]],
-  lats: [
-    [72, 78, 10, 48],
-    [118, 78, 10, 48],
-  ],
-  'lower back': [[84, 102, 32, 30]],
-  triceps: [
-    [46, 88, 18, 40],
-    [136, 88, 18, 40],
-  ],
-  forearms: [
-    [40, 132, 18, 46],
-    [142, 132, 18, 46],
-  ],
-  glutes: [
-    [72, 136, 27, 32],
-    [101, 136, 27, 32],
-  ],
+  neck: [[[93, 42], [100, 44], [100, 52], [91, 52]]],
+  traps: [[[100, 46], [92, 52], [73, 60], [85, 68], [100, 90]]],
+  shoulders: [[[72, 60], [61, 61], [53, 70], [54, 87], [64, 80], [71, 68]]],
+  'middle back': [[[73, 62], [85, 68], [100, 90], [100, 100], [88, 98], [70, 88], [66, 74]]],
+  lats: [[[66, 77], [70, 89], [88, 100], [88, 118], [80, 131], [72, 123], [66, 101]]],
+  'lower back': [[[90, 103], [100, 103], [100, 134], [90, 136], [88, 118]]],
+  triceps: [[[55, 89], [64, 82], [67, 92], [65, 115], [57, 121], [51, 108]]],
+  forearms: [[[51, 123], [58, 122], [63, 128], [57, 158], [51, 170], [45, 168], [43, 148]]],
+  glutes: [[[74, 135], [90, 137], [100, 139], [100, 166], [88, 172], [74, 168], [68, 152]]],
   hamstrings: [
-    [74, 172, 20, 66],
-    [106, 172, 20, 66],
+    [[70, 173], [82, 175], [80, 231], [74, 227], [68, 200]],
+    [[82, 175], [96, 173], [94, 200], [90, 227], [82, 234], [80, 231]],
   ],
   calves: [
-    [76, 244, 16, 60],
-    [108, 244, 16, 60],
+    [[72, 243], [81, 240], [80, 274], [74, 268], [70, 255]],
+    [[81, 240], [88, 244], [88, 262], [82, 280], [80, 274]],
   ],
 };
+// Head, hands, knees and feet: never shaded
+// prettier-ignore
+const BODY = [
+  [[100, 6], [89, 10], [85, 24], [89, 37], [96, 43], [100, 44]],
+  [[45, 170], [51, 172], [50, 188], [43, 185], [41, 176]],
+  [[71, 227], [77, 231], [83, 236], [82, 240], [71, 242]],
+  [[74, 284], [82, 286], [86, 300], [84, 306], [70, 306]],
+];
 
 // Sets in the period -> how strongly the muscle is filled in; 40 is about 10 sets a week
-const shade = (sets) => (sets >= 40 ? 1 : sets >= 20 ? 0.6 : sets > 0 ? 0.3 : 0);
+const shade = (sets) => (sets >= 40 ? 1 : sets >= 20 ? 0.7 : sets > 0 ? 0.4 : 0);
 
-function Figure({ boxes, sets, dx }) {
+// A shape and its mirror image, as SVG points strings
+const halves = (shape) => [shape, shape.map(([x, y]) => [200 - x, y])].map((h) => h.join(' '));
+
+function Figure({ shapes, sets, dx }) {
   return (
-    <g transform={`translate(${dx})`}>
-      <circle cx="100" cy="26" r="17" fill="var(--surface-2)" />
-      {Object.entries(boxes).flatMap(([muscle, rects]) =>
-        rects.map(([x, y, width, height]) => {
-          const opacity = shade(sets[muscle] ?? 0);
-          return (
-            <rect
-              key={`${muscle}${x}`}
-              x={x}
-              y={y}
-              width={width}
-              height={height}
-              rx="5"
-              fill={opacity ? 'var(--accent)' : 'var(--surface-2)'}
-              fillOpacity={opacity || 1}
-            />
-          );
-        }),
-      )}
+    // The card colour as the outline is what cuts the body into facets
+    <g
+      transform={`translate(${dx})`}
+      stroke="var(--surface)"
+      strokeWidth="1.5"
+      strokeLinejoin="round"
+    >
+      {BODY.flatMap(halves).map((points) => (
+        <polygon key={points} points={points} fill="var(--border)" />
+      ))}
+      {Object.entries(shapes).flatMap(([muscle, list]) => {
+        const opacity = shade(sets[muscle] ?? 0);
+        return list.flatMap(halves).map((points) => (
+          <g key={points}>
+            <polygon points={points} fill="var(--input-border)" />
+            {opacity > 0 && <polygon points={points} fill="var(--accent)" fillOpacity={opacity} />}
+          </g>
+        ));
+      })}
     </g>
   );
 }
@@ -130,9 +113,9 @@ export default function MuscleMap({ token }) {
       <p className="row-sub">Sets in the last 30 days. Brighter means more.</p>
       <div className="muscle-map">
         {/* The figure is a picture; the list beside it carries the same numbers as text */}
-        <svg viewBox="0 0 400 310" aria-hidden="true">
-          <Figure boxes={FRONT} sets={sets} dx={0} />
-          <Figure boxes={BACK} sets={sets} dx={200} />
+        <svg viewBox="36 0 278 312" aria-hidden="true">
+          <Figure shapes={FRONT} sets={sets} dx={0} />
+          <Figure shapes={BACK} sets={sets} dx={150} />
         </svg>
         <div>
           {trained.length === 0 && <p className="hint">Nothing logged in the last 30 days.</p>}

@@ -150,6 +150,18 @@ pub async fn all_rows(db: &mut Db, sql: &str, params: &[&dyn ToSql]) -> ApiResul
         .map_err(internal)
 }
 
+// BEGIN TRANSACTION and COMMIT go as a plain batch: execute() wraps them in sp_executesql,
+// and SQL Server refuses a transaction that starts or ends inside that (error 266)
+pub async fn batch(db: &mut Db, sql: &str) -> ApiResult<()> {
+    db.simple_query(sql)
+        .await
+        .map_err(internal)?
+        .into_results()
+        .await
+        .map_err(internal)?;
+    Ok(())
+}
+
 // A column that must be there; NULL or the wrong type is a server bug, so it logs and answers 500
 pub fn col<'a, T: tiberius::FromSql<'a>>(row: &'a Row, name: &str) -> ApiResult<T> {
     row.get(name)
