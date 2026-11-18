@@ -109,15 +109,7 @@ export default function TwoFactorSetup({ token, onEnabled }) {
       </p>
       <div className="field">
         <label htmlFor="setup-code">6-digit code</label>
-        <CodeInput
-          id="setup-code"
-          value={code}
-          onChange={(digits) => {
-            setCode(digits);
-            // submit as soon as the last digit lands (typed or autofilled)
-            if (digits.length === 6 && !loading) confirmCode(digits);
-          }}
-        />
+        <CodeInput id="setup-code" value={code} onChange={setCode} />
       </div>
       <ErrorMsg>{message}</ErrorMsg>
       <button className="login-btn" type="submit" disabled={loading}>

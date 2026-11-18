@@ -7,7 +7,8 @@ import ExercisePicker from './ExercisePicker';
 import PlateSheet from './PlateSheet';
 import { flush, queue } from './outbox';
 
-const REST_SECONDS = 90;
+// Set on the Account screen; 90 s until the member picks another
+const restSeconds = () => Number(localStorage.getItem('rest-seconds')) || 90;
 
 // The workout in progress: one card per exercise, one row per set
 export default function WorkoutScreen({ token, onDone }) {
@@ -86,7 +87,7 @@ export default function WorkoutScreen({ token, onDone }) {
       return;
     }
     changeSet(i, j, { ...filled(exercise, j), done: true });
-    setRestEnds(Date.now() + REST_SECONDS * 1000);
+    setRestEnds(Date.now() + restSeconds() * 1000);
   }
 
   function finish() {
@@ -305,6 +306,23 @@ export default function WorkoutScreen({ token, onDone }) {
           <span role="timer" aria-label="Rest time left">
             Rest {clock(rest)}
           </span>
+          {/* Dropping below zero just ends the rest, like Skip */}
+          <button
+            className="outline-btn"
+            type="button"
+            aria-label="15 seconds less"
+            onClick={() => setRestEnds(restEnds - 15000)}
+          >
+            −15s
+          </button>
+          <button
+            className="outline-btn"
+            type="button"
+            aria-label="15 seconds more"
+            onClick={() => setRestEnds(restEnds + 15000)}
+          >
+            +15s
+          </button>
           <button className="outline-btn" type="button" onClick={() => setRestEnds(0)}>
             Skip
           </button>
