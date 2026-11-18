@@ -6,6 +6,7 @@ import { displayName, initials } from './names';
 import PasswordInput from './PasswordInput';
 import TwoFactorDisable from './TwoFactorDisable';
 import TwoFactorSetup from './TwoFactorSetup';
+import { useWaiting } from './outbox';
 
 // Settings behind the home screen. Its state resets whenever it closes, including on logout.
 export default function AccountScreen({
@@ -24,6 +25,7 @@ export default function AccountScreen({
   const [deletePassword, setDeletePassword] = useState('');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [showRir, setShowRir] = useState(() => localStorage.getItem('show-rir') === '1');
+  const waiting = useWaiting(token);
 
   useEffect(() => {
     // The card just stays hidden if this fails; nothing else on the screen needs it
@@ -74,6 +76,12 @@ export default function AccountScreen({
               <div className="profile-name">{displayName(profile)}</div>
               <div className="profile-email">{profile.email}</div>
             </>
+          )}
+          {waiting > 0 && (
+            <p className="hint">
+              {waiting} {waiting === 1 ? 'workout is' : 'workouts are'} still waiting to upload.
+              Logging out keeps them on this device until you log in here again.
+            </p>
           )}
           <button className="outline-btn" type="button" onClick={onLogOut}>
             Log out

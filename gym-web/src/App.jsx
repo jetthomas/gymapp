@@ -9,6 +9,7 @@ import HomeScreen from './HomeScreen';
 import NavBar from './NavBar';
 import ResetPasswordForm from './ResetPasswordForm';
 import { logout, refresh, setOnSessionExpired, verifyEmail } from './api';
+import { flush } from './outbox';
 
 export default function App() {
   const [token, setToken] = useState(null);
@@ -57,6 +58,14 @@ export default function App() {
         }),
     );
   }, [resetToken, verifyToken]);
+
+  useEffect(() => {
+    if (!token) return;
+    flush(token);
+    const onOnline = () => flush(token);
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [token]);
 
   function backToLogin(doneEmail, doneNotice = '') {
     if (doneEmail) setEmail(doneEmail);
@@ -121,7 +130,7 @@ export default function App() {
   }
   return (
     <div className="admin-page">
-      <NavBar page={page} isAdmin={isAdmin} onNavigate={setPage} />
+      <NavBar token={token} page={page} isAdmin={isAdmin} onNavigate={setPage} />
       {page === 'admin' ? (
         <AdminScreen token={token} lastLogin={lastLogin} failedSince={failedSince} />
       ) : page === 'account' ? (

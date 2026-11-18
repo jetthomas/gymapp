@@ -33,9 +33,21 @@ export default function ExercisePicker({ token, onPick, onClose }) {
           if (stale) return;
           setExercises(list);
           setError('');
+          // Keep the whole library for when there's no signal
+          if (!q && !muscle) localStorage.setItem('exercises', JSON.stringify(list));
         })
         .catch((err) => {
-          if (!stale) setError(err.message);
+          if (stale) return;
+          // No signal: search the copy kept from the last time the whole library loaded
+          const kept = JSON.parse(localStorage.getItem('exercises') ?? 'null');
+          if (!kept) return setError(err.message);
+          setExercises(
+            kept.filter(
+              (e) =>
+                e.name.toLowerCase().includes(q.toLowerCase()) &&
+                (!muscle || [...e.primaryMuscles, ...e.secondaryMuscles].includes(muscle)),
+            ),
+          );
         });
     }, 300);
     return () => {

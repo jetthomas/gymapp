@@ -440,6 +440,12 @@ button {
   margin-left: auto;
 }
 
+/* Account is a person icon: square padding, and flex so the SVG sits centred */
+.nav-btn.nav-account {
+  display: flex;
+  padding: 10px;
+}
+
 .nav-btn {
   padding: 9px 16px;
   font-size: 0.875rem;
@@ -1557,4 +1563,16 @@ button.row:active {
     width: 44px;
     height: 44px;
   }
+}
+
+/* ---------- Offline (outbox.js) ---------- */
+
+/* "2 waiting to upload" in the nav, pushed right; Account then sits beside it */
+.nav-waiting {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.nav-waiting + .nav-account {
+  margin-left: 0;
 }

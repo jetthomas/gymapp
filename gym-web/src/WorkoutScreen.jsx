@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { createWorkout, getLastSets } from './api';
+import { getLastSets } from './api';
 import ConfirmDialog from './ConfirmDialog';
 import { clearDraft, clock, loadDraft, newDraft, newSet, saveDraft } from './Draft';
 import ErrorMsg from './ErrorMsg';
 import ExercisePicker from './ExercisePicker';
-import useSubmit from './useSubmit';
 import PlateSheet from './PlateSheet';
+import { flush, queue } from './outbox';
 
 const REST_SECONDS = 90;
 
@@ -16,7 +16,7 @@ export default function WorkoutScreen({ token, onDone }) {
   const [restEnds, setRestEnds] = useState(0); // a time in ms; 0 = not resting
   const [picking, setPicking] = useState(false);
   const [discarding, setDiscarding] = useState(false);
-  const { loading, message, setMessage, run } = useSubmit();
+  const [message, setMessage] = useState('');
   const [plateWeight, setPlateWeight] = useState(null);
   // Set on the Account screen
   const showRir = localStorage.getItem('show-rir') === '1';
@@ -106,18 +106,17 @@ export default function WorkoutScreen({ token, onDone }) {
       setMessage('Tick at least one set before finishing.');
       return;
     }
-    run(async () => {
-      await createWorkout(token, {
-        clientId: draft.clientId,
-        name: draft.name.trim() || 'Workout',
-        date: new Date(draft.startedAt).toISOString(),
-        // The API allows up to a day
-        durationSec: Math.min(86400, Math.round((Date.now() - draft.startedAt) / 1000)),
-        exercises,
-      });
-      clearDraft();
-      onDone();
+    queue(token, {
+      clientId: draft.clientId,
+      name: draft.name.trim() || 'Workout',
+      date: new Date(draft.startedAt).toISOString(),
+      // The API allows up to a day
+      durationSec: Math.min(86400, Math.round((Date.now() - draft.startedAt) / 1000)),
+      exercises,
     });
+    clearDraft();
+    flush(token);
+    onDone();
   }
 
   const rest = restEnds - now;
@@ -137,8 +136,8 @@ export default function WorkoutScreen({ token, onDone }) {
             {clock(now - draft.startedAt)}
           </div>
         </div>
-        <button className="pill-btn filled" type="button" onClick={finish} disabled={loading}>
-          {loading ? 'Saving…' : 'Finish'}
+        <button className="pill-btn filled" type="button" onClick={finish}>
+          Finish
         </button>
       </div>
       <ErrorMsg>{message}</ErrorMsg>
@@ -240,7 +239,12 @@ export default function WorkoutScreen({ token, onDone }) {
                         >
                           {/* A bar with two plates each side */}
                           <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <path d="M2 12h20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                            <path
+                              d="M2 12h20"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                            />
                             <rect x="5" y="6" width="3" height="12" rx="1" />
                             <rect x="9" y="8" width="2.5" height="8" rx="1" />
                             <rect x="12.5" y="8" width="2.5" height="8" rx="1" />
