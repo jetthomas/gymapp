@@ -4,22 +4,16 @@ import ErrorMsg from './ErrorMsg';
 import FoodSheet from './FoodSheet';
 import ProfileForm from './ProfileForm';
 import targets from './targets';
+import { MEALS } from './meals';
+import { dayKey } from './week';
 
-const MEALS = [
-  ['breakfast', 'Breakfast'],
-  ['lunch', 'Lunch'],
-  ['dinner', 'Dinner'],
-  ['snacks', 'Snacks'],
-];
-
-// YYYY-MM-DD in the member's own time zone
-const today = () => new Date().toLocaleDateString('en-CA');
+const today = () => dayKey(new Date());
 
 function shift(date, days) {
   // Noon, so a daylight-saving change can't push it into the wrong day
   const d = new Date(`${date}T12:00:00`);
   d.setDate(d.getDate() + days);
-  return d.toLocaleDateString('en-CA');
+  return dayKey(d);
 }
 
 // A filled bar: `value` out of `max`, amber once it goes over

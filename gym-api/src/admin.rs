@@ -26,15 +26,19 @@ pub async fn set_admin(
             "You can't remove your own admin access.".to_string(),
         ));
     }
+    // Active = 1: a deactivated account's role is frozen, here and not just on the Admin screen
     let updated = db
         .execute(
-            "UPDATE dbo.Users SET IsAdmin = @P2 WHERE Id = @P1",
+            "UPDATE dbo.Users SET IsAdmin = @P2 WHERE Id = @P1 AND Active = 1",
             &[&user_id, &body.is_admin],
         )
         .await
         .map_err(internal)?;
     if updated.total() == 0 {
-        return Err((StatusCode::NOT_FOUND, "User not found.".to_string()));
+        return Err((
+            StatusCode::NOT_FOUND,
+            "User not found, or deactivated.".to_string(),
+        ));
     }
     record(&mut db, admin_id, "admin_changed").await?;
     Ok(StatusCode::OK)

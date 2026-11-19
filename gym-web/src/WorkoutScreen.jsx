@@ -113,11 +113,12 @@ export default function WorkoutScreen({ token, onDone }) {
           })),
       }))
       .filter((e) => e.sets.length > 0);
+    // Typed but not ticked sets would be lost, so ask first, whether or not others are ticked
+    if (unticked > 0 && !checked) {
+      setConfirmingFinish(true);
+      return;
+    }
     if (exercises.length === 0) {
-      if (unticked > 0 && !checked) {
-        setConfirmingFinish(true);
-        return;
-      }
       setMessage('Tick at least one set before finishing.');
       return;
     }
@@ -137,7 +138,7 @@ export default function WorkoutScreen({ token, onDone }) {
     });
     clearDraft();
     flush(token);
-    onDone(true);
+    onDone();
   }
 
   const rest = restEnds - now;
@@ -254,7 +255,7 @@ export default function WorkoutScreen({ token, onDone }) {
                           className="tick plate-btn"
                           type="button"
                           aria-label={`Plates for set ${j + 1}`}
-                          disabled={ready.weightKg === ''}
+                          disabled={ready.weightKg === '' || isNaN(ready.weightKg)}
                           onClick={() => setPlateWeight(ready.weightKg)}
                         >
                           {/* A bar with two plates each side */}
@@ -292,7 +293,12 @@ export default function WorkoutScreen({ token, onDone }) {
                         type="button"
                         aria-label={`Remove set ${j + 1}`}
                         // The card's Remove takes the whole exercise
-                        disabled={e.sets.length === 1}
+                        disabled={
+                          !s.done &&
+                          (ready.weightKg === '' ||
+                            isNaN(ready.weightKg) ||
+                            !(Number(ready.reps) > 0))
+                        }
                         onClick={() => removeSet(i, j)}
                       >
                         ×
@@ -358,7 +364,10 @@ export default function WorkoutScreen({ token, onDone }) {
           title="Finish with unticked sets?"
           body={`${unticked} ${unticked === 1 ? 'set has numbers but isn’t' : 'sets have numbers but aren’t'} ticked, so ${unticked === 1 ? 'it won’t' : 'they won’t'} be saved.`}
           confirmLabel="Finish anyway"
-          onConfirm={() => finish(true)}
+          onConfirm={() => {
+            setConfirmingFinish(false);
+            finish(true);
+          }}
           onCancel={() => setConfirmingFinish(false)}
         />
       )}

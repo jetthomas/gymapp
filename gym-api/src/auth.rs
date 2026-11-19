@@ -24,6 +24,7 @@ use crate::tokens::{
     CLEAR_REFRESH, cookie, make_challenge, make_token, read_token, refresh_key, reset_key,
     self_reset_key, session_valid, sign, verify_key, with_refresh_cookie,
 };
+use tiberius::Row;
 
 pub async fn register(
     State(state): State<Arc<AppState>>,
@@ -227,11 +228,7 @@ pub async fn reset_password(
     } else {
         return Err(invalid());
     };
-    let user_inputs: Vec<&str> = ["Email", "FirstName", "LastName"]
-        .iter()
-        .filter_map(|col| row.get::<&str, _>(*col))
-        .collect();
-    check_password(&r.password, &user_inputs).map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
+    check_password(&r.password, &own_words(&row)).map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
     let email: &str = col(&row, "Email")?;
 
     // A self-service reset must not get around 2FA, so it needs the current code
@@ -321,17 +318,7 @@ pub async fn delete_account(
     AuthUser(user_id, mut db): AuthUser,
     Json(r): Json<PasswordOnly>,
 ) -> ApiResult<StatusCode> {
-    let row = one_row(
-        &mut db,
-        "SELECT PasswordHash FROM dbo.Users WHERE Id = @P1",
-        &[&user_id],
-    )
-    .await?
-    .ok_or_else(|| internal("user missing"))?;
-    let stored: &str = col(&row, "PasswordHash")?;
-    if !password_matches(r.password, stored.to_string()).await? {
-        return Err(wrong_password());
-    }
+    require_password(&mut db, user_id, r.password).await?;
     db.execute(
         "UPDATE dbo.Users SET Active = 0 WHERE Id = @P1",
         &[&user_id],
@@ -342,11 +329,36 @@ pub async fn delete_account(
 }
 
 // 400 for a wrong current password, not 401: the frontend reads 401 as "session expired"
-pub fn wrong_password() -> (StatusCode, String) {
+fn wrong_password() -> (StatusCode, String) {
     (
         StatusCode::BAD_REQUEST,
         "Your current password is wrong.".to_string(),
     )
+}
+// Checks the signed-in member's current password before a security change. Returns their row,
+// which has every column those changes read, so callers don't query the user twice
+pub async fn require_password(db: &mut Db, user_id: i32, password: String) -> ApiResult<Row> {
+    let row = one_row(
+        db,
+        "SELECT PasswordHash, Email, FirstName, LastName, IsAdmin, TotpEnabled, TotpSecret
+         FROM dbo.Users WHERE Id = @P1",
+        &[&user_id],
+    )
+    .await?
+    .ok_or_else(|| internal("user missing"))?;
+    let stored: &str = col(&row, "PasswordHash")?;
+    if !password_matches(password, stored.to_string()).await? {
+        return Err(wrong_password());
+    }
+    Ok(row)
+}
+
+// The member's own email and names, which a new password must not be built from
+fn own_words(row: &Row) -> Vec<&str> {
+    ["Email", "FirstName", "LastName"]
+        .iter()
+        .filter_map(|c| row.get::<&str, _>(*c))
+        .collect()
 }
 
 pub async fn change_password(
@@ -355,22 +367,8 @@ pub async fn change_password(
     AuthUser(user_id, mut db): AuthUser,
     Json(r): Json<PasswordChange>,
 ) -> ApiResult<Response> {
-    let row = one_row(
-        &mut db,
-        "SELECT PasswordHash, Email, FirstName, LastName, IsAdmin, TotpEnabled FROM dbo.Users WHERE Id = @P1",
-        &[&user_id],
-    )
-    .await?
-    .ok_or_else(|| internal("user missing"))?;
-    let stored: &str = col(&row, "PasswordHash")?;
-    if !password_matches(r.current, stored.to_string()).await? {
-        return Err(wrong_password());
-    }
-    let user_inputs: Vec<&str> = ["Email", "FirstName", "LastName"]
-        .iter()
-        .filter_map(|col| row.get::<&str, _>(*col))
-        .collect();
-    check_password(&r.new, &user_inputs).map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
+    let row = require_password(&mut db, user_id, r.current).await?;
+    check_password(&r.new, &own_words(&row)).map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
     let hash = hash_password(r.new).await?;
     // Signs out every other device; this one gets a new token below
     let new_version: i32 = one_row(

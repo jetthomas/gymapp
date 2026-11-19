@@ -9,25 +9,6 @@ import perDay from './perDay';
 
 const total = (data) => data.reduce((s, d) => s + d.value, 0);
 
-// A small stroked icon in the text's own colour
-function Icon({ d }) {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d={d} />
-    </svg>
-  );
-}
-
 // On, Off, or a warning for an admin who has no second factor
 function TwoFactor({ user }) {
   if (user.totpEnabled) return <span className="tfa on">2FA On</span>;

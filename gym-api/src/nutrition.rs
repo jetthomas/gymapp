@@ -9,6 +9,7 @@ use crate::extractors::AuthUser;
 use crate::models::{DayQuery, Food, FoodEntry, HealthProfile, NewFood};
 use crate::passwords::fits;
 use crate::state::{ApiResult, all_rows, col, internal, one_row, set_user};
+use tiberius::Row;
 
 // Everything here is health information: every query is tied to the member's own id from the token,
 // row-level security repeats that check in the database, and no admin route reads these tables.
@@ -77,6 +78,17 @@ pub fn check_food(f: &NewFood) -> Result<&str, &'static str> {
         return Err("Macros must be 0 to 2,000 g.");
     }
     Ok(name)
+}
+
+// A food's name, calories and macros, from a FoodEntries row
+fn to_food(r: &Row) -> ApiResult<Food> {
+    Ok(Food {
+        name: col::<&str>(r, "Name")?.to_string(),
+        kcal: col(r, "Kcal")?,
+        protein_g: col(r, "ProteinG")?,
+        carbs_g: col(r, "CarbsG")?,
+        fat_g: col(r, "FatG")?,
+    })
 }
 
 // The member's answers and their latest weight; null until they have saved some
@@ -178,13 +190,7 @@ pub async fn list_food(
         out.push(FoodEntry {
             id: col(r, "Id")?,
             meal: col::<&str>(r, "Meal")?.to_string(),
-            food: Food {
-                name: col::<&str>(r, "Name")?.to_string(),
-                kcal: col(r, "Kcal")?,
-                protein_g: col(r, "ProteinG")?,
-                carbs_g: col(r, "CarbsG")?,
-                fat_g: col(r, "FatG")?,
-            },
+            food: to_food(r)?,
         });
     }
     Ok(Json(out))
@@ -212,7 +218,7 @@ pub async fn recent_food(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Json<
             fat_g: col(r, "FatG")?,
         });
     }
-    Ok(Json(out))
+    Ok(Json(rows.iter().map(to_food).collect::<ApiResult<_>>()?))
 }
 
 pub async fn add_food(

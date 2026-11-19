@@ -3,13 +3,13 @@ use std::sync::Arc;
 use axum::{Json, extract::State, http::StatusCode, response::Response};
 use totp_rs::Secret;
 
-use crate::auth::{finish_login, wrong_password};
+use crate::auth::{finish_login, require_password};
 use crate::extractors::AuthUser;
 use crate::models::{
     CodeRequest, DisableRequest, PasswordOnly, RecoveryCodes, TotpSetup, VerifyRequest,
 };
 use crate::passwords::{
-    hash_password, make_totp, password_matches, recovery_code, totp_for, use_totp_code,
+    hash_password, make_totp, recovery_code, totp_for, use_totp_code,
 };
 use crate::state::{ApiResult, AppState, col, connect, internal, one_row, send_security_notice};
 use crate::tokens::{challenge_key, read_token};
@@ -18,17 +18,7 @@ pub async fn totp_setup(
     AuthUser(user_id, mut db): AuthUser,
     Json(r): Json<PasswordOnly>, // Json must be the last argument
 ) -> ApiResult<Json<TotpSetup>> {
-    let row = one_row(
-        &mut db,
-        "SELECT Email, TotpEnabled, PasswordHash FROM dbo.Users WHERE Id = @P1",
-        &[&user_id],
-    )
-    .await?
-    .ok_or_else(|| internal("user missing"))?;
-    let stored: &str = col(&row, "PasswordHash")?;
-    if !password_matches(r.password, stored.to_string()).await? {
-        return Err(wrong_password());
-    }
+    let row = require_password(&mut db, user_id, r.password).await?;
     let email: &str = col(&row, "Email")?;
     let enabled: bool = row.get("TotpEnabled").unwrap_or(false);
     if enabled {
@@ -164,17 +154,7 @@ pub async fn totp_disable(
     AuthUser(user_id, mut db): AuthUser,
     Json(r): Json<DisableRequest>,
 ) -> ApiResult<StatusCode> {
-    let row = one_row(
-        &mut db,
-        "SELECT PasswordHash, Email, TotpSecret, TotpEnabled FROM dbo.Users WHERE Id = @P1",
-        &[&user_id],
-    )
-    .await?
-    .ok_or_else(|| internal("user missing"))?;
-    let stored: &str = col(&row, "PasswordHash")?;
-    if !password_matches(r.password, stored.to_string()).await? {
-        return Err(wrong_password());
-    }
+    let row = require_password(&mut db, user_id, r.password).await?;
     let secret: &str = match (row.get::<bool, _>("TotpEnabled"), row.get("TotpSecret")) {
         (Some(true), Some(secret)) => secret,
         _ => return Err((StatusCode::CONFLICT, "Two-factor is already off.".into())),
