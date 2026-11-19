@@ -32,6 +32,11 @@ export default function App() {
   const [checking, setChecking] = useState(true);
   const [visit, setVisit] = useState(0);
 
+  // On unless the member turned it off in Account; the nav, dashboard and Calories page all read it
+  const [showCalories, setShowCalories] = useState(
+    () => localStorage.getItem('show-calories') !== '0',
+  );
+
   useEffect(() => {
     // Drop #reset=... / #verify=... right away so the token doesn't stay in the address bar or history
     if (resetToken || verifyToken) window.history.replaceState(null, '', window.location.pathname);
@@ -138,6 +143,7 @@ export default function App() {
         // Signed in, the login and reset pages show the dashboard
         page={page === 'login' || page === 'reset' ? 'home' : page}
         isAdmin={isAdmin}
+        showCalories={showCalories}
         onNavigate={(next) => {
           setPage(next);
           setVisit((v) => v + 1);
@@ -153,6 +159,11 @@ export default function App() {
           onTokenChanged={setToken}
           onManageUsers={() => setPage('admin')}
           onViewProgress={() => setPage('progress')}
+          showCalories={showCalories}
+          onShowCaloriesChanged={(on) => {
+            setShowCalories(on);
+            localStorage.setItem('show-calories', on ? '1' : '0');
+          }}
           onLogOut={handleLogOut}
           onSignedOut={(doneNotice = '') => {
             logOut();
@@ -169,10 +180,15 @@ export default function App() {
           </div>
           <MuscleMap token={token} />
         </main>
-      ) : page === 'calories' ? (
+      ) : page === 'calories' && showCalories ? (
         <CaloriesScreen token={token} />
       ) : (
-        <HomeScreen key={visit} token={token} onOpenCalories={() => setPage('calories')} />
+        <HomeScreen
+          key={visit}
+          token={token}
+          showCalories={showCalories}
+          onOpenCalories={() => setPage('calories')}
+        />
       )}
     </div>
   );

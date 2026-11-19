@@ -6,8 +6,15 @@ import ConfirmDialog from './ConfirmDialog';
 import ErrorMsg from './ErrorMsg';
 import { displayName, initials } from './names';
 import perDay from './perDay';
+import { addDays, dayKey } from './week';
 
 const total = (data) => data.reduce((s, d) => s + d.value, 0);
+
+// The last `n` days, ending today, as YYYY-MM-DD
+function lastDays(n) {
+  const to = dayKey(new Date());
+  return { from: addDays(to, 1 - n), to };
+}
 
 // On, Off, or a warning for an admin who has no second factor
 function TwoFactor({ user }) {
@@ -35,6 +42,7 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
   const [announce, setAnnounce] = useState('');
   const [confirming, setConfirming] = useState(null); // { user, kind: 'role' | 'reactivate' } awaiting a yes
   const [stats, setStats] = useState(null);
+  const [range, setRange] = useState(() => lastDays(30)); // the days the Activity screen covers
   const [view, setView] = useState('users'); // 'users' or 'activity'
 
   // Runs once when the screen opens (and again only if token changes)
@@ -42,10 +50,16 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
     getUsers(token)
       .then(setUsers)
       .catch((err) => setError(err.message));
-    getStats(token)
-      .then(setStats)
-      .catch((err) => setError(err.message));
   }, [token]);
+
+  useEffect(() => {
+    getStats(token, range.from, range.to)
+      .then((rows) => {
+        setStats(rows);
+        setError('');
+      })
+      .catch((err) => setError(err.message));
+  }, [token, range]);
 
   async function handleReset(userId) {
     setRowError(null);
@@ -129,11 +143,11 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
   );
   const charts = stats
     ? [
-        { title: 'Logins per day', data: perDay(stats, 'login', 30) },
+        { title: 'Logins per day', data: perDay(stats, 'login', range.from, range.to) },
         // Orange normally; a day over 20 turns red
         {
           title: 'Failed logins per day',
-          data: perDay(stats, 'login_failed', 30),
+          data: perDay(stats, 'login_failed', range.from, range.to),
           tone: 'warn',
           alertAt: 20,
         },
@@ -157,7 +171,15 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
       </p>
       {view === 'activity' ? (
         <>
-          <button className="outline-btn back-btn" type="button" onClick={() => setView('users')}>
+          <button
+            className="outline-btn back-btn"
+            type="button"
+            onClick={() => {
+              setView('users');
+              // The Admin tiles say "last 30 days", so they go back to that
+              setRange(lastDays(30));
+            }}
+          >
             <span aria-hidden="true">‹</span> Back to Admin
           </button>
           <div className="page-head">
@@ -165,7 +187,38 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
               <h1 className="page-title">Activity</h1>
               <p className="admin-subtitle">Account sign-ins at a glance.</p>
             </div>
-            <span className="range">Last 30 days</span>
+          </div>
+          <div className="range-picker">
+            <label>
+              From
+              <input
+                type="date"
+                value={range.from}
+                max={range.to}
+                // Clearing the field gives '', which isn't a day
+                onChange={(e) => e.target.value && setRange({ ...range, from: e.target.value })}
+              />
+            </label>
+            <label>
+              To
+              <input
+                type="date"
+                value={range.to}
+                min={range.from}
+                max={dayKey(new Date())}
+                onChange={(e) => e.target.value && setRange({ ...range, to: e.target.value })}
+              />
+            </label>
+            {[7, 30, 90].map((n) => (
+              <button
+                key={n}
+                className="outline-btn"
+                type="button"
+                onClick={() => setRange(lastDays(n))}
+              >
+                {n} days
+              </button>
+            ))}
           </div>
           <ErrorMsg>{error}</ErrorMsg>
           {!stats && !error && <p className="msg">Loading activity…</p>}
@@ -184,7 +237,7 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
                   summary={
                     peak.value
                       ? `Busiest day: ${peak.label}, with ${peak.value}.`
-                      : 'None in the last 30 days.'
+                      : 'None in these days.'
                   }
                 />
               );

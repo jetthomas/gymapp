@@ -241,6 +241,7 @@ button {
 }
 
 .field input:focus-visible,
+.range-picker input:focus-visible,
 .admin-search:focus-visible,
 .role-select:focus-visible,
 .reset-field input:focus-visible {
@@ -482,14 +483,32 @@ button {
   margin-bottom: 24px;
 }
 
-/* "Last 30 days" on the activity page */
-.range {
-  padding: 9px 18px;
+/* From, To and the quick picks on the activity page */
+.range-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+  margin-bottom: 16px;
+}
+
+.range-picker label {
+  display: grid;
+  gap: 4px;
   font-size: 0.875rem;
-  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.range-picker input {
+  padding: 8px 12px;
+  font: inherit;
+  color: var(--text);
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--input-border);
   border-radius: 8px;
+  outline: none;
+  /* The phone's calendar opens dark to match */
+  color-scheme: dark;
 }
 
 .card {

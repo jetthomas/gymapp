@@ -1,6 +1,13 @@
 // YYYY-MM-DD in the browser's time zone
 export const dayKey = (d) => d.toLocaleDateString('en-CA');
 
+// A YYYY-MM-DD day moved by `n` days, at noon so a daylight-saving change can't land it on the wrong day
+export function addDays(day, n) {
+  const d = new Date(`${day}T12:00:00`);
+  d.setDate(d.getDate() + n);
+  return dayKey(d);
+}
+
 // Monday to Sunday of the week `today` falls in, each at noon so a daylight-saving change can't shift the day
 export function weekDays(today = new Date()) {
   const sinceMonday = (today.getDay() + 6) % 7; // getDay() is 0 on Sunday

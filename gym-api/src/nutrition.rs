@@ -18,7 +18,7 @@ const GOALS: [&str; 4] = ["lose", "maintain", "lean_bulk", "bulk"];
 const MEALS: [&str; 4] = ["breakfast", "lunch", "dinner", "snacks"];
 
 // Far-off years make the database driver panic, and no member was born in 1850
-fn sane(d: NaiveDate) -> bool {
+pub fn sane(d: NaiveDate) -> bool {
     (1900..=2100).contains(&d.year())
 }
 

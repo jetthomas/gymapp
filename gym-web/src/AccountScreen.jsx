@@ -17,6 +17,8 @@ export default function AccountScreen({
   onTokenChanged,
   onManageUsers,
   onViewProgress,
+  showCalories,
+  onShowCaloriesChanged,
   onLogOut,
   onSignedOut,
 }) {
@@ -161,7 +163,7 @@ export default function AccountScreen({
             <h2 id="training-title" className="card-title">
               Training
             </h2>
-            <p className="row-sub">Settings for logging a workout on this device.</p>
+            <p className="row-sub">Settings for this device.</p>
             <div className="row static">
               <label className="row-text" htmlFor="show-rir">
                 Show RIR on sets
@@ -175,6 +177,21 @@ export default function AccountScreen({
                   setShowRir(e.target.checked);
                   localStorage.setItem('show-rir', e.target.checked ? '1' : '0');
                 }}
+              />
+            </div>
+            <div className="row static">
+              <label className="row-text" htmlFor="show-calories">
+                Show Calories
+                <span className="row-sub">
+                  Off hides the Calories tab and card. Your entries are kept; to delete them, use
+                  Calories → Edit target.
+                </span>
+              </label>
+              <input
+                id="show-calories"
+                type="checkbox"
+                checked={showCalories}
+                onChange={(e) => onShowCaloriesChanged(e.target.checked)}
               />
             </div>
             <div className="row static">

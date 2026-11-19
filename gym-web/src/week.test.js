@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { streak, weekDays, workoutDays } from './week.js';
+import { addDays, streak, weekDays, workoutDays } from './week.js';
 
 // A workout at 6 pm on day `d` of November 2026, sent as the API sends it
 const at = (d) => ({ date: new Date(2026, 10, d, 18).toISOString() });
@@ -30,4 +30,11 @@ test('a missed day ends the run', () => {
 
 test('two workouts on one day count once', () => {
   assert.equal(streak(workoutDays([at(17), at(17)]), today), 1);
+});
+
+test('days move across months and daylight saving', () => {
+  assert.equal(addDays('2026-11-30', 1), '2026-12-01');
+  assert.equal(addDays('2026-11-19', -29), '2026-10-21');
+  // Sydney's clocks went forward on 4 October 2026
+  assert.equal(addDays('2026-10-03', 2), '2026-10-05');
 });

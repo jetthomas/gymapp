@@ -17,6 +17,12 @@ pub struct ResetRequest {
     // Self-service links on a 2FA account need the current code too
     pub code: Option<String>,
 }
+
+#[derive(Deserialize)]
+pub struct RangeQuery {
+    pub from: NaiveDate,
+    pub to: NaiveDate,
+}
 #[derive(Serialize)]
 pub struct MuscleSets {
     pub muscle: String,
