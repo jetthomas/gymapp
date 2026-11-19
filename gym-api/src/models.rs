@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
@@ -239,4 +239,57 @@ pub struct Profile {
     pub first_name: Option<String>,
     pub last_name: Option<String>,
     pub email: String,
+}
+
+// What the member told the Calories screen. Every answer is optional; the same shape is sent back to them
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HealthProfile {
+    pub goal: Option<String>,
+    pub birth_date: Option<NaiveDate>, // a date, not an age: an age goes stale
+    pub sex: Option<String>,           // None = prefer not to say
+    pub height_cm: Option<f64>,
+    pub activity: Option<i32>,    // 1 (sedentary) to 5 (very active)
+    pub kcal_target: Option<i32>, // the member's own number, used instead of the estimate
+    pub weight_kg: Option<f64>,   // read: their latest weight; write: logged against `today`
+    #[serde(default, skip_serializing)]
+    pub today: Option<NaiveDate>, // the member's own date, which can differ from the server's
+}
+
+#[derive(Deserialize)]
+pub struct DayQuery {
+    pub date: NaiveDate,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewFood {
+    pub date: NaiveDate,
+    pub meal: String,
+    pub name: String,
+    pub kcal: i32,
+    #[serde(default)]
+    pub protein_g: f64,
+    #[serde(default)]
+    pub carbs_g: f64,
+    #[serde(default)]
+    pub fat_g: f64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Food {
+    pub name: String,
+    pub kcal: i32,
+    pub protein_g: f64,
+    pub carbs_g: f64,
+    pub fat_g: f64,
+}
+
+#[derive(Serialize)]
+pub struct FoodEntry {
+    pub id: i32,
+    pub meal: String,
+    #[serde(flatten)]
+    pub food: Food,
 }

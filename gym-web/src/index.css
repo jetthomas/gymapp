@@ -74,23 +74,64 @@ button {
   clip-path: inset(50%);
   white-space: nowrap;
 }
-
-/* ---------- Buttons ---------- */
-
-.login-btn {
-  width: 100%;
-  margin-top: 8px;
-  padding: 12px 16px;
-  font-size: 1rem;
+/* One look for every button, from the dashboard mockup: an outline on the card colour.
+   login-btn, pill-btn and outline-btn are three names for the same button, so code written
+   for any of them keeps working. Text links (.link-btn) and icon buttons keep their own look */
+.login-btn,
+.pill-btn,
+.outline-btn {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  font-size: 0.9375rem;
   font-weight: 600;
-  color: var(--on-accent);
-  background: var(--accent-fill);
-  border: none;
-  border-radius: 8px;
+  white-space: nowrap;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
+  cursor: pointer;
   transition:
     background 0.15s,
     transform 0.1s;
 }
+
+/* Full width: every form's submit button, and outline-btn wide */
+.login-btn,
+.outline-btn.wide {
+  width: 100%;
+  padding-block: 13px;
+}
+
+.login-btn {
+  margin-top: 8px;
+}
+
+.login-btn.danger,
+.pill-btn.danger,
+.outline-btn.danger {
+  color: var(--danger-text);
+  border-color: color-mix(in srgb, var(--danger) 60%, transparent);
+}
+
+@media (hover: hover) {
+  .login-btn:hover:not(:disabled),
+  .pill-btn:hover:not(:disabled),
+  .outline-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--text) 5%, transparent);
+  }
+}
+
+.login-btn:active:not(:disabled),
+.pill-btn:active:not(:disabled),
+.outline-btn:active:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  transform: scale(0.98);
+}
+/* ---------- Buttons ---------- */
 
 .link-btn {
   display: block;
@@ -108,39 +149,6 @@ button {
 
 .link-btn.danger {
   color: var(--danger);
-}
-
-.login-btn.danger {
-  background: var(--danger-fill);
-}
-
-.pill-btn {
-  padding: 9px 18px;
-  font-size: 0.875rem;
-  font-weight: 600;
-  white-space: nowrap;
-  color: var(--accent-text);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  transition:
-    transform 0.1s ease-out,
-    background 0.15s;
-}
-
-.pill-btn.filled {
-  color: var(--on-accent);
-  background: var(--accent-fill);
-}
-
-.pill-btn.danger {
-  color: var(--danger-text);
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-}
-.pill-btn.filled.danger {
-  color: var(--on-accent);
-  background: var(--danger-fill);
 }
 
 /* Apple's minimum for a finger is 44 points; desktop keeps the compact size */
@@ -168,10 +176,6 @@ button {
 
 /* hover only on real pointers, so a tap on iPhone doesn't leave a stuck hover state */
 @media (hover: hover) {
-  .login-btn:hover:not(:disabled) {
-    background: var(--accent-hover);
-  }
-
   .link-btn:hover:not(:disabled) {
     text-decoration: underline;
   }
@@ -179,22 +183,10 @@ button {
   .eye-btn:hover {
     opacity: 0.7;
   }
-
-  .pill-btn:hover:not(:disabled) {
-    opacity: 0.8;
-  }
-}
-
-.login-btn:active:not(:disabled) {
-  transform: scale(0.98);
 }
 
 .link-btn:active:not(:disabled) {
   opacity: 0.6;
-}
-
-.pill-btn:active:not(:disabled) {
-  transform: scale(0.96);
 }
 
 .eye-btn:active {
@@ -448,9 +440,9 @@ button {
 
 .nav-btn {
   padding: 9px 16px;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   font-weight: 600;
-  color: var(--text);
+  color: var(--text-secondary);
   background: none;
   border: none;
   border-radius: 8px;
@@ -458,6 +450,7 @@ button {
 }
 
 .nav-btn[aria-current='page'] {
+  color: var(--text);
   background: var(--surface-2);
 }
 
@@ -1107,28 +1100,9 @@ button {
   background: color-mix(in srgb, var(--success) 16%, transparent);
 }
 
-.outline-btn {
-  flex-shrink: 0;
-  padding: 9px 18px;
-  font-size: 0.875rem;
-  font-weight: 600;
-  white-space: nowrap;
-  color: var(--text);
-  background: var(--surface);
-  border: 1px solid var(--input-border);
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.outline-btn.danger {
-  color: var(--danger-text);
-  border-color: color-mix(in srgb, var(--danger) 60%, transparent);
-}
-
 @media (hover: hover) {
   button.row:hover,
-  .nav-btn:hover,
-  .outline-btn:hover:not(:disabled) {
+  .nav-btn:hover {
     background: color-mix(in srgb, var(--text) 5%, transparent);
   }
 }
@@ -1139,7 +1113,6 @@ button.row:focus-visible {
   outline-offset: -2px;
 }
 
-.outline-btn:active,
 button.row:active {
   background: color-mix(in srgb, var(--text) 9%, transparent);
 }
@@ -1335,11 +1308,6 @@ button.row:active {
   .tick {
     width: 44px;
   }
-}
-
-.outline-btn.wide {
-  width: 100%;
-  padding-block: 12px;
 }
 
 /* Floats over the page while resting */
@@ -1738,4 +1706,560 @@ button.row:active {
 .workout-card-action {
   width: 100%;
   padding-block: 12px;
+}
+
+/* ---------- Calories (CaloriesScreen.jsx, ProfileForm.jsx, FoodSheet.jsx) ---------- */
+
+.calories,
+.profile-form {
+  max-width: 640px;
+}
+
+.calories {
+  display: grid;
+  gap: 16px;
+}
+
+.calories > .page-head {
+  margin-bottom: 8px;
+}
+
+.calories > section + section {
+  margin-top: 0;
+}
+
+.day-switch {
+  display: flex;
+  gap: 8px;
+}
+
+.kcal-left {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A track with a cream fill; --v is how full it is, from 0 to 1 */
+.meter {
+  height: 10px;
+  margin-top: 12px;
+  overflow: hidden;
+  background: var(--surface-2);
+  border-radius: 999px;
+}
+
+.meter span {
+  display: block;
+  width: calc(100% * var(--v));
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.meter.over span {
+  background: var(--warning);
+}
+
+.meter-ends {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.macros {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin: 20px 0 0;
+}
+
+.macros dt {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.macros .meter {
+  height: 6px;
+  margin-top: 6px;
+}
+
+.macros dd {
+  margin: 6px 0 0;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+/* A meal's heading or one food: the name on the left, numbers and Remove on the right */
+.food-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.food-row > :first-child {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.food-row .link-btn,
+.calories .card > .link-btn {
+  margin: 0;
+}
+
+.calories .card > .link-btn {
+  margin-top: 8px;
+  padding-left: 0;
+}
+
+.profile-form .row-sub {
+  margin-bottom: 20px;
+}
+
+/* Two or three fields side by side */
+.field-pair {
+  display: flex;
+  gap: 12px;
+}
+
+.field-pair .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.field select {
+  width: 100%;
+  padding-block: 13px;
+}
+
+/* "Recent" above the list of foods logged before */
+.group-title {
+  margin: 20px 0 8px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* Four links don't fit beside the brand on a phone; if a "waiting" badge still overflows, the bar scrolls */
+@media (max-width: 480px) {
+  .nav {
+    overflow-x: auto;
+  }
+
+  .nav-brand {
+    display: none;
+  }
+}
+
+/* ---------- Dashboard (HomeScreen.jsx) ---------- */
+
+/* The small grey line above a title: "Dashboard", "Last entry" */
+.eyebrow {
+  margin: 0 0 6px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.today-title {
+  font-size: 2.5rem;
+}
+
+/* The date sits level with the bottom of "Today" */
+.page-head:has(.today-title) {
+  align-items: flex-end;
+}
+
+/* Cards sit two to a row when there's room and stack on a phone; the week and the last entry take a whole row */
+.dash {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin-bottom: 40px;
+}
+
+.dash > .card {
+  flex: 1 1 340px;
+  padding: 28px;
+}
+
+/* Calories and workout: a column, so the button sits at the bottom of the taller card */
+.dash > .card:not(.week-card, .last-entry) {
+  display: flex;
+  flex-direction: column;
+}
+
+.dash .hint {
+  margin: 4px 0 20px;
+}
+
+.dash .pill-btn,
+.dash .outline-btn {
+  font-size: 0.8125rem;
+}
+
+.dash .outline-btn.wide {
+  margin-top: auto;
+}
+
+.dash > .week-card,
+.dash > .last-entry {
+  flex-basis: 100%;
+}
+
+/* Drawn last, though CaloriesCard puts it straight after the calories card */
+.dash > .last-entry {
+  order: 1;
+}
+
+.card-label {
+  margin: 0 0 4px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* A card's big name or number, with its stats on the right */
+.card-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 16px 0 20px;
+}
+
+.card-big {
+  margin: 0 0 4px;
+  font-size: 3rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-stats {
+  display: flex;
+  gap: 24px;
+  margin: 0;
+  text-align: center;
+}
+
+/* Number on top, its label underneath */
+.card-stats div {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 4px;
+}
+
+.card-stats dt {
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+.card-stats dd {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* One line per meal or exercise, with its amount on the right */
+.card-rows {
+  margin: 20px 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--border);
+}
+
+.card-rows li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+
+.card-rows .row-sub {
+  margin: 0;
+  font-weight: 400;
+}
+
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: auto;
+}
+
+/* Full-width buttons, like Log a meal */
+.card-actions > * {
+  flex: 1;
+  padding-block: 13px;
+}
+
+/* Your week: the seven days, with the streak beside them */
+.dash > .week-card {
+  display: flex;
+  flex-wrap: wrap;
+  padding: 0;
+}
+
+.week {
+  flex: 1 1 420px;
+  min-width: 0;
+  padding: 28px;
+}
+
+.week .row-sub {
+  font-size: 0.75rem;
+}
+
+.week-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 10px;
+  margin: 24px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.week-days li {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 12px 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.week-days li.today {
+  color: var(--on-accent);
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+}
+
+.week-name {
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.week-date {
+  font-size: 1.125rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.week-tick {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  border: 1px solid var(--input-border);
+  border-radius: 50%;
+}
+
+.week-tick.done {
+  color: var(--on-accent);
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+}
+
+/* On today's cream square the tick swaps to dark */
+.today .week-tick {
+  border-color: currentColor;
+}
+
+.today .week-tick.done {
+  color: var(--accent);
+  background: var(--on-accent);
+  border-color: var(--on-accent);
+}
+
+.streak {
+  display: flex;
+  flex: 0 0 270px;
+  flex-direction: column;
+  justify-content: center;
+  padding: 28px 40px;
+  border-left: 1px solid var(--border);
+}
+
+/* Under the days on a phone */
+@media (max-width: 700px) {
+  .streak {
+    flex-basis: 100%;
+    padding: 24px 28px;
+    border-top: 1px solid var(--border);
+    border-left: none;
+  }
+}
+
+.streak-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 16px;
+  color: var(--on-accent);
+  background: var(--accent-fill);
+  border-radius: 50%;
+}
+
+.streak-count {
+  margin: 0 0 2px;
+  font-weight: 600;
+}
+
+.streak-count strong {
+  font-size: 2rem;
+  letter-spacing: -0.02em;
+}
+
+/* ---------- Nav bar: links left, name centred, account right ---------- */
+
+.nav {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+}
+
+.nav-brand {
+  margin-right: 0;
+}
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  justify-self: end;
+  gap: 8px;
+}
+
+.nav-account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  margin-left: 0;
+  padding-block: 4px;
+}
+
+.nav-account .avatar {
+  width: 32px;
+  height: 32px;
+}
+
+/* No room for the centred name on a phone: the links and the avatar are what's needed */
+@media (max-width: 480px) {
+  .nav {
+    display: flex;
+  }
+
+  .nav-brand,
+  .nav-name {
+    display: none;
+  }
+
+  .nav-right {
+    margin-left: auto;
+  }
+}
+
+/* ---------- Dashboard calories card (CaloriesCard.jsx) ---------- */
+
+.macro-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0 0 20px;
+}
+
+.macro-tiles > div {
+  --macro: #6cc4f2;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.macro-tiles > div:nth-child(2) {
+  --macro: #a78bfa;
+}
+
+.macro-tiles > div:nth-child(3) {
+  --macro: #f5a15b;
+}
+
+.macro-tiles dt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.macro-tiles dt::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  background: var(--macro);
+  border-radius: 50%;
+}
+
+.macro-tiles .meter {
+  height: 5px;
+}
+
+.macro-tiles .meter span {
+  background: var(--macro);
+}
+
+.macro-tiles dd {
+  margin: 8px 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.macro-tiles strong {
+  font-size: 1.25rem;
+  color: var(--macro);
+}
+
+.last-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.last-entry > div {
+  padding-left: 16px;
+  border-left: 3px solid var(--accent);
+}
+
+.last-entry .eyebrow {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.last-entry p {
+  margin: 0;
+}
+
+.last-entry .link-btn {
+  margin: 0;
 }

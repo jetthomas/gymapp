@@ -17,7 +17,8 @@ export const clearDraft = () => localStorage.removeItem(KEY);
 export const newDraft = () => ({
   // Sent with the save, so the server stores it once even if the request is repeated
   clientId: crypto.randomUUID(),
-  name: 'Workout',
+  // "Tuesday workout", so History isn't a list of identical names; the member can rename it
+  name: `${new Date().toLocaleDateString(undefined, { weekday: 'long' })} workout`,
   startedAt: Date.now(),
   exercises: [],
 });

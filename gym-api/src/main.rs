@@ -3,6 +3,7 @@ mod auth;
 mod exercises;
 mod extractors;
 mod models;
+mod nutrition;
 mod passwords;
 mod state;
 mod tokens;
@@ -29,6 +30,9 @@ use crate::auth::{
     reactivate_account, refresh, register, reset_password, verify_email,
 };
 use crate::exercises::{create_exercise, delete_exercise, list_exercises, update_exercise};
+use crate::nutrition::{
+    add_food, delete_food, delete_health, get_health, list_food, put_health, recent_food,
+};
 use crate::state::{AppState, ProxyIpKeyExtractor, connect};
 use crate::two_factor::{totp_confirm, totp_disable, totp_setup, totp_verify};
 use crate::workouts::{create_workout, get_workout, last_sets, list_workouts, muscle_sets};
@@ -241,6 +245,13 @@ async fn main() {
             "/admin/exercises/{id}",
             put(update_exercise).delete(delete_exercise),
         )
+        .route(
+            "/me/health",
+            get(get_health).put(put_health).delete(delete_health),
+        )
+        .route("/me/food", get(list_food).post(add_food))
+        .route("/me/food/recent", get(recent_food))
+        .route("/me/food/{id}", delete(delete_food))
         .merge(limited)
         .with_state(state);
 

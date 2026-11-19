@@ -111,3 +111,13 @@ export const verify2fa = (challenge, code, remember) =>
 
 export const disable2fa = (token, password, code) =>
   request('/auth/2fa/disable', { method: 'POST', token, body: { password, code } });
+
+// The Calories screen. All of it is the member's own data; the server never takes a user id here
+export const getHealth = (token) => request('/me/health', { token });
+export const saveHealth = (token, profile) =>
+  request('/me/health', { method: 'PUT', token, body: profile });
+export const deleteHealth = (token) => request('/me/health', { method: 'DELETE', token });
+export const getFood = (token, date) => request(`/me/food?date=${date}`, { token });
+export const getRecentFood = (token) => request('/me/food/recent', { token });
+export const addFood = (token, food) => request('/me/food', { method: 'POST', token, body: food });
+export const deleteFood = (token, id) => request(`/me/food/${id}`, { method: 'DELETE', token });

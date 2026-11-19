@@ -5,6 +5,7 @@ import ReactivateAccountForm from './ReactivateAccountForm';
 import ForgotPasswordForm from './ForgotPasswordForm';
 import AdminScreen from './AdminScreen';
 import AccountScreen from './AccountScreen';
+import CaloriesScreen from './CaloriesScreen';
 import HomeScreen from './HomeScreen';
 import MuscleMap from './musclemap';
 import NavBar from './NavBar';
@@ -29,6 +30,7 @@ export default function App() {
   const [failedSince, setFailedSince] = useState(0);
   // True until the "Stay logged in" cookie has been tried, so the login form doesn't flash
   const [checking, setChecking] = useState(true);
+  const [visit, setVisit] = useState(0);
 
   useEffect(() => {
     // Drop #reset=... / #verify=... right away so the token doesn't stay in the address bar or history
@@ -131,7 +133,16 @@ export default function App() {
   }
   return (
     <div className="admin-page">
-      <NavBar token={token} page={page} isAdmin={isAdmin} onNavigate={setPage} />
+      <NavBar
+        token={token}
+        // Signed in, the login and reset pages show the dashboard
+        page={page === 'login' || page === 'reset' ? 'home' : page}
+        isAdmin={isAdmin}
+        onNavigate={(next) => {
+          setPage(next);
+          setVisit((v) => v + 1);
+        }}
+      />
       {page === 'admin' ? (
         <AdminScreen token={token} lastLogin={lastLogin} failedSince={failedSince} />
       ) : page === 'account' ? (
@@ -150,13 +161,18 @@ export default function App() {
         />
       ) : page === 'progress' ? (
         <main className="admin-content">
+          <button className="outline-btn back-btn" type="button" onClick={() => setPage('account')}>
+            <span aria-hidden="true">‹</span> Account
+          </button>
           <div className="page-head">
             <h1 className="page-title">Progress</h1>
           </div>
           <MuscleMap token={token} />
         </main>
+      ) : page === 'calories' ? (
+        <CaloriesScreen token={token} />
       ) : (
-        <HomeScreen token={token} />
+        <HomeScreen key={visit} token={token} onOpenCalories={() => setPage('calories')} />
       )}
     </div>
   );

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getMuscles } from './api';
 import { MUSCLES } from './muscles';
+import ErrorMsg from './ErrorMsg';
 
 // One half of each figure (x <= 100), as polygons per muscle; Figure draws each one again mirrored at x = 200 - x
 // prettier-ignore
@@ -109,15 +110,16 @@ function Figure({ shapes, sets, dx, label, hovered, onHover }) {
 export default function MuscleMap({ token }) {
   const [sets, setSets] = useState(null); // { chest: 24, ... }; null = still loading
   const [hovered, setHovered] = useState(null); // the muscle under the pointer
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    // The card just stays hidden if this fails
     getMuscles(token)
       .then((rows) => setSets(Object.fromEntries(rows.map((r) => [r.muscle, r.sets]))))
-      .catch(() => {});
+      .catch(() => setError("Couldn't load your progress. Check your signal and try again."));
   }, [token]);
 
-  if (!sets) return null;
+  if (error) return <ErrorMsg>{error}</ErrorMsg>;
+  if (!sets) return <p className="msg">Loading…</p>;
   const trained = MUSCLES.filter((m) => sets[m] > 0).sort((a, b) => sets[b] - sets[a]);
   const untrained = MUSCLES.filter((m) => !sets[m]);
   const hoveredSets = sets[hovered] ?? 0;
