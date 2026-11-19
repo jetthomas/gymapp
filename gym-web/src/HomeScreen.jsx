@@ -9,7 +9,7 @@ import WorkoutDetail from './WorkoutDetail';
 import WorkoutScreen from './WorkoutScreen';
 
 // The member's home screen: this week, the last workout, and every workout before it
-export default function HomeScreen({ token, onOpenCalories }) {
+export default function HomeScreen({ token, showCalories, onOpenCalories }) {
   const [view, setView] = useState('home'); // 'home', 'active', or the id of a workout to show
   const [workouts, setWorkouts] = useState(null); // null = still loading
   const [error, setError] = useState('');
@@ -60,7 +60,7 @@ export default function HomeScreen({ token, onOpenCalories }) {
       {workouts && (
         <div className="dash">
           <WeekCard workouts={workouts} />
-          <CaloriesCard token={token} onOpen={onOpenCalories} />
+          {showCalories && <CaloriesCard token={token} onOpen={onOpenCalories} />}
           <WorkoutCard
             token={token}
             last={workouts[0]}

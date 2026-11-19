@@ -42,3 +42,20 @@ GO
 GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.Exercises TO gym_app;
 GRANT SELECT, INSERT, DELETE ON dbo.ExerciseMuscles TO gym_app;
 GO
+
+-- Calories: the member's own health data
+GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.Profiles TO gym_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.BodyWeights TO gym_app;
+GRANT SELECT, INSERT, DELETE ON dbo.FoodEntries TO gym_app;
+GO
+-- The same owner check as workouts: a connection only sees its own member's rows
+ALTER SECURITY POLICY Security.WorkoutPolicy
+    ADD FILTER PREDICATE Security.fn_workout_owner(UserId) ON dbo.Profiles,
+    ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.Profiles AFTER INSERT,
+    ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.Profiles AFTER UPDATE,
+    ADD FILTER PREDICATE Security.fn_workout_owner(UserId) ON dbo.BodyWeights,
+    ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.BodyWeights AFTER INSERT,
+    ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.BodyWeights AFTER UPDATE,
+    ADD FILTER PREDICATE Security.fn_workout_owner(UserId) ON dbo.FoodEntries,
+    ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.FoodEntries AFTER INSERT;
+GO

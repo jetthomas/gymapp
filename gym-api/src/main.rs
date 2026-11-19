@@ -105,6 +105,37 @@ async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
                 Muscle NVARCHAR(20) NOT NULL,
                 Role NVARCHAR(9) NOT NULL CHECK (Role IN ('primary', 'secondary')),
                 PRIMARY KEY (ExerciseId, Muscle)
+
+            );
+                     IF OBJECT_ID('dbo.Profiles', 'U') IS NULL
+            CREATE TABLE dbo.Profiles (
+                UserId INT NOT NULL PRIMARY KEY REFERENCES dbo.Users(Id),
+                Goal NVARCHAR(9) NULL,
+                BirthDate DATE NULL,
+                Sex NVARCHAR(6) NULL,
+                HeightCm FLOAT NULL,
+                Activity INT NULL,
+                KcalTarget INT NULL
+            );
+         IF OBJECT_ID('dbo.BodyWeights', 'U') IS NULL
+            CREATE TABLE dbo.BodyWeights (
+                UserId INT NOT NULL REFERENCES dbo.Users(Id),
+                [Date] DATE NOT NULL,
+                Kg FLOAT NOT NULL,
+                PRIMARY KEY (UserId, [Date])  -- one weight per member per day
+            );
+         IF OBJECT_ID('dbo.FoodEntries', 'U') IS NULL
+            CREATE TABLE dbo.FoodEntries (
+                Id INT IDENTITY(1,1) PRIMARY KEY,
+                UserId INT NOT NULL REFERENCES dbo.Users(Id),
+                [Date] DATE NOT NULL,
+                Meal NVARCHAR(9) NOT NULL,
+                Name NVARCHAR(100) NOT NULL,
+                Kcal INT NOT NULL,
+                ProteinG FLOAT NOT NULL,
+                CarbsG FLOAT NOT NULL,
+                FatG FLOAT NOT NULL,
+                INDEX IX_FoodEntries_UserId_Date (UserId, [Date])
             );",
     )
     .await?

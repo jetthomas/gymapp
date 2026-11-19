@@ -78,7 +78,9 @@ export const getLastSets = (token, exerciseId) =>
   request(`/exercises/${exerciseId}/last`, { token });
 export const getUsers = (token) => request('/admin/users', { token });
 
-export const getStats = (token, days = 30) => request(`/admin/stats?days=${days}`, { token });
+// Login counts per day from `from` to `to` (YYYY-MM-DD, both included)
+export const getStats = (token, from, to) =>
+  request(`/admin/stats?from=${from}&to=${to}`, { token });
 
 export const createResetLink = (token, userId) =>
   request(`/admin/users/${userId}/reset-link`, { method: 'POST', token });

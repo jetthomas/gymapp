@@ -8,7 +8,8 @@ use axum::{
 use chrono::NaiveDateTime;
 
 use crate::extractors::AdminUser;
-use crate::models::{AdminFlag, DayCount, ResetLink, StatsQuery, UserSummary};
+use crate::models::{AdminFlag, DayCount, RangeQuery, ResetLink, UserSummary};
+use crate::nutrition::sane;
 use crate::state::{
     ApiResult, AppState, all_rows, col, internal, one_row, record, send_security_notice,
 };
@@ -131,23 +132,34 @@ pub async fn list_users(
     Ok(Json(users))
 }
 
+// From before To, at most a year apart, so nobody can ask for every row at once
+pub fn check_range(q: &RangeQuery) -> Result<(), &'static str> {
+    if !sane(q.from) || !sane(q.to) || q.from > q.to || (q.to - q.from).num_days() > 365 {
+        return Err("Pick a From date before the To date, up to a year apart.");
+    }
+    Ok(())
+}
+
 pub async fn admin_stats(
     AdminUser(_, mut db): AdminUser,
-    Query(q): Query<StatsQuery>,
+    Query(q): Query<RangeQuery>,
 ) -> ApiResult<Json<Vec<DayCount>>> {
-    // Clamped so nobody can ask for years of rows
-    let days = q.days.unwrap_or(30).clamp(7, 365);
+    check_range(&q).map_err(|msg| (StatusCode::BAD_REQUEST, msg.to_string()))?;
     let rows = all_rows(
         &mut db,
-        // Days are counted in Sydney/Melbourne time, so an evening session isn't split across two UTC days
+        // Days are counted in Sydney/Melbourne time, so an evening session isn't split across two UTC days.
+        // The inner WHERE takes a day either side in UTC; the outer one trims to exact local days
         "SELECT CONVERT(char(10), Day, 23) AS Day, Kind, N FROM (
             SELECT CAST(At AT TIME ZONE 'UTC' AT TIME ZONE 'AUS Eastern Standard Time' AS date) AS Day,
                    Kind, COUNT(*) AS N
             FROM dbo.Events
-            WHERE At >= DATEADD(day, -@P1, SYSUTCDATETIME())
+            WHERE At >= DATEADD(day, -1, CAST(@P1 AS datetime2))
+              AND At < DATEADD(day, 2, CAST(@P2 AS datetime2))
             GROUP BY CAST(At AT TIME ZONE 'UTC' AT TIME ZONE 'AUS Eastern Standard Time' AS date), Kind
-         ) t ORDER BY Day",
-        &[&days],
+         ) t
+         WHERE Day BETWEEN @P1 AND @P2
+         ORDER BY Day",
+        &[&q.from, &q.to],
     )
     .await?;
     Ok(Json(
@@ -159,4 +171,38 @@ pub async fn admin_stats(
             })
             .collect(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::NaiveDate;
+
+    fn range(from: &str, to: &str) -> RangeQuery {
+        RangeQuery {
+            from: from.parse::<NaiveDate>().unwrap(),
+            to: to.parse::<NaiveDate>().unwrap(),
+        }
+    }
+
+    #[test]
+    fn ranges_are_checked() {
+        assert!(check_range(&range("2026-10-01", "2026-10-31")).is_ok());
+        assert!(
+            check_range(&range("2026-11-19", "2026-11-19")).is_ok(),
+            "one day"
+        );
+        assert!(
+            check_range(&range("2026-10-31", "2026-10-01")).is_err(),
+            "backwards"
+        );
+        assert!(
+            check_range(&range("2024-01-01", "2026-01-01")).is_err(),
+            "over a year"
+        );
+        assert!(
+            check_range(&range("1850-01-01", "1850-02-01")).is_err(),
+            "far-off year"
+        );
+    }
 }

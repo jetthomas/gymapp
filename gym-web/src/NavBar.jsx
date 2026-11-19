@@ -4,7 +4,7 @@ import { displayName, initials } from './names';
 import { useWaiting } from './outbox';
 
 // The bar across the top of every signed-in screen
-export default function NavBar({ token, page, isAdmin, onNavigate }) {
+export default function NavBar({ token, page, isAdmin, showCalories, onNavigate }) {
   const waiting = useWaiting(token);
   const [profile, setProfile] = useState(null);
 
@@ -32,7 +32,7 @@ export default function NavBar({ token, page, isAdmin, onNavigate }) {
     <header className="nav">
       <nav className="nav-links">
         {link('home', 'Dashboard')}
-        {link('calories', 'Calories')}
+        {showCalories && link('calories', 'Calories')}
         {isAdmin && link('admin', 'Admin')}
       </nav>
       <span className="nav-brand">GYM APP</span>
