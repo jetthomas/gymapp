@@ -2,13 +2,7 @@ import { useEffect, useState } from 'react';
 import { getFood, getHealth } from './api';
 import { Meter } from './CaloriesScreen';
 import targets from './targets';
-
-const MEALS = [
-  ['breakfast', 'Breakfast'],
-  ['lunch', 'Lunch'],
-  ['dinner', 'Dinner'],
-  ['snacks', 'Snacks'],
-];
+import { MEALS } from './meals';
 
 const MACROS = [
   ['Protein', 'proteinG'],

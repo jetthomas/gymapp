@@ -49,13 +49,9 @@ export default function LoginForm({
 
   function handleCode(event) {
     event.preventDefault();
-    verifyCode(code);
-  }
-
-  function verifyCode(value) {
     run(async () => {
       try {
-        const result = await verify2fa(challenge, value, remember);
+        const result = await verify2fa(challenge, code, remember);
         onLoggedIn(result.accessToken, result.isAdmin, true, result.lastLogin, result.failedSince);
       } catch (err) {
         // 401 = the 5-minute challenge ran out, so start over from the password

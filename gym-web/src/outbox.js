@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { createWorkout } from './api';
+import { createWorkout } from './api.js';
 
 // Finished workouts that haven't reached the server yet. They stay in this browser until they do,
 // so a workout finished with no signal is never lost.
@@ -35,18 +35,20 @@ let flushing = false;
 
 // Sends this member's waiting workouts, oldest first. Safe to call as often as you like:
 // the server stores each clientId once, however many times it arrives
-export async function flush(token) {
+export async function flush(token, send = createWorkout) {
   if (flushing) return;
   flushing = true;
   try {
     for (const item of mine(token).filter((i) => !i.error)) {
       const { clientId } = item.workout;
       try {
-        await createWorkout(token, item.workout);
+        await send(token, item.workout);
         write(read().filter((i) => i.workout.clientId !== clientId));
       } catch (err) {
-        // No signal, a server error or an expired login: leave everything for the next try
-        if (err.status !== 400) return;
+        // No signal, a server error, an expired login or too many tries: these can heal,
+        // so leave everything for the next try
+        if (!err.status || err.status >= 500 || err.status === 401 || err.status === 429) return;
+        // Any other 4xx (400, 422) = the server will never accept it, so stop retrying but keep it.
         // 400 = the server will never accept it, so stop retrying but keep it.
         // shortcut: it then sits here with its error; add a way to fix or drop it if this ever happens
         write(

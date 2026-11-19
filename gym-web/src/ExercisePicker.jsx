@@ -11,7 +11,7 @@ export default function ExercisePicker({ token, onPick, onClose }) {
   const ref = useRef(null);
   const [q, setQ] = useState('');
   const [muscle, setMuscle] = useState('');
-  const [exercises, setExercises] = useState(null); // null = still loading
+  const [library, setLibrary] = useState(null); // null = still loading
   const [error, setError] = useState('');
 
   // StrictMode runs effects twice in development, so don't reopen an open dialog
@@ -23,38 +23,27 @@ export default function ExercisePicker({ token, onPick, onClose }) {
     }
   }, []);
 
+  // The whole library once (about 900 exercises); searching then happens here, with no request per key
   useEffect(() => {
-    // An older, slower answer must not replace a newer one
-    let stale = false;
-    // Wait until typing stops, so each keystroke isn't its own request
-    const timer = setTimeout(() => {
-      getExercises(token, q, muscle)
-        .then((list) => {
-          if (stale) return;
-          setExercises(list);
-          setError('');
-          // Keep the whole library for when there's no signal
-          if (!q && !muscle) localStorage.setItem('exercises', JSON.stringify(list));
-        })
-        .catch((err) => {
-          if (stale) return;
-          // No signal: search the copy kept from the last time the whole library loaded
-          const kept = JSON.parse(localStorage.getItem('exercises') ?? 'null');
-          if (!kept) return setError(err.message);
-          setExercises(
-            kept.filter(
-              (e) =>
-                e.name.toLowerCase().includes(q.toLowerCase()) &&
-                (!muscle || [...e.primaryMuscles, ...e.secondaryMuscles].includes(muscle)),
-            ),
-          );
-        });
-    }, 300);
-    return () => {
-      stale = true;
-      clearTimeout(timer);
-    };
-  }, [token, q, muscle]);
+    getExercises(token)
+      .then((list) => {
+        setLibrary(list);
+        // Kept for when there's no signal
+        localStorage.setItem('exercises', JSON.stringify(list));
+      })
+      .catch((err) => {
+        const kept = JSON.parse(localStorage.getItem('exercises') ?? 'null');
+        if (kept) setLibrary(kept);
+        else setError(err.message);
+      });
+  }, [token]);
+
+  const words = q.trim().toLowerCase();
+  const exercises = library?.filter(
+    (e) =>
+      e.name.toLowerCase().includes(words) &&
+      (!muscle || [...e.primaryMuscles, ...e.secondaryMuscles].includes(muscle)),
+  );
 
   return (
     <dialog ref={ref} className="sheet picker" aria-labelledby="picker-title" onCancel={onClose}>
