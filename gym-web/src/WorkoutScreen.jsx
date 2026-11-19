@@ -19,8 +19,9 @@ export default function WorkoutScreen({ token, onDone }) {
   const [discarding, setDiscarding] = useState(false);
   const [message, setMessage] = useState('');
   const [plateWeight, setPlateWeight] = useState(null);
-  // Set on the Account screen
+  const [confirmingFinish, setConfirmingFinish] = useState(false);
   const showRir = localStorage.getItem('show-rir') === '1';
+  const [removing, setRemoving] = useState(null); // the exercise waiting to be removed
 
   useEffect(() => saveDraft(draft), [draft]);
 
@@ -86,11 +87,20 @@ export default function WorkoutScreen({ token, onDone }) {
       changeSet(i, j, { done: false });
       return;
     }
-    changeSet(i, j, { ...filled(exercise, j), done: true });
+    // doneAt: the workout's length runs to its last ticked set, not to when Finish is tapped
+    changeSet(i, j, { ...filled(exercise, j), done: true, doneAt: Date.now() });
     setRestEnds(Date.now() + restSeconds() * 1000);
   }
 
-  function finish() {
+  function removeExercise(i) {
+    setDraft({ ...draft, exercises: draft.exercises.filter((_, k) => k !== i) });
+  }
+
+  const unticked = draft.exercises
+    .flatMap((e) => e.sets)
+    .filter((s) => !s.done && (s.weightKg !== '' || s.reps !== '')).length;
+
+  function finish(checked = false) {
     const exercises = draft.exercises
       .map((e) => ({
         exerciseId: e.id,
@@ -104,20 +114,30 @@ export default function WorkoutScreen({ token, onDone }) {
       }))
       .filter((e) => e.sets.length > 0);
     if (exercises.length === 0) {
+      if (unticked > 0 && !checked) {
+        setConfirmingFinish(true);
+        return;
+      }
       setMessage('Tick at least one set before finishing.');
       return;
     }
+    // Sets ticked before this change have no doneAt; they count as now
+    const lastTick = Math.max(
+      ...draft.exercises.flatMap((e) =>
+        e.sets.filter((s) => s.done).map((s) => s.doneAt ?? Date.now()),
+      ),
+    );
     queue(token, {
       clientId: draft.clientId,
       name: draft.name.trim() || 'Workout',
       date: new Date(draft.startedAt).toISOString(),
       // The API allows up to a day
-      durationSec: Math.min(86400, Math.round((Date.now() - draft.startedAt) / 1000)),
+      durationSec: Math.min(86400, Math.round((lastTick - draft.startedAt) / 1000)),
       exercises,
     });
     clearDraft();
     flush(token);
-    onDone();
+    onDone(true);
   }
 
   const rest = restEnds - now;
@@ -137,7 +157,7 @@ export default function WorkoutScreen({ token, onDone }) {
             {clock(now - draft.startedAt)}
           </div>
         </div>
-        <button className="pill-btn filled" type="button" onClick={finish}>
+        <button className="pill-btn filled" type="button" onClick={() => finish()}>
           Finish
         </button>
       </div>
@@ -152,9 +172,8 @@ export default function WorkoutScreen({ token, onDone }) {
               className="link-btn danger"
               type="button"
               aria-label={`Remove ${e.name}`}
-              onClick={() =>
-                setDraft({ ...draft, exercises: draft.exercises.filter((_, k) => k !== i) })
-              }
+              // Only asks when it would throw away ticked sets
+              onClick={() => (e.sets.some((s) => s.done) ? setRemoving(i) : removeExercise(i))}
             >
               Remove
             </button>
@@ -333,6 +352,28 @@ export default function WorkoutScreen({ token, onDone }) {
       )}
       {plateWeight !== null && (
         <PlateSheet weightKg={plateWeight} onClose={() => setPlateWeight(null)} />
+      )}
+      {confirmingFinish && (
+        <ConfirmDialog
+          title="Finish with unticked sets?"
+          body={`${unticked} ${unticked === 1 ? 'set has numbers but isn’t' : 'sets have numbers but aren’t'} ticked, so ${unticked === 1 ? 'it won’t' : 'they won’t'} be saved.`}
+          confirmLabel="Finish anyway"
+          onConfirm={() => finish(true)}
+          onCancel={() => setConfirmingFinish(false)}
+        />
+      )}
+      {removing !== null && (
+        <ConfirmDialog
+          title={`Remove ${draft.exercises[removing].name}?`}
+          body="Its ticked sets are removed too."
+          confirmLabel="Remove"
+          danger
+          onConfirm={() => {
+            removeExercise(removing);
+            setRemoving(null);
+          }}
+          onCancel={() => setRemoving(null)}
+        />
       )}
       {discarding && (
         <ConfirmDialog

@@ -1,0 +1,216 @@
+import { useEffect, useState } from 'react';
+import { deleteFood, getFood, getHealth } from './api';
+import ErrorMsg from './ErrorMsg';
+import FoodSheet from './FoodSheet';
+import ProfileForm from './ProfileForm';
+import targets from './targets';
+
+const MEALS = [
+  ['breakfast', 'Breakfast'],
+  ['lunch', 'Lunch'],
+  ['dinner', 'Dinner'],
+  ['snacks', 'Snacks'],
+];
+
+// YYYY-MM-DD in the member's own time zone
+const today = () => new Date().toLocaleDateString('en-CA');
+
+function shift(date, days) {
+  // Noon, so a daylight-saving change can't push it into the wrong day
+  const d = new Date(`${date}T12:00:00`);
+  d.setDate(d.getDate() + days);
+  return d.toLocaleDateString('en-CA');
+}
+
+// A filled bar: `value` out of `max`, amber once it goes over
+export function Meter({ value, max }) {
+  return (
+    <div className={`meter${value > max ? ' over' : ''}`} aria-hidden="true">
+      <span style={{ '--v': Math.min(1, value / max) }} />
+    </div>
+  );
+}
+
+// Today's calories: what's left, the macros, then each meal
+export default function CaloriesScreen({ token }) {
+  const [profile, setProfile] = useState(undefined); // undefined = loading; null = nothing saved yet
+  const [editing, setEditing] = useState(false);
+  const [date, setDate] = useState(today);
+  const [day, setDay] = useState(null); // { date, entries } for the day last loaded
+  const [addingTo, setAddingTo] = useState(null); // the meal the food sheet is open for
+  const [error, setError] = useState('');
+  const [changes, setChanges] = useState(0); // goes up after each save, to load again
+
+  useEffect(() => {
+    getHealth(token)
+      .then(setProfile)
+      .catch((err) => setError(err.message));
+  }, [token, changes]);
+
+  useEffect(() => {
+    getFood(token, date)
+      .then((entries) => {
+        setDay({ date, entries });
+        setError('');
+      })
+      .catch((err) => setError(err.message));
+  }, [token, date, changes]);
+
+  const target = profile && targets(profile);
+  // Another day's entries are not shown while this day's are loading
+  const entries = day?.date === date ? day.entries : null;
+  const sum = (field) => (entries ?? []).reduce((total, e) => total + e[field], 0);
+  const eaten = sum('kcal');
+
+  async function remove(id) {
+    try {
+      await deleteFood(token, id);
+      setChanges(changes + 1);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  if (profile === undefined) {
+    return (
+      <main className="admin-content">
+        <ErrorMsg>{error}</ErrorMsg>
+        {!error && <p className="msg">Loading…</p>}
+      </main>
+    );
+  }
+
+  if (!target || editing) {
+    return (
+      <main className="admin-content calories">
+        <div className="page-head">
+          <h1 className="page-title">Calories</h1>
+        </div>
+        <ProfileForm
+          token={token}
+          profile={profile}
+          today={today()}
+          onSaved={() => {
+            setEditing(false);
+            setChanges(changes + 1);
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      </main>
+    );
+  }
+
+  return (
+    <main className="admin-content calories">
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">{date === today() ? 'Today' : 'Calories'}</h1>
+          <p className="admin-subtitle">
+            {new Date(`${date}T12:00:00`).toLocaleDateString(undefined, {
+              weekday: 'short',
+              day: 'numeric',
+              month: 'short',
+            })}
+          </p>
+        </div>
+        <div className="day-switch">
+          <button
+            className="outline-btn"
+            type="button"
+            aria-label="Previous day"
+            onClick={() => setDate(shift(date, -1))}
+          >
+            ‹
+          </button>
+          <button
+            className="outline-btn"
+            type="button"
+            aria-label="Next day"
+            disabled={date === today()}
+            onClick={() => setDate(shift(date, 1))}
+          >
+            ›
+          </button>
+        </div>
+      </div>
+      <ErrorMsg>{error}</ErrorMsg>
+
+      <section className="card" aria-label="Summary">
+        <div className="section-head">
+          <p className="kcal-left">
+            {eaten > target.kcal
+              ? `${(eaten - target.kcal).toLocaleString()} over`
+              : `${(target.kcal - eaten).toLocaleString()} left`}
+          </p>
+          <button className="link-btn" type="button" onClick={() => setEditing(true)}>
+            Edit target
+          </button>
+        </div>
+        <Meter value={eaten} max={target.kcal} />
+        <div className="meter-ends">
+          <span>{eaten.toLocaleString()} eaten</span>
+          <span>{target.kcal.toLocaleString()} target</span>
+        </div>
+        <dl className="macros">
+          {[
+            ['Protein', 'proteinG'],
+            ['Carbs', 'carbsG'],
+            ['Fat', 'fatG'],
+          ].map(([label, field]) => (
+            <div key={field}>
+              <dt>{label}</dt>
+              <Meter value={sum(field)} max={target[field]} />
+              <dd>
+                {Math.round(sum(field))} / {target[field]} g
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+
+      {entries === null && !error && <p className="msg">Loading…</p>}
+      {entries &&
+        MEALS.map(([meal, label]) => {
+          const foods = entries.filter((e) => e.meal === meal);
+          return (
+            <section className="card" key={meal} aria-label={label}>
+              <div className="food-row">
+                <h2 className="card-title">{label}</h2>
+                <span className="row-sub">{foods.reduce((t, f) => t + f.kcal, 0)} kcal</span>
+              </div>
+              {foods.map((f) => (
+                <div className="food-row" key={f.id}>
+                  <span>{f.name}</span>
+                  <span className="row-sub">{f.kcal}</span>
+                  <button
+                    className="link-btn danger"
+                    type="button"
+                    aria-label={`Remove ${f.name}`}
+                    onClick={() => remove(f.id)}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              <button className="link-btn" type="button" onClick={() => setAddingTo(meal)}>
+                + Add food
+              </button>
+            </section>
+          );
+        })}
+
+      {addingTo && (
+        <FoodSheet
+          token={token}
+          date={date}
+          meal={addingTo}
+          onAdded={() => {
+            setAddingTo(null);
+            setChanges(changes + 1);
+          }}
+          onClose={() => setAddingTo(null)}
+        />
+      )}
+    </main>
+  );
+}
