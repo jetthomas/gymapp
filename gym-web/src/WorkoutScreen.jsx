@@ -211,6 +211,7 @@ export default function WorkoutScreen({ token, onDone }) {
                     <td>
                       <input
                         inputMode="decimal"
+                        enterKeyHint="next"
                         aria-label={`Set ${j + 1} weight in kg`}
                         placeholder={prev?.weightKg ?? ''}
                         value={s.weightKg}
@@ -225,6 +226,7 @@ export default function WorkoutScreen({ token, onDone }) {
                     <td>
                       <input
                         inputMode="numeric"
+                        enterKeyHint="next"
                         aria-label={`Set ${j + 1} reps`}
                         placeholder={prev?.reps ?? ''}
                         value={s.reps}
@@ -239,6 +241,7 @@ export default function WorkoutScreen({ token, onDone }) {
                       <td>
                         <input
                           inputMode="numeric"
+                          enterKeyHint="next"
                           aria-label={`Set ${j + 1} reps in reserve`}
                           value={s.rir}
                           readOnly={s.done}
