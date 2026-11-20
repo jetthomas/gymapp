@@ -50,9 +50,9 @@ export default function FoodSheet({ token, date, meal, onAdded, onClose }) {
 
   const digits = (set) => (e) => /^\d*$/.test(e.target.value) && set(e.target.value);
   const macros = [
-    ['Protein (g)', protein, setProtein],
-    ['Carbs (g)', carbs, setCarbs],
-    ['Fat (g)', fat, setFat],
+    ['food-protein', 'Protein (g)', protein, setProtein],
+    ['food-carbs', 'Carbs (g)', carbs, setCarbs],
+    ['food-fat', 'Fat (g)', fat, setFat],
   ];
 
   return (
@@ -80,10 +80,10 @@ export default function FoodSheet({ token, date, meal, onAdded, onClose }) {
           />
         </div>
         <div className="field-pair">
-          {macros.map(([label, value, set]) => (
-            <div className="field" key={label}>
-              <label htmlFor={label}>{label}</label>
-              <input id={label} inputMode="numeric" value={value} onChange={digits(set)} />
+          {macros.map(([id, label, value, set]) => (
+            <div className="field" key={id}>
+              <label htmlFor={id}>{label}</label>
+              <input id={id} inputMode="numeric" value={value} onChange={digits(set)} />
             </div>
           ))}
         </div>

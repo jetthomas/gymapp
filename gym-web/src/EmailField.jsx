@@ -8,7 +8,8 @@ export default function EmailField(props) {
         name="email"
         type="email"
         placeholder="name@example.com"
-        autoComplete="email"
+        // "username", not "email": password managers save and fill the password against it
+        autoComplete="username"
         spellCheck={false}
         required
         {...props}

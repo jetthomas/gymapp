@@ -29,7 +29,20 @@ export default function PlateSheet({ weightKg, onClose }) {
   }, []);
 
   return (
-    <dialog ref={ref} className="sheet" aria-labelledby="plates-title" onCancel={onClose}>
+    <dialog
+      ref={ref}
+      className="sheet"
+      aria-labelledby="plates-title"
+      // Tapping outside closes it; closedby does that natively, the onClick is for Safari, which lacks it
+      closedby="any"
+      onCancel={onClose}
+      onClick={(e) => {
+        if ('closedBy' in HTMLDialogElement.prototype || e.target !== e.currentTarget) return;
+        const r = e.currentTarget.getBoundingClientRect();
+        if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)
+          onClose();
+      }}
+    >
       <h2 id="plates-title">Plates</h2>
       <div className="plate-inputs">
         <div className="field">

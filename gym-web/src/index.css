@@ -48,7 +48,6 @@ body {
   /* the page colour, so scrolling or bouncing past the edge never shows white */
   background: var(--bg);
   font-family:
-    Inter,
     system-ui,
     -apple-system,
     'Segoe UI',
@@ -58,7 +57,8 @@ body {
 
 /* Buttons and inputs don't take the page font unless told to */
 button,
-input {
+input,
+select {
   font-family: inherit;
 }
 
@@ -602,7 +602,8 @@ button {
   margin-left: auto;
   min-width: 0;
   padding: 9px 14px 9px 38px;
-  font-size: 0.9375rem;
+  /* 16px or more, or iPhone zooms in when it's tapped */
+  font-size: max(1rem, 1em);
   color: var(--text);
   background: var(--surface)
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.5-4.5'/%3E%3C/svg%3E")
@@ -769,7 +770,7 @@ button {
 
 .role-select {
   padding: 8px 32px 8px 14px;
-  font-size: 0.875rem;
+  font-size: max(1rem, 1em);
   font-weight: 600;
   color: var(--text);
   background: transparent
@@ -785,7 +786,6 @@ button {
 /* The role dropdown's look at the search box's height */
 .status-filter {
   padding-block: 9px;
-  font-size: 0.9375rem;
   background-color: var(--surface);
 }
 
@@ -834,7 +834,7 @@ button {
   min-width: 0;
   padding: 8px 12px;
   font-family: var(--mono);
-  font-size: 0.8125rem;
+  font-size: max(1rem, 1em);
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--border);
@@ -1146,11 +1146,16 @@ button.row:active {
   border: none;
   border-radius: 16px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  /* Scrolling to the end of a sheet doesn't carry on scrolling the page behind */
+  overscroll-behavior: contain;
 }
 
 /* Dims the page behind, so the dialog reads as the only task */
 .sheet::backdrop {
   background: rgba(0, 0, 0, 0.4);
+  /* overflow makes it a scroll container, so overscroll-behavior applies (not Safari yet) */
+  overflow: hidden;
+  overscroll-behavior: contain;
 }
 
 .sheet h2 {
@@ -2281,4 +2286,14 @@ button.row:active {
 
 .last-entry .link-btn {
   margin: 0;
+}
+
+html {
+  scroll-padding-top: 64px;
+}
+html:has(.workout-bar) {
+  scroll-padding-top: 140px;
+} /* nav + workout bar */
+html:has(.rest-bar) {
+  scroll-padding-bottom: 80px;
 }

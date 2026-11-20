@@ -46,17 +46,32 @@ export default function ExercisePicker({ token, onPick, onClose }) {
   );
 
   return (
-    <dialog ref={ref} className="sheet picker" aria-labelledby="picker-title" onCancel={onClose}>
+    <dialog
+      ref={ref}
+      className="sheet picker"
+      aria-labelledby="picker-title"
+      // Tapping outside closes it; closedby does that natively, the onClick is for Safari, which lacks it
+      closedby="any"
+      onCancel={onClose}
+      onClick={(e) => {
+        if ('closedBy' in HTMLDialogElement.prototype || e.target !== e.currentTarget) return;
+        const r = e.currentTarget.getBoundingClientRect();
+        if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)
+          onClose();
+      }}
+    >
       <div className="section-head">
         <h2 id="picker-title">Add exercise</h2>
         <button className="pill-btn" type="button" onClick={onClose}>
           Close
         </button>
       </div>
-      <div className="section-head">
+      <search className="section-head">
         <input
           className="admin-search"
           type="search"
+          enterKeyHint="search"
+          autoCorrect="off"
           placeholder="Search exercises"
           aria-label="Search exercises"
           value={q}
@@ -73,7 +88,7 @@ export default function ExercisePicker({ token, onPick, onClose }) {
             <option key={m}>{m}</option>
           ))}
         </select>
-      </div>
+      </search>
       <ErrorMsg>{error}</ErrorMsg>
       {exercises === null && !error && <p className="msg">Loading exercises…</p>}
       {exercises?.length === 0 && <p className="msg">No matches</p>}
