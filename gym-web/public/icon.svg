@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- The page colour, edge to edge: phones cut their own rounded corners -->
+  <rect width="512" height="512" fill="#0a0a0a" />
+  <!-- A cream dumbbell, kept inside the middle 80% so no phone crops it -->
+  <g fill="#f3ead3">
+    <rect x="120" y="244" width="272" height="24" rx="12" />
+    <rect x="156" y="176" width="40" height="160" rx="12" />
+    <rect x="316" y="176" width="40" height="160" rx="12" />
+    <rect x="104" y="208" width="36" height="96" rx="10" />
+    <rect x="372" y="208" width="36" height="96" rx="10" />
+  </g>
+</svg>
