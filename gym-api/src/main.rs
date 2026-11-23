@@ -72,102 +72,14 @@ fn env_file_problem(e: dotenvy::Error, contents: &str) -> Option<String> {
     }
 }
 
-// Creates the tables the first time the API runs
+// Fails fast at startup when SQL Server can't be reached. The tables come from sql/schema.sql
 async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
-    let mut db = connect(state).await?;
-    db.simple_query(
-        "IF OBJECT_ID('dbo.Users', 'U') IS NULL
-            CREATE TABLE dbo.Users (
-                Id INT IDENTITY(1,1) PRIMARY KEY,
-                Email NVARCHAR(256) NOT NULL UNIQUE,
-                PasswordHash NVARCHAR(512) NOT NULL,
-                FirstName NVARCHAR(100) NULL,
-                LastName NVARCHAR(100) NULL,
-                Active BIT NOT NULL DEFAULT 1,
-                CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-                IsAdmin BIT NOT NULL DEFAULT 0,
-                TotpSecret NVARCHAR(64) NULL,
-                TotpEnabled BIT NOT NULL DEFAULT 0,
-                SessionVersion INT NOT NULL DEFAULT 0,
-                LastTotpStep BIGINT NULL,
-                TotpFailures INT NOT NULL DEFAULT 0,
-                LoginFailures INT NOT NULL DEFAULT 0,
-                LockedUntil DATETIME2 NULL,
-                EmailVerified BIT NOT NULL DEFAULT 0
-            );
-         IF OBJECT_ID('dbo.Workouts', 'U') IS NULL
-            CREATE TABLE dbo.Workouts (
-                Id INT IDENTITY(1,1) PRIMARY KEY,
-                UserId INT NOT NULL REFERENCES dbo.Users(Id),
-                [Date] DATETIME2 NOT NULL,
-                Name NVARCHAR(200) NOT NULL,
-                Notes NVARCHAR(MAX) NULL
-            );
-         IF OBJECT_ID('dbo.Events', 'U') IS NULL
-            CREATE TABLE dbo.Events (
-                Id BIGINT IDENTITY(1,1) PRIMARY KEY,
-                UserId INT NOT NULL REFERENCES dbo.Users(Id),
-                Kind NVARCHAR(20) NOT NULL,
-                At DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
-            );
-         IF OBJECT_ID('dbo.RecoveryCodes', 'U') IS NULL
-            CREATE TABLE dbo.RecoveryCodes (
-                Id INT IDENTITY(1,1) PRIMARY KEY,
-                UserId INT NOT NULL REFERENCES dbo.Users(Id),
-                CodeHash NVARCHAR(200) NOT NULL,
-                UsedAt DATETIME2 NULL
-            );
-         IF OBJECT_ID('dbo.Exercises', 'U') IS NULL
-            CREATE TABLE dbo.Exercises (
-                Id INT IDENTITY(1,1) PRIMARY KEY,
-                Name NVARCHAR(200) NOT NULL,
-                Category NVARCHAR(30) NULL,
-                Equipment NVARCHAR(30) NULL,
-                SourceId NVARCHAR(100) NULL,      -- the free-exercise-db id; NULL for ones an admin added
-                CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
-            );
-         IF OBJECT_ID('dbo.ExerciseMuscles', 'U') IS NULL
-            CREATE TABLE dbo.ExerciseMuscles (
-                ExerciseId INT NOT NULL REFERENCES dbo.Exercises(Id) ON DELETE CASCADE,
-                Muscle NVARCHAR(20) NOT NULL,
-                Role NVARCHAR(9) NOT NULL CHECK (Role IN ('primary', 'secondary')),
-                PRIMARY KEY (ExerciseId, Muscle)
-
-            );
-                     IF OBJECT_ID('dbo.Profiles', 'U') IS NULL
-            CREATE TABLE dbo.Profiles (
-                UserId INT NOT NULL PRIMARY KEY REFERENCES dbo.Users(Id),
-                Goal NVARCHAR(9) NULL,
-                BirthDate DATE NULL,
-                Sex NVARCHAR(6) NULL,
-                HeightCm FLOAT NULL,
-                Activity INT NULL,
-                KcalTarget INT NULL
-            );
-         IF OBJECT_ID('dbo.BodyWeights', 'U') IS NULL
-            CREATE TABLE dbo.BodyWeights (
-                UserId INT NOT NULL REFERENCES dbo.Users(Id),
-                [Date] DATE NOT NULL,
-                Kg FLOAT NOT NULL,
-                PRIMARY KEY (UserId, [Date])  -- one weight per member per day
-            );
-         IF OBJECT_ID('dbo.FoodEntries', 'U') IS NULL
-            CREATE TABLE dbo.FoodEntries (
-                Id INT IDENTITY(1,1) PRIMARY KEY,
-                UserId INT NOT NULL REFERENCES dbo.Users(Id),
-                [Date] DATE NOT NULL,
-                Meal NVARCHAR(9) NOT NULL,
-                Name NVARCHAR(100) NOT NULL,
-                Kcal INT NOT NULL,
-                ProteinG FLOAT NOT NULL,
-                CarbsG FLOAT NOT NULL,
-                FatG FLOAT NOT NULL,
-                INDEX IX_FoodEntries_UserId_Date (UserId, [Date])
-            );",
-    )
-    .await?
-    .into_results()
-    .await?;
+    connect(state)
+        .await?
+        .simple_query("SELECT 1")
+        .await?
+        .into_results()
+        .await?;
     Ok(())
 }
 
@@ -249,7 +161,7 @@ async fn main() {
 
     init_db(&state)
         .await
-        .expect("could not connect to SQL Server or create tables");
+        .expect("could not connect to SQL Server");
 
     // One new attempt every 2 seconds per client IP, bursts of up to 30:
     // room for a gym's members logging in over one shared Wi-Fi

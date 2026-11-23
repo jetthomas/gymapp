@@ -5,14 +5,16 @@ import { clearDraft, clock, loadDraft, newDraft, newSet, saveDraft } from './Dra
 import ErrorMsg from './ErrorMsg';
 import ExercisePicker from './ExercisePicker';
 import PlateSheet from './PlateSheet';
-import { flush, queue } from './outbox';
+import { flush, queue, userIdOf } from './outbox';
+import { validSet } from './setLimits';
 
 // Set on the Account screen; 90 s until the member picks another
 const restSeconds = () => Number(localStorage.getItem('rest-seconds')) || 90;
 
 // The workout in progress: one card per exercise, one row per set
 export default function WorkoutScreen({ token, onDone }) {
-  const [draft, setDraft] = useState(() => loadDraft() ?? newDraft());
+  const userId = userIdOf(token);
+  const [draft, setDraft] = useState(() => loadDraft(userId) ?? newDraft());
   const [now, setNow] = useState(() => Date.now());
   const [restEnds, setRestEnds] = useState(0); // a time in ms; 0 = not resting
   const [picking, setPicking] = useState(false);
@@ -23,7 +25,7 @@ export default function WorkoutScreen({ token, onDone }) {
   const showRir = localStorage.getItem('show-rir') === '1';
   const [removing, setRemoving] = useState(null); // the exercise waiting to be removed
 
-  useEffect(() => saveDraft(draft), [draft]);
+  useEffect(() => saveDraft(userId, draft), [userId, draft]);
 
   // One tick a second drives both the workout clock and the rest countdown
   useEffect(() => {
@@ -136,7 +138,7 @@ export default function WorkoutScreen({ token, onDone }) {
       durationSec: Math.min(86400, Math.round((lastTick - draft.startedAt) / 1000)),
       exercises,
     });
-    clearDraft();
+    clearDraft(userId);
     flush(token);
     onDone();
   }
@@ -284,7 +286,7 @@ export default function WorkoutScreen({ token, onDone }) {
                         aria-pressed={s.done}
                         aria-label={`Set ${j + 1} done`}
                         // Nothing to log until there's a weight and at least 1 rep
-                        disabled={!s.done && (ready.weightKg === '' || !(Number(ready.reps) > 0))}
+                        disabled={!s.done && !validSet(ready)}
                         onClick={() => tick(i, j)}
                       >
                         ✓
@@ -394,7 +396,7 @@ export default function WorkoutScreen({ token, onDone }) {
           confirmLabel="Discard"
           danger
           onConfirm={() => {
-            clearDraft();
+            clearDraft(userId);
             onDone();
           }}
           onCancel={() => setDiscarding(false)}

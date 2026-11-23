@@ -1,18 +1,24 @@
 // The workout in progress, kept in the browser so a refresh or a dead battery doesn't lose it.
-// shortcut: one draft per browser, not per member; tag it with the user id if people share a phone
-const KEY = 'workout-draft';
+// One per member, so on a shared phone nobody else sees it or saves it as theirs
+const keyFor = (userId) => `workout-draft-${userId}`;
+// Where the one draft per browser lived before; whoever opens the app first takes it over
+const OLD_KEY = 'workout-draft';
 
-export function loadDraft() {
+export function loadDraft(userId) {
   try {
-    return JSON.parse(localStorage.getItem(KEY));
+    return JSON.parse(localStorage.getItem(keyFor(userId)) ?? localStorage.getItem(OLD_KEY));
   } catch {
     return null;
   }
 }
 
-export const saveDraft = (draft) => localStorage.setItem(KEY, JSON.stringify(draft));
+export const saveDraft = (userId, draft) =>
+  localStorage.setItem(keyFor(userId), JSON.stringify(draft));
 
-export const clearDraft = () => localStorage.removeItem(KEY);
+export function clearDraft(userId) {
+  localStorage.removeItem(keyFor(userId));
+  localStorage.removeItem(OLD_KEY);
+}
 
 export const newDraft = () => ({
   // Sent with the save, so the server stores it once even if the request is repeated

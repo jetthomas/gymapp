@@ -11,7 +11,8 @@ import MuscleMap from './musclemap';
 import NavBar from './NavBar';
 import ResetPasswordForm from './ResetPasswordForm';
 import { logout, refresh, setOnSessionExpired, verifyEmail } from './api';
-import { flush } from './outbox';
+import { flush, userIdOf } from './outbox';
+import WorkoutScreen from './WorkoutScreen';
 
 export default function App() {
   const [token, setToken] = useState(null);
@@ -31,11 +32,22 @@ export default function App() {
   // True until the "Stay logged in" cookie has been tried, so the login form doesn't flash
   const [checking, setChecking] = useState(true);
   const [visit, setVisit] = useState(0);
+  // Opened with no signal by a member who stayed logged in: only the workout screen, saving to this phone
+  const [offline, setOffline] = useState(false);
+  const [offlineDone, setOfflineDone] = useState(false);
 
   // On unless the member turned it off in Account; the nav, dashboard and Calories page all read it
   const [showCalories, setShowCalories] = useState(
     () => localStorage.getItem('show-calories') !== '0',
   );
+
+  // A refresh only works with a "Stay logged in" cookie, so remember who it was for offline mode
+  function signedInWithCookie(r) {
+    setToken(r.accessToken);
+    setIsAdmin(r.isAdmin);
+    setHas2fa(r.twoFactor);
+    localStorage.setItem('user-id', userIdOf(r.accessToken));
+  }
 
   useEffect(() => {
     // Drop #reset=... / #verify=... right away so the token doesn't stay in the address bar or history
@@ -45,12 +57,13 @@ export default function App() {
         .then(() => setNotice('Email confirmed. Log in to continue.'))
         .catch((err) => setNotice(err.message));
     refresh()
-      .then((r) => {
-        setToken(r.accessToken);
-        setIsAdmin(r.isAdmin);
-        setHas2fa(r.twoFactor);
+      .then(signedInWithCookie)
+      .catch((err) => {
+        // No status = no signal, so the cookie may still be good
+        if (!err.status && localStorage.getItem('user-id')) setOffline(true);
+        // No cookie, or it expired: show the login form
+        else if (err.status === 401) localStorage.removeItem('user-id');
       })
-      .catch(() => {}) // no cookie, or it expired: show the login form
       .finally(() => setChecking(false));
     // When the 1-hour token runs out mid-session, try the cookie before signing out
     setOnSessionExpired(() =>
@@ -58,6 +71,7 @@ export default function App() {
       refresh()
         .then((r) => setToken(r.accessToken))
         .catch(() => {
+          localStorage.removeItem('user-id');
           setToken(null);
           setIsAdmin(false);
           setPage('login');
@@ -66,6 +80,37 @@ export default function App() {
         }),
     );
   }, [resetToken, verifyToken]);
+
+  // Offline mode: sign in properly as soon as there's signal again
+  useEffect(() => {
+    if (!offline) return;
+    const retry = () =>
+      refresh()
+        .then((r) => {
+          signedInWithCookie(r);
+          // Mid-workout, stay on the workout screen; Finish then goes to the dashboard
+          if (offlineDone) setOffline(false);
+        })
+        .catch(() => {});
+    window.addEventListener('online', retry);
+    return () => window.removeEventListener('online', retry);
+  }, [offline, offlineDone]);
+
+  // The phone's back gesture goes to the previous page instead of closing the app
+  useEffect(() => {
+    const onBack = (e) => {
+      setPage(e.state?.page ?? 'home');
+      setVisit((v) => v + 1);
+    };
+    window.addEventListener('popstate', onBack);
+    return () => window.removeEventListener('popstate', onBack);
+  }, []);
+
+  function go(next) {
+    window.history.pushState({ page: next }, '');
+    setPage(next);
+    setVisit((v) => v + 1);
+  }
 
   useEffect(() => {
     if (!token) return;
@@ -88,6 +133,7 @@ export default function App() {
   }
 
   function logOut() {
+    localStorage.removeItem('user-id');
     setToken(null);
     setIsAdmin(false);
     setHas2fa(false);
@@ -104,6 +150,26 @@ export default function App() {
   }
 
   if (checking) return null;
+
+  if (offline) {
+    return (
+      <div className="admin-page">
+        {offlineDone ? (
+          <main className="admin-content">
+            <p className="hint" role="status">
+              No signal. Your workout is saved on this phone and will upload when you&apos;re back
+              online.
+            </p>
+          </main>
+        ) : (
+          <WorkoutScreen
+            token={token}
+            onDone={() => (token ? setOffline(false) : setOfflineDone(true))}
+          />
+        )}
+      </div>
+    );
+  }
 
   if (!token && page === 'create') {
     return <CreateAccountForm initialEmail={email} onBack={backToLogin} />;
@@ -122,7 +188,8 @@ export default function App() {
       <LoginForm
         initialEmail={email}
         notice={notice}
-        onLoggedIn={(t, admin, usedCode, last, failed) => {
+        onLoggedIn={(t, admin, usedCode, last, failed, remember) => {
+          if (remember) localStorage.setItem('user-id', userIdOf(t));
           setNotice('');
           setToken(t);
           setIsAdmin(admin);
@@ -144,10 +211,7 @@ export default function App() {
         page={page === 'login' || page === 'reset' ? 'home' : page}
         isAdmin={isAdmin}
         showCalories={showCalories}
-        onNavigate={(next) => {
-          setPage(next);
-          setVisit((v) => v + 1);
-        }}
+        onNavigate={go}
       />
       {page === 'admin' ? (
         <AdminScreen token={token} lastLogin={lastLogin} failedSince={failedSince} />
@@ -157,8 +221,8 @@ export default function App() {
           isAdmin={isAdmin}
           has2fa={has2fa}
           onTokenChanged={setToken}
-          onManageUsers={() => setPage('admin')}
-          onViewProgress={() => setPage('progress')}
+          onManageUsers={() => go('admin')}
+          onViewProgress={() => go('progress')}
           showCalories={showCalories}
           onShowCaloriesChanged={(on) => {
             setShowCalories(on);
@@ -172,7 +236,7 @@ export default function App() {
         />
       ) : page === 'progress' ? (
         <main className="admin-content">
-          <button className="outline-btn back-btn" type="button" onClick={() => setPage('account')}>
+          <button className="outline-btn back-btn" type="button" onClick={() => go('account')}>
             <span aria-hidden="true">‹</span> Account
           </button>
           <div className="page-head">
@@ -187,7 +251,7 @@ export default function App() {
           key={visit}
           token={token}
           showCalories={showCalories}
-          onOpenCalories={() => setPage('calories')}
+          onOpenCalories={() => go('calories')}
         />
       )}
     </div>

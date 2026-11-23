@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getWorkout } from './api';
 import { loadDraft } from './Draft';
+import { userIdOf } from './outbox';
 
 // The last workout and what was in it; a workout planner would show today's plan here instead
 export default function WorkoutCard({ token, last, onStart, onOpen }) {
@@ -77,7 +78,7 @@ export default function WorkoutCard({ token, last, onStart, onOpen }) {
           </button>
         )}
         <button className="pill-btn filled" type="button" onClick={onStart}>
-          {loadDraft() ? 'Resume workout' : 'Start workout'}
+          {loadDraft(userIdOf(token)) ? 'Resume workout' : 'Start workout'}
         </button>
       </div>
     </section>

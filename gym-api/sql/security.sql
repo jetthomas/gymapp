@@ -1,4 +1,4 @@
--- Parts 10 and 11: run once, connected as your ADMIN user (not gym_app).
+-- Parts 10 and 11: run once, connected as your ADMIN user (not gym_app), after schema.sql.
 -- Replace the password with the output of: openssl rand -base64 24
 -- Change GymApp if your DB_NAME differs.
 
@@ -33,8 +33,10 @@ CREATE SECURITY POLICY Security.WorkoutPolicy
     WITH (STATE = ON);
 GO
 
--- Speeds up each member's workout list (the gym_app login can't create indexes)
-CREATE INDEX IX_Workouts_UserId_Date ON dbo.Workouts (UserId, [Date] DESC);
+-- A workout's exercises and sets; no row-level security, because every query reaches them
+-- through a workout that was already checked as the member's own
+GRANT SELECT, INSERT, DELETE ON dbo.WorkoutExercises TO gym_app;
+GRANT SELECT, INSERT, DELETE ON dbo.Sets TO gym_app;
 GO
 
 -- Exercise library: one shared list. Every member reads it; only admins change it,

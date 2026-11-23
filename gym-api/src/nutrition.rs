@@ -218,16 +218,6 @@ pub async fn recent_food(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Json<
         &[&user_id],
     )
     .await?;
-    let mut out = Vec::new();
-    for r in &rows {
-        out.push(Food {
-            name: col::<&str>(r, "Name")?.to_string(),
-            kcal: col(r, "Kcal")?,
-            protein_g: col(r, "ProteinG")?,
-            carbs_g: col(r, "CarbsG")?,
-            fat_g: col(r, "FatG")?,
-        });
-    }
     Ok(Json(rows.iter().map(to_food).collect::<ApiResult<_>>()?))
 }
 

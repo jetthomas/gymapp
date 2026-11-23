@@ -6,9 +6,12 @@ import { createWorkout } from './api.js';
 // shortcut: localStorage (about 5 MB, plenty for workouts); move to IndexedDB if saves ever get big
 const KEY = 'outbox';
 
-// The member's id, read from the login token: its middle part is base64url JSON
-const userIdOf = (token) =>
-  JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).sub;
+// The member's id, read from the login token: its middle part is base64url JSON.
+// With no token (opened offline) it's the member who last signed in with "Stay logged in"
+export const userIdOf = (token) =>
+  token
+    ? JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).sub
+    : localStorage.getItem('user-id');
 
 function read() {
   try {
@@ -36,7 +39,8 @@ let flushing = false;
 // Sends this member's waiting workouts, oldest first. Safe to call as often as you like:
 // the server stores each clientId once, however many times it arrives
 export async function flush(token, send = createWorkout) {
-  if (flushing) return;
+  // Offline mode has no token; the next real login sends them
+  if (flushing || !token) return;
   flushing = true;
   try {
     for (const item of mine(token).filter((i) => !i.error)) {
@@ -48,9 +52,8 @@ export async function flush(token, send = createWorkout) {
         // No signal, a server error, an expired login or too many tries: these can heal,
         // so leave everything for the next try
         if (!err.status || err.status >= 500 || err.status === 401 || err.status === 429) return;
-        // Any other 4xx (400, 422) = the server will never accept it, so stop retrying but keep it.
-        // 400 = the server will never accept it, so stop retrying but keep it.
-        // shortcut: it then sits here with its error; add a way to fix or drop it if this ever happens
+        // Any other 4xx (400, 422) = the server will never accept it, so stop retrying but keep it
+        // until the member discards it (drop, below)
         write(
           read().map((i) => (i.workout.clientId === clientId ? { ...i, error: err.message } : i)),
         );
@@ -59,6 +62,12 @@ export async function flush(token, send = createWorkout) {
   } finally {
     flushing = false;
   }
+}
+
+// Deletes this member's workouts that the server refused
+export function drop(token) {
+  const me = userIdOf(token);
+  write(read().filter((i) => !(i.error && i.userId === me)));
 }
 
 const subscribe = (onChange) => {

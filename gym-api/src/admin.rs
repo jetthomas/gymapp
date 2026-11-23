@@ -52,15 +52,28 @@ pub async fn create_reset_link(
 ) -> ApiResult<Json<ResetLink>> {
     let row = one_row(
         &mut db,
-        "SELECT PasswordHash FROM dbo.Users WHERE Id = @P1",
+        "SELECT PasswordHash, Email, IsAdmin FROM dbo.Users WHERE Id = @P1",
         &[&user_id],
     )
     .await?
     .ok_or_else(|| (StatusCode::NOT_FOUND, "User not found.".to_string()))?;
+    // The link turns off 2FA, so one stolen admin login must not open the other admins' accounts
+    if col::<bool>(&row, "IsAdmin")? {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Admins can't get reset links. Use Forgot password on the login screen.".to_string(),
+        ));
+    }
     let stored: &str = col(&row, "PasswordHash")?;
     let token = make_reset_token(user_id, &state.jwt_secret, stored).map_err(internal)?;
     // The link turns off the member's 2FA, so keep a record of which admin made it
     record(&mut db, admin_id, "reset_link").await?;
+    // Told now, not only once it's used, so a member can react within the link's 15 minutes
+    send_security_notice(
+        &state,
+        col(&row, "Email")?,
+        "An admin made a password reset link for your account. It works for 15 minutes.",
+    );
     Ok(Json(ResetLink {
         link: format!("{}/#reset={token}", state.frontend_url),
     }))
