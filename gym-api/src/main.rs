@@ -45,6 +45,33 @@ fn env_required(key: &str) -> String {
     env::var(key).unwrap_or_else(|_| panic!("{key} is not set. Check your .env file."))
 }
 
+// The loader stops at the first line it can't read, so every setting after it goes missing.
+// Names the line and setting but never prints the value: it may be a password.
+// None = nothing to fix (no .env at all is fine when the settings come from the real environment)
+fn env_file_problem(e: dotenvy::Error, contents: &str) -> Option<String> {
+    match e {
+        dotenvy::Error::Io(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        // `bad` is just the part that failed (usually the value), so find the line it's on
+        dotenvy::Error::LineParse(bad, _) => Some(
+            match contents
+                .lines()
+                .enumerate()
+                .find(|(_, l)| l.contains(bad.as_str()))
+            {
+                Some((n, line)) => format!(
+                    "Line {} of .env ({}) can't be read. Put a value with spaces in double quotes.",
+                    n + 1,
+                    line.split_once('=')
+                        .map_or("no = sign", |(key, _)| key.trim())
+                ),
+                None => "A line in .env can't be read. Put a value with spaces in double quotes."
+                    .to_string(),
+            },
+        ),
+        _ => Some("Can't read .env.".to_string()),
+    }
+}
+
 // Creates the tables the first time the API runs
 async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
     let mut db = connect(state).await?;
@@ -146,7 +173,13 @@ async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
 
 #[tokio::main]
 async fn main() {
-    dotenvy::dotenv().ok();
+    // The API runs from gym-api/, where .env lives; the file is only read again to word the error
+    if let Err(e) = dotenvy::dotenv()
+        && let Some(problem) =
+            env_file_problem(e, &std::fs::read_to_string(".env").unwrap_or_default())
+    {
+        panic!("{problem}");
+    }
     let mut db_config = Config::new();
     db_config.host(env_required("DB_HOST"));
     db_config.port(
@@ -297,4 +330,28 @@ async fn main() {
     )
     .await
     .unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bad_env_line_is_named_without_its_value() {
+        let file = "A=1\nSMTP_PASSWORD=abcd efgh ijkl\nMAIL_FROM=x\n";
+        let err = dotenvy::from_read_iter(file.as_bytes())
+            .find_map(Result::err)
+            .unwrap();
+        let msg = env_file_problem(err, file).unwrap();
+        assert!(
+            msg.contains("Line 2") && msg.contains("SMTP_PASSWORD"),
+            "{msg}"
+        );
+        assert!(
+            !msg.contains("abcd"),
+            "the value must not be printed: {msg}"
+        );
+        let missing = dotenvy::Error::Io(std::io::ErrorKind::NotFound.into());
+        assert!(env_file_problem(missing, "").is_none(), "no .env is fine");
+    }
 }

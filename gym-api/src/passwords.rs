@@ -74,6 +74,15 @@ pub fn fits(s: &str, max: usize) -> bool {
     s.encode_utf16().count() <= max
 }
 
+// No invisible control characters (null bytes, escape codes) or bidi overrides,
+// which can make a name on the Admin screen read as something else. Newlines only where asked for
+pub fn plain(s: &str, newlines: bool) -> bool {
+    !s.chars().any(|c| {
+        (c.is_control() && !(newlines && matches!(c, '\n' | '\r' | '\t')))
+            || matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+    })
+}
+
 // The length + symbol rule, then rejects guessable passwords (common words, patterns, the user's own name/email)
 pub fn check_password(password: &str, user_inputs: &[&str]) -> Result<(), String> {
     if password.chars().count() > 128 {
@@ -256,6 +265,11 @@ mod tests {
             "x<a@b.com>",
         ] {
             assert!(!valid_email(bad), "{bad:?} should be rejected");
+        }
+        assert!(plain("Jet Thomas 💪", false));
+        assert!(plain("line one\nline two", true));
+        for bad in ["a\0b", "a\u{1b}[31mb", "evil\u{202E}nimda", "two\nlines"] {
+            assert!(!plain(bad, false), "{bad:?} should be rejected");
         }
         assert!(check_password("short!", &[]).is_err(), "too short");
         assert!(

@@ -6,7 +6,7 @@ use axum::{
 
 use crate::extractors::{AdminUser, AuthUser};
 use crate::models::{Exercise, ExerciseQuery, NewExercise};
-use crate::passwords::fits;
+use crate::passwords::{fits, plain};
 use crate::state::{ApiResult, Db, all_rows, batch, col, internal, one_row};
 
 // The 17 muscle names free-exercise-db uses; admin-added exercises pick from the same list
@@ -35,6 +35,9 @@ pub fn check_exercise(e: &NewExercise) -> Result<&str, String> {
     let name = e.name.trim();
     if name.is_empty() || !fits(name, 100) {
         return Err("Exercise name must be 1 to 100 characters.".into());
+    }
+    if !plain(name, false) || e.equipment.as_deref().is_some_and(|q| !plain(q, false)) {
+        return Err("Names can't contain hidden or control characters.".into());
     }
     if e.primary_muscles.is_empty() {
         return Err("Pick at least one main muscle.".into());
@@ -65,6 +68,13 @@ pub async fn list_exercises(
 ) -> ApiResult<Json<Vec<Exercise>>> {
     let q = f.q.unwrap_or_default();
     let muscle = f.muscle.unwrap_or_default();
+    // No name is over 100 characters, so a longer search can't match anything
+    if !fits(&q, 100) || (!muscle.is_empty() && !MUSCLES.contains(&muscle.as_str())) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Search up to 100 characters, and pick a muscle from the list.".into(),
+        ));
+    }
     let rows = all_rows(
         &mut db,
         "SELECT e.Id, e.Name, e.Equipment, m.Muscle, m.Role
@@ -226,6 +236,10 @@ mod tests {
         assert!(
             check_exercise(&ex("Fly", &["chest"], &["chest"])).is_err(),
             "both lists"
+        );
+        assert!(
+            check_exercise(&ex("Fly\u{0}", &["chest"], &[])).is_err(),
+            "control character"
         );
     }
 }

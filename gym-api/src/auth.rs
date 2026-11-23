@@ -14,7 +14,8 @@ use crate::models::{
     Profile, ResetRequest, TokenRequest,
 };
 use crate::passwords::{
-    check_password, fits, hash_password, password_matches, totp_for, use_totp_code, valid_email,
+    check_password, fits, hash_password, password_matches, plain, totp_for, use_totp_code,
+    valid_email,
 };
 use crate::state::{
     ApiResult, AppState, Db, col, connect, internal, last_visit, may_mail, one_row, record,
@@ -42,6 +43,12 @@ pub async fn register(
         return Err((
             StatusCode::BAD_REQUEST,
             "Names must be 100 characters or fewer.".into(),
+        ));
+    }
+    if !plain(first_name, false) || !plain(last_name, false) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Names can't contain hidden or control characters.".into(),
         ));
     }
     if !valid_email(&c.email) || !fits(&c.email, 256) {

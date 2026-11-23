@@ -138,7 +138,12 @@ export default function ProfileForm({ token, profile, today, onSaved, onCancel }
           <button className="link-btn" type="button" onClick={onCancel}>
             Cancel
           </button>
-          <button className="link-btn danger" type="button" onClick={() => setDeleting(true)}>
+          <button
+            className="link-btn danger"
+            type="button"
+            onClick={() => setDeleting(true)}
+            disabled={loading}
+          >
             Delete my health data
           </button>
         </>

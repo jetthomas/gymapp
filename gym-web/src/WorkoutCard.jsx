@@ -16,7 +16,7 @@ export default function WorkoutCard({ token, last, onStart, onOpen }) {
   }, [token, id]);
 
   // Ignores the exercises of a workout that's no longer the last one
-  const exercises = detail?.id === id ? detail.exercises : null;
+  const exercises = id && detail?.id === id ? detail.exercises : null;
 
   return (
     <section className="card" aria-labelledby="workout-title">

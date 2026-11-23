@@ -12,7 +12,7 @@ use crate::extractors::AuthUser;
 use crate::models::{
     LoggedExercise, LoggedSet, MuscleSets, NewWorkout, StatsQuery, Workout, WorkoutDetail,
 };
-use crate::passwords::fits;
+use crate::passwords::{fits, plain};
 use crate::state::{ApiResult, Db, all_rows, batch, col, internal, one_row, record, set_user};
 
 // The user ID comes from the token (AuthUser), never from the request body
@@ -51,6 +51,9 @@ pub fn check_workout(w: &NewWorkout) -> Result<&str, String> {
     let name = w.name.trim();
     if name.is_empty() || !fits(name, 200) {
         return Err("workout name must be 1 to 200 characters".into());
+    }
+    if !plain(name, false) || w.notes.as_deref().is_some_and(|n| !plain(n, true)) {
+        return Err("workout name and notes can't contain control characters".into());
     }
     // Notes is NVARCHAR(MAX), so without a cap one account could fill the database's disk
     if w.notes.as_deref().is_some_and(|n| !fits(n, 2000)) {
@@ -348,6 +351,14 @@ mod tests {
             "no client id"
         );
         assert!(check_workout(&workout(62.5, 0, None)).is_err(), "zero reps");
+        let mut with_notes = workout(62.5, 8, None);
+        with_notes.notes = Some("felt strong\nup 2.5 kg next time".into());
+        assert!(
+            check_workout(&with_notes).is_ok(),
+            "notes may have newlines"
+        );
+        with_notes.name = "Push\u{202E}day".into();
+        assert!(check_workout(&with_notes).is_err(), "bidi override in name");
         assert!(
             check_workout(&workout(-1.0, 8, None)).is_err(),
             "negative weight"

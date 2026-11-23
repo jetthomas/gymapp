@@ -7,7 +7,7 @@ use chrono::{Datelike, NaiveDate};
 
 use crate::extractors::AuthUser;
 use crate::models::{DayQuery, Food, FoodEntry, HealthProfile, NewFood};
-use crate::passwords::fits;
+use crate::passwords::{fits, plain};
 use crate::state::{ApiResult, all_rows, col, internal, one_row, set_user};
 use tiberius::Row;
 
@@ -60,6 +60,9 @@ pub fn check_food(f: &NewFood) -> Result<&str, &'static str> {
     let name = f.name.trim();
     if name.is_empty() || !fits(name, 100) {
         return Err("Food name must be 1 to 100 characters.");
+    }
+    if !plain(name, false) {
+        return Err("Food name can't contain hidden or control characters.");
     }
     if !MEALS.contains(&f.meal.as_str()) {
         return Err("Pick a meal from the list.");
@@ -122,14 +125,17 @@ pub async fn put_health(
 ) -> ApiResult<StatusCode> {
     check_profile(&p).map_err(bad)?;
     set_user(&mut db, user_id).await.map_err(internal)?;
-    // Update the member's row, or make it the first time
+    // Update the member's row, or make it the first time. UPDLOCK + HOLDLOCK lock the row,
+    // or the gap where it would go, so two first saves at once can't both INSERT (a duplicate key, 500)
     db.execute(
-        "UPDATE dbo.Profiles SET Goal = @P2, BirthDate = @P3, Sex = @P4, HeightCm = @P5,
-                Activity = @P6, KcalTarget = @P7
+        "BEGIN TRANSACTION;
+         UPDATE dbo.Profiles WITH (UPDLOCK, HOLDLOCK) SET Goal = @P2, BirthDate = @P3, Sex = @P4,
+                HeightCm = @P5, Activity = @P6, KcalTarget = @P7
          WHERE UserId = @P1;
          IF @@ROWCOUNT = 0
             INSERT INTO dbo.Profiles (UserId, Goal, BirthDate, Sex, HeightCm, Activity, KcalTarget)
-            VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7);",
+            VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7);
+         COMMIT;",
         &[
             &user_id,
             &p.goal,
@@ -145,9 +151,13 @@ pub async fn put_health(
     // A weight is one row per day in the weight log; `today` is the member's own date, not the server's
     if let (Some(kg), Some(day)) = (p.weight_kg, p.today) {
         db.execute(
-            "UPDATE dbo.BodyWeights SET Kg = @P3 WHERE UserId = @P1 AND [Date] = @P2;
+            // Locked the same way as the profile above
+            "BEGIN TRANSACTION;
+             UPDATE dbo.BodyWeights WITH (UPDLOCK, HOLDLOCK) SET Kg = @P3
+             WHERE UserId = @P1 AND [Date] = @P2;
              IF @@ROWCOUNT = 0
-                INSERT INTO dbo.BodyWeights (UserId, [Date], Kg) VALUES (@P1, @P2, @P3);",
+                INSERT INTO dbo.BodyWeights (UserId, [Date], Kg) VALUES (@P1, @P2, @P3);
+             COMMIT;",
             &[&user_id, &day, &kg],
         )
         .await
@@ -301,6 +311,10 @@ mod tests {
         assert!(
             check_food(&food("", "breakfast", 300, 10.0)).is_err(),
             "no name"
+        );
+        assert!(
+            check_food(&food("Oats\u{7}", "breakfast", 300, 10.0)).is_err(),
+            "control character"
         );
         assert!(
             check_food(&food("Oats", "brunch", 300, 10.0)).is_err(),

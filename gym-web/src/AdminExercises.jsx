@@ -43,12 +43,15 @@ export default function AdminExercises({ token }) {
 
   function done() {
     setEditing(null);
-    setSaved(saved + 1);
+    // s + 1: a save and a delete finishing from the same render must both reload
+    setSaved((s) => s + 1);
   }
 
   async function handleDelete() {
     const e = deleting;
     setDeleting(null);
+    // Back to the list first: its Delete button can't be pressed twice, and the list is where errors show
+    setEditing(null);
     try {
       await deleteExercise(token, e.id);
       done();

@@ -8,6 +8,7 @@ import PasswordInput from './PasswordInput';
 import TwoFactorDisable from './TwoFactorDisable';
 import TwoFactorSetup from './TwoFactorSetup';
 import { useWaiting } from './outbox';
+import useSubmit from './useSubmit';
 
 // Settings behind the home screen. Its state resets whenever it closes, including on logout.
 export default function AccountScreen({
@@ -25,7 +26,7 @@ export default function AccountScreen({
   const [profile, setProfile] = useState(null);
   const [open, setOpen] = useState(null); // 'password', '2fa' or null: the row whose form is showing
   const [notice, setNotice] = useState('');
-  const [deleteError, setDeleteError] = useState('');
+  const deleting = useSubmit();
   const [deletePassword, setDeletePassword] = useState('');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [showRir, setShowRir] = useState(() => localStorage.getItem('show-rir') === '1');
@@ -46,15 +47,12 @@ export default function AccountScreen({
     setOpen(open === row ? null : row);
   }
 
-  async function handleDelete(event) {
+  function handleDelete(event) {
     event.preventDefault();
-    setDeleteError('');
-    try {
+    deleting.run(async () => {
       await deleteAccount(token, deletePassword);
       onSignedOut();
-    } catch (err) {
-      setDeleteError(err.message);
-    }
+    });
   }
 
   return (
@@ -274,17 +272,18 @@ export default function AccountScreen({
                       onChange={(e) => setDeletePassword(e.target.value)}
                     />
                   </div>
-                  <ErrorMsg>{deleteError}</ErrorMsg>
-                  <button className="login-btn danger" type="submit">
+                  <ErrorMsg>{deleting.message}</ErrorMsg>
+                  <button className="login-btn danger" type="submit" disabled={deleting.loading}>
                     Delete account
                   </button>
                   <button
                     className="link-btn"
                     type="button"
+                    disabled={deleting.loading}
                     onClick={() => {
                       setConfirmingDelete(false);
                       setDeletePassword('');
-                      setDeleteError('');
+                      deleting.setMessage('');
                     }}
                   >
                     Cancel

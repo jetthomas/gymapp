@@ -17,10 +17,7 @@ export default function CreateAccountForm({ onBack, initialEmail = '' }) {
     run(async () => {
       await register(firstName, lastName, email, password);
       // The API answers the same for an email that's already registered, so don't claim a new account
-      onBack(
-        email,
-        "You're all set. Log in to continue. If you already had an account, use its password.",
-      );
+      onBack(email, 'Thanks for signing up, please check your email to confirm your email');
     });
   }
 

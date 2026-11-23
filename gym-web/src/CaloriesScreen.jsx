@@ -34,6 +34,7 @@ export default function CaloriesScreen({ token }) {
   const [addingTo, setAddingTo] = useState(null); // the meal the food sheet is open for
   const [error, setError] = useState('');
   const [changes, setChanges] = useState(0); // goes up after each save, to load again
+  const [removing, setRemoving] = useState(null); // the entry being deleted
 
   useEffect(() => {
     getHealth(token)
@@ -42,12 +43,20 @@ export default function CaloriesScreen({ token }) {
   }, [token, changes]);
 
   useEffect(() => {
+    // An older, slower answer (from before a delete) must not replace a newer one
+    let stale = false;
     getFood(token, date)
       .then((entries) => {
+        if (stale) return;
         setDay({ date, entries });
         setError('');
       })
-      .catch((err) => setError(err.message));
+      .catch((err) => {
+        if (!stale) setError(err.message);
+      });
+    return () => {
+      stale = true;
+    };
   }, [token, date, changes]);
 
   const target = profile && targets(profile);
@@ -57,11 +66,15 @@ export default function CaloriesScreen({ token }) {
   const eaten = sum('kcal');
 
   async function remove(id) {
+    setRemoving(id);
     try {
       await deleteFood(token, id);
-      setChanges(changes + 1);
+      // c + 1, not changes + 1: two removes started from the same render would both count as one
+      setChanges((c) => c + 1);
     } catch (err) {
       setError(err.message);
+    } finally {
+      setRemoving(null);
     }
   }
 
@@ -181,8 +194,9 @@ export default function CaloriesScreen({ token }) {
                     type="button"
                     aria-label={`Remove ${f.name}`}
                     onClick={() => remove(f.id)}
+                    disabled={removing !== null}
                   >
-                    Remove
+                    {removing === f.id ? 'Removing…' : 'Remove'}
                   </button>
                 </div>
               ))}

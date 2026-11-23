@@ -8,9 +8,7 @@ use crate::extractors::AuthUser;
 use crate::models::{
     CodeRequest, DisableRequest, PasswordOnly, RecoveryCodes, TotpSetup, VerifyRequest,
 };
-use crate::passwords::{
-    hash_password, make_totp, recovery_code, totp_for, use_totp_code,
-};
+use crate::passwords::{hash_password, make_totp, recovery_code, totp_for, use_totp_code};
 use crate::state::{ApiResult, AppState, col, connect, internal, one_row, send_security_notice};
 use crate::tokens::{challenge_key, read_token};
 
