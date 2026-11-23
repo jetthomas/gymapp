@@ -33,7 +33,9 @@ pub struct AppState {
 }
 
 // The API only listens on 127.0.0.1 behind a proxy, so the client IP is the last
-// X-Forwarded-For entry (added by our proxy). Earlier entries come from the client and can be faked.
+// X-Forwarded-For entry that isn't this machine. Earlier entries come from the client and can be faked.
+// Loopback entries are skipped: behind a local tunnel (cloudflared -> Vite) Vite adds 127.0.0.1,
+// and the real visitor is the entry Cloudflare added just before it.
 #[derive(Clone)]
 pub struct ProxyIpKeyExtractor;
 
@@ -51,8 +53,13 @@ impl KeyExtractor for ProxyIpKeyExtractor {
             req.headers()
                 .get("x-forwarded-for")
                 .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.rsplit(',').next())
-                .and_then(|ip| ip.trim().parse().ok())
+                .and_then(|s| {
+                    s.rsplit(',')
+                        .filter_map(|ip| ip.trim().parse::<IpAddr>().ok())
+                        // ::ffff:127.0.0.1 is loopback too
+                        .map(|ip| ip.to_canonical())
+                        .find(|ip| !ip.is_loopback())
+                })
                 .unwrap_or(peer)
         } else {
             peer
@@ -267,6 +274,25 @@ mod tests {
                 .extract(&req(Some("203.0.113.9")))
                 .unwrap(),
             ip("203.0.113.9")
+        );
+        // behind a local tunnel the last entry is Vite's 127.0.0.1; the visitor is the one before it
+        for xff in [
+            "6.6.6.6, 203.0.113.9, 127.0.0.1",
+            "203.0.113.9, ::ffff:127.0.0.1",
+            "203.0.113.9, ::1",
+        ] {
+            assert_eq!(
+                ProxyIpKeyExtractor.extract(&req(Some(xff))).unwrap(),
+                ip("203.0.113.9"),
+                "{xff}"
+            );
+        }
+        // only loopback entries: fall back to the peer
+        assert_eq!(
+            ProxyIpKeyExtractor
+                .extract(&req(Some("127.0.0.1")))
+                .unwrap(),
+            ip("127.0.0.1")
         );
         // no header (e.g. curl straight to the API on this machine): fall back to the peer
         assert_eq!(

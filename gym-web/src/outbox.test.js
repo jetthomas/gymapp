@@ -54,6 +54,19 @@ test('a refused workout is marked, and the ones behind it still send', async () 
   );
 });
 
+// Coming back online and finishing a workout can both start a flush at the same moment
+test('two flushes at once send each workout once', async () => {
+  queue(token, workout('a'));
+  const sent = [];
+  const slowSend = async (_, w) => {
+    sent.push(w.clientId);
+    await new Promise((r) => setTimeout(r, 10));
+  };
+  await Promise.all([flush(token, slowSend), flush(token, slowSend)]);
+  assert.deepEqual(sent, ['a']);
+  assert.deepEqual(waiting(), []);
+});
+
 test("another member's workouts stay on the phone", async () => {
   queue(tokenFor('8'), workout('a'));
   let sent = false;
