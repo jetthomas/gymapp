@@ -1,6 +1,6 @@
 import { beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { flush, queue } from './outbox.js';
+import { drop, flush, queue } from './outbox.js';
 
 // Just enough of the browser for outbox.js: a localStorage and a window to send events on
 const store = new Map();
@@ -75,4 +75,31 @@ test("another member's workouts stay on the phone", async () => {
   });
   assert.equal(sent, false);
   assert.equal(waiting().length, 1);
+});
+
+test("discarding removes only this member's refused workouts", async () => {
+  queue(token, workout('a'));
+  queue(token, workout('b'));
+  queue(tokenFor('8'), workout('c'));
+  await flush(token, async (_, w) => {
+    if (w.clientId === 'a') throw Object.assign(new Error('bad weight'), { status: 400 });
+    throw new Error('no signal');
+  });
+  drop(token);
+  assert.deepEqual(
+    waiting().map((i) => i.workout.clientId),
+    ['b', 'c'],
+  );
+});
+
+test('offline, a workout is queued for the saved member and waits for a real login', async () => {
+  localStorage.setItem('user-id', '7');
+  queue(null, workout('a'));
+  let sent = false;
+  await flush(null, async () => {
+    sent = true;
+  });
+  assert.equal(sent, false);
+  await flush(token, async () => {});
+  assert.deepEqual(waiting(), []);
 });

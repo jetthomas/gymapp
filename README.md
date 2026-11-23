@@ -75,17 +75,19 @@ git clone https://github.com/jetthomas/gymapp.git
 cd gymapp
 ```
 
-### 2. Create the database
+### 2. Create the database and its tables
 
-The API creates its tables on first run, but the database itself must exist:
+Create the database, then run [`gym-api/sql/schema.sql`](gym-api/sql/schema.sql) against it as the admin login:
 
 ```sql
 CREATE DATABASE GymApp;
 ```
 
+`schema.sql` is the one place every table, column and index is defined. It skips whatever already exists, so run it again after pulling a change to it.
+
 ### 3. Configure the API
 
-Create `gym-api/.env`. For the first run, use an admin login such as `sa`, because the API creates tables:
+Create `gym-api/.env`. Until step 6, use an admin login such as `sa`:
 
 ```env
 DB_HOST=localhost
@@ -100,58 +102,20 @@ MAIL_FROM=Gym App <no-reply@localhost>
 
 Never commit `.env`; it's already in `.gitignore`. Every setting is listed under [Configuration](#configuration).
 
-### 4. Run the API once
+### 4. Run the API
 
 ```sh
 cd gym-api
 cargo run
 ```
 
-Check it's up:
+It checks it can reach SQL Server and stops with an error if it can't. Check it's up:
 
 ```sh
 curl http://127.0.0.1:5080/health   # ok
 ```
 
-This creates `Users`, `Workouts`, `Events`, `RecoveryCodes`, `Exercises` and `ExerciseMuscles`.
-
-### 5. Add the workout tables
-
-`init_db` doesn't yet create the tables that hold a workout's exercises and sets. Run this once as the admin login, or saving a workout will fail:
-
-```sql
-USE GymApp;
-GO
-ALTER TABLE dbo.Workouts ADD
-    DurationSec INT NULL,
-    ClientId VARCHAR(36) NOT NULL
-        CONSTRAINT DF_Workouts_ClientId DEFAULT CONVERT(VARCHAR(36), NEWID());
-GO
--- One workout per (member, ClientId): a save that is sent twice is stored once
-ALTER TABLE dbo.Workouts ADD CONSTRAINT UX_Workouts_User_Client UNIQUE (UserId, ClientId);
-GO
-CREATE TABLE dbo.WorkoutExercises (
-    Id INT IDENTITY(1,1) PRIMARY KEY,
-    WorkoutId INT NOT NULL REFERENCES dbo.Workouts(Id) ON DELETE CASCADE,
-    ExerciseId INT NOT NULL REFERENCES dbo.Exercises(Id),
-    Position INT NOT NULL
-);
-CREATE TABLE dbo.Sets (
-    Id INT IDENTITY(1,1) PRIMARY KEY,
-    WorkoutExerciseId INT NOT NULL REFERENCES dbo.WorkoutExercises(Id) ON DELETE CASCADE,
-    Position INT NOT NULL,
-    WeightKg FLOAT NOT NULL,
-    Reps INT NOT NULL,
-    Rir INT NULL
-);
-GO
-CREATE INDEX IX_WorkoutExercises_WorkoutId ON dbo.WorkoutExercises (WorkoutId);
-CREATE INDEX IX_WorkoutExercises_ExerciseId ON dbo.WorkoutExercises (ExerciseId);
-CREATE INDEX IX_Sets_WorkoutExerciseId ON dbo.Sets (WorkoutExerciseId);
-GO
-```
-
-### 6. Load the exercise library
+### 5. Load the exercise library
 
 The library comes from [free-exercise-db](https://github.com/yuhonas/free-exercise-db) (`exercises.json`). Turn it into SQL, then run that against `GymApp`:
 
@@ -161,18 +125,13 @@ node scripts/exercise-seed.mjs exercises.json > seed-exercises.sql
 
 It skips exercises that are already loaded, so it's safe to run again.
 
-### 7. Lock down the database (recommended)
+### 6. Lock down the database (recommended)
 
-Run [`gym-api/sql/security.sql`](gym-api/sql/security.sql) as the admin login. It creates a `gym_app` login that can only read and write the app's tables, and turns on row-level security so a query can only see the member's own workouts. Then grant it the workout tables from step 5:
-
-```sql
-GRANT SELECT, INSERT, DELETE ON dbo.WorkoutExercises TO gym_app;
-GRANT SELECT, INSERT, DELETE ON dbo.Sets TO gym_app;
-```
+Run [`gym-api/sql/security.sql`](gym-api/sql/security.sql) as the admin login. It creates a `gym_app` login that can only read and write the app's tables, and turns on row-level security so a query can only see the member's own workouts.
 
 Switch `DB_USER` and `DB_PASSWORD` in `.env` to `gym_app` and restart the API.
 
-### 8. Run the website
+### 7. Run the website
 
 In a second terminal:
 
@@ -184,7 +143,7 @@ npm run dev
 
 Open http://localhost:5173. Vite forwards `/api/*` to the API on port 5080, so keep both running.
 
-### 9. Make yourself an admin
+### 8. Make yourself an admin
 
 Sign up, confirm your email from Mailpit, then:
 
@@ -201,7 +160,7 @@ All API settings live in `gym-api/.env`.
 | Variable                     | Required | Default                 | What it is                                                                        |
 | ---------------------------- | -------- | ----------------------- | --------------------------------------------------------------------------------- |
 | `DB_HOST`                    | Yes      |                         | SQL Server's address                                                              |
-| `DB_USER`, `DB_PASSWORD`     | Yes      |                         | An admin login for the first run, then `gym_app`                                  |
+| `DB_USER`, `DB_PASSWORD`     | Yes      |                         | An admin login until setup step 6, then `gym_app`                                 |
 | `DB_PORT`                    | No       | `1433`                  |                                                                                   |
 | `DB_NAME`                    | No       | `GymApp`                |                                                                                   |
 | `DB_TRUST_CERT`              | No       | `false`                 | `true` accepts SQL Server's self-signed certificate. Development only             |
@@ -220,7 +179,7 @@ All API settings live in `gym-api/.env`.
 | `gym-api/` | `cargo run`                                                          | Start the API                                                  |
 | `gym-api/` | `cargo test`                                                         | Run the Rust tests                                             |
 | `gym-web/` | `npm run dev`                                                        | Start the dev server with the `/api` proxy                     |
-| `gym-web/` | `npm test`                                                           | Run the tests for `plates.js` and `perDay.js`                  |
+| `gym-web/` | `npm test`                                                           | Run the frontend tests (`src/*.test.js`)                       |
 | `gym-web/` | `npm run lint`                                                       | Run ESLint                                                     |
 | `gym-web/` | `npm run build`                                                      | Build for production into `dist/`                              |
 | `gym-web/` | `npm run preview`                                                    | Serve the production build (the service worker only runs here) |
@@ -319,7 +278,7 @@ sequenceDiagram
 
 **Forgot password.** `POST /auth/forgot` always answers 200; if the account exists, it emails a 15-minute link. `POST /auth/reset` sets the new password. On a 2FA account, a member's own reset also needs a current code (the first attempt answers 401 and the form asks for it), so access to someone's inbox isn't enough to get around 2FA. A reset signs out every session and emails the member.
 
-**Admin reset link.** Made on the Admin screen and passed to the member by hand. It also turns 2FA off: it's the way back in after losing a phone. The admin who made it is recorded.
+**Admin reset link.** Made on the Admin screen and passed to the member by hand. It also turns 2FA off: it's the way back in after losing a phone. The member is emailed as soon as it's made, and the admin who made it is recorded. Admins can't get one for another admin (or themselves), so one stolen admin login can't open the other admins' accounts; an admin who loses their 2FA phone uses a recovery code.
 
 **Change password.** `POST /auth/password` with the current and new passwords. Other devices are signed out; this one gets a new token (and refresh cookie) in the response.
 
@@ -407,9 +366,10 @@ Saving is **idempotent**: if a workout with the same `clientId` was already save
 
 Logging and finishing a workout work with no signal. Everything else needs a connection.
 
-- **Outbox** (`outbox.js`): finished workouts are stored in `localStorage` with the member's user id (read from the access token). They're sent right after Finish, after login or a token refresh, and when the browser comes back online. A sent workout is removed; a network or server error leaves it for next time; a workout the server refuses (400) is kept and marked with the reason. Only the signed-in member's workouts are sent, so a shared phone can't upload one member's workout to another's account.
+- **Opening with no signal**: if the start-up refresh can't reach the server and this phone has a "Stay logged in" member (`user-id`), the app opens straight to the workout screen. Finished workouts go to the outbox and upload once the app signs in again, which it tries whenever the browser comes back online. Logging out removes `user-id`, so this needs "Stay logged in".
+- **Outbox** (`outbox.js`): finished workouts are stored in `localStorage` with the member's user id (read from the access token). They're sent right after Finish, after login or a token refresh, and when the browser comes back online. A sent workout is removed; a network or server error leaves it for next time; a workout the server refuses (400) is kept and marked with the reason, and the dashboard offers to discard it. The tick button only allows sets inside the API's limits (`setLimits.js`), so this should be rare. Only the signed-in member's workouts are sent, so a shared phone can't upload one member's workout to another's account.
 - **Waiting count**: the nav bar, dashboard and Account screen show how many workouts are waiting, through `useSyncExternalStore`. Logging out keeps them on the device.
-- **Service worker** (`public/sw.js`): saves a copy of each app file as it loads and serves the copy when the network fails, so the app opens with no signal. It never caches `/api/` requests. It's only registered in production builds, and works from the second visit.
+- **Service worker** (`public/sw.js`): on install it keeps the page and every file listed in `asset-manifest.json` (which `vite build` writes), so offline works from the first visit. Files under `/assets/` never change (their names carry a hash), so they're served from the cache first; the page and icons try the network first. Older builds' files are deleted when a new worker takes over. It never caches `/api/` requests, and it's only registered in production builds.
 - **Exercise library**: the full list is kept in `localStorage` and searched locally when the API can't be reached.
 
 ### Muscle map, plate calculator and admin
@@ -422,20 +382,21 @@ Logging and finishing a workout work with no signal. Everything else needs a con
 
 ### The website's structure
 
-- **`App.jsx`** holds who's signed in (`token`, `isAdmin`, `has2fa`) and which screen shows (`page`). There's no router; screens receive the token as a prop and report back through callbacks.
+- **`App.jsx`** holds who's signed in (`token`, `isAdmin`, `has2fa`) and which screen shows (`page`). There's no router; screens receive the token as a prop and report back through callbacks. Each page change pushes a history entry, so the phone's back gesture returns to the previous page.
 - **`api.js`** has one `request()` function and a one-line wrapper per endpoint.
 - **`useSubmit`** gives forms a loading flag and an error message.
 - **Dialogs** (exercise picker, plate sheet) use the native `<dialog>` element.
 - **Device settings** are kept in `localStorage`:
 
-| Key             | Holds                                    |
-| --------------- | ---------------------------------------- |
-| `workout-draft` | The workout in progress                  |
-| `outbox`        | Finished workouts waiting to upload      |
-| `exercises`     | The exercise library, for offline search |
-| `show-rir`      | Whether to show the RIR column           |
-| `rest-seconds`  | Default rest time                        |
-| `top-plate`     | Largest plate to use in the calculator   |
+| Key                  | Holds                                            |
+| -------------------- | ------------------------------------------------ |
+| `workout-draft-<id>` | The workout in progress, one per member          |
+| `user-id`            | The "Stay logged in" member, for opening offline |
+| `outbox`             | Finished workouts waiting to upload              |
+| `exercises`          | The exercise library, for offline search         |
+| `show-rir`           | Whether to show the RIR column                   |
+| `rest-seconds`       | Default rest time                                |
+| `top-plate`          | Largest plate to use in the calculator           |
 
 ## API reference
 
@@ -474,16 +435,16 @@ Routes are shown as the API sees them; the website calls them with an `/api` pre
 
 **Admin**
 
-| Method | Route                          | Body / query                                              | Returns                                                   |
-| ------ | ------------------------------ | --------------------------------------------------------- | --------------------------------------------------------- |
-| GET    | `/admin/users`                 |                                                           | Every user with login and workout counts                  |
-| GET    | `/admin/stats`                 | `?days=` (default 30, 7 to 365)                           | `[{ day, kind, n }]` event counts per day, in Sydney time |
-| PUT    | `/admin/users/{id}/admin`      | `isAdmin`                                                 | 200                                                       |
-| POST   | `/admin/users/{id}/reset-link` |                                                           | `link` (valid 15 minutes; turns 2FA off)                  |
-| POST   | `/admin/users/{id}/reactivate` |                                                           | 200                                                       |
-| POST   | `/admin/exercises`             | `name`, `equipment`, `primaryMuscles`, `secondaryMuscles` | 201                                                       |
-| PUT    | `/admin/exercises/{id}`        | Same as POST                                              | 200                                                       |
-| DELETE | `/admin/exercises/{id}`        |                                                           | 204, or 409 if it's in a logged workout                   |
+| Method | Route                          | Body / query                                              | Returns                                                       |
+| ------ | ------------------------------ | --------------------------------------------------------- | ------------------------------------------------------------- |
+| GET    | `/admin/users`                 |                                                           | Every user with login and workout counts                      |
+| GET    | `/admin/stats`                 | `?days=` (default 30, 7 to 365)                           | `[{ day, kind, n }]` event counts per day, in Sydney time     |
+| PUT    | `/admin/users/{id}/admin`      | `isAdmin`                                                 | 200                                                           |
+| POST   | `/admin/users/{id}/reset-link` |                                                           | `link` (valid 15 minutes; turns 2FA off), or 403 for an admin |
+| POST   | `/admin/users/{id}/reactivate` |                                                           | 200                                                           |
+| POST   | `/admin/exercises`             | `name`, `equipment`, `primaryMuscles`, `secondaryMuscles` | 201                                                           |
+| PUT    | `/admin/exercises/{id}`        | Same as POST                                              | 200                                                           |
+| DELETE | `/admin/exercises/{id}`        |                                                           | 204, or 409 if it's in a logged workout                       |
 
 `GET /health` answers `ok` with no auth.
 
@@ -495,9 +456,10 @@ gymapp/
 ├── scripts/
 │   └── exercise-seed.mjs      Turns exercises.json into seed SQL
 ├── gym-api/                   Rust API
+│   ├── sql/schema.sql         Every table, column and index
 │   ├── sql/security.sql       gym_app login and row-level security
 │   └── src/
-│       ├── main.rs            Settings, table creation, rate limits, routes
+│       ├── main.rs            Settings, rate limits, routes
 │       ├── state.rs           Shared state, DB connection and query helpers, email
 │       ├── extractors.rs      AuthUser / AdminUser, password check and lockout
 │       ├── tokens.rs          JWTs and the refresh cookie
@@ -522,6 +484,7 @@ gymapp/
         ├── AccountScreen.jsx  Profile, security, training settings
         ├── AdminScreen.jsx    Admin users and charts
         ├── plates.js          Plate calculator (tested)
+        ├── setLimits.js       Which sets can be ticked (tested)
         ├── perDay.js          Chart data (tested)
         └── index.css          All styles and colour tokens
 ```
@@ -530,11 +493,8 @@ gymapp/
 
 Each is marked in the code with a `shortcut:` comment.
 
-- `init_db` doesn't create the workout tables yet; see [step 5](#5-add-the-workout-tables).
-- One workout draft per browser, not per member.
 - A new database connection per request (no pool), because of the row-level security tag.
 - History shows the newest 200 workouts.
 - A request that gets a 401 isn't retried after the token is renewed.
 - The per-user 2FA limit at login is in memory, so it resets when the API restarts (the 10-failure cap is in the database and doesn't).
-- A workout the server refuses stays in the outbox with no way to fix or remove it.
 - The exercise picker shows the first 50 matches.

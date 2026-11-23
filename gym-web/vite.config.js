@@ -3,6 +3,9 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  // Lists every built file, so the service worker can keep them all on install.
+  // Not the default .vite/ folder: static servers often hide dot folders
+  build: { manifest: 'asset-manifest.json' },
   server: {
     allowedHosts: ['.trycloudflare.com'],
     proxy: {

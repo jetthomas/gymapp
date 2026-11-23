@@ -38,6 +38,7 @@ export default function LoginForm({
             false,
             result.lastLogin,
             result.failedSince,
+            remember,
           );
         }
       } catch (err) {
@@ -52,7 +53,14 @@ export default function LoginForm({
     run(async () => {
       try {
         const result = await verify2fa(challenge, code, remember);
-        onLoggedIn(result.accessToken, result.isAdmin, true, result.lastLogin, result.failedSince);
+        onLoggedIn(
+          result.accessToken,
+          result.isAdmin,
+          true,
+          result.lastLogin,
+          result.failedSince,
+          remember,
+        );
       } catch (err) {
         // 401 = the 5-minute challenge ran out, so start over from the password
         if (err.status === 401) {

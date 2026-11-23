@@ -245,8 +245,8 @@ export default function AccountScreen({
             </h2>
             <div className="row static">
               <span className="row-text">
-                Delete account
-                {/* Deleting only deactivates (see delete_account), so don't promise permanent removal */}
+                Deactivate account
+                {/* delete_account only deactivates, so the label doesn't promise permanent removal */}
                 <span className="row-sub">Deactivates your account. You can undo this.</span>
               </span>
               <button
@@ -254,7 +254,7 @@ export default function AccountScreen({
                 type="button"
                 onClick={() => setConfirmingDelete(true)}
               >
-                Delete account
+                Deactivate account
               </button>
             </div>
             {confirmingDelete && (
@@ -274,7 +274,7 @@ export default function AccountScreen({
                   </div>
                   <ErrorMsg>{deleting.message}</ErrorMsg>
                   <button className="login-btn danger" type="submit" disabled={deleting.loading}>
-                    Delete account
+                    Deactivate account
                   </button>
                   <button
                     className="link-btn"

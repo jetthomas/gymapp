@@ -123,11 +123,15 @@ pub async fn totp_verify(
     let mut db = connect(&state).await.map_err(internal)?;
     let row = one_row(
         &mut db,
-        "SELECT Email, TotpSecret, IsAdmin, SessionVersion FROM dbo.Users WHERE Id = @P1",
+        "SELECT Email, TotpSecret, IsAdmin, SessionVersion, Active FROM dbo.Users WHERE Id = @P1",
         &[&id],
     )
     .await?
     .ok_or_else(expired)?;
+    // Deactivated in the minutes between the password and the code
+    if row.get::<bool, _>("Active") != Some(true) {
+        return Err(expired());
+    }
     let email: &str = col(&row, "Email")?;
     let secret: &str = row.get("TotpSecret").ok_or_else(expired)?;
     let is_admin: bool = row.get("IsAdmin").unwrap_or(false);

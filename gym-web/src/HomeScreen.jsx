@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { getWorkouts } from './api';
 import CaloriesCard from './CaloriesCard';
+import ConfirmDialog from './ConfirmDialog';
 import ErrorMsg from './ErrorMsg';
-import { useRefused, useWaiting } from './outbox';
+import { drop, useRefused, useWaiting } from './outbox';
 import WeekCard from './WeekCard';
 import WorkoutCard from './WorkoutCard';
 import WorkoutDetail from './WorkoutDetail';
@@ -15,6 +16,7 @@ export default function HomeScreen({ token, showCalories, onOpenCalories }) {
   const [error, setError] = useState('');
   const waiting = useWaiting(token);
   const refused = useRefused(token);
+  const [discarding, setDiscarding] = useState(false);
 
   // Reloads when the member comes back to this screen and when a waiting workout uploads
   useEffect(() => {
@@ -54,6 +56,24 @@ export default function HomeScreen({ token, showCalories, onOpenCalories }) {
         </p>
       )}
       <ErrorMsg>{refused && `A workout couldn't be saved: ${refused}`}</ErrorMsg>
+      {refused && (
+        <button className="link-btn danger" type="button" onClick={() => setDiscarding(true)}>
+          Discard it
+        </button>
+      )}
+      {discarding && (
+        <ConfirmDialog
+          title="Discard this workout?"
+          body="The server refused it, so it can't be saved. Discarding deletes it from this phone."
+          confirmLabel="Discard"
+          danger
+          onConfirm={() => {
+            drop(token);
+            setDiscarding(false);
+          }}
+          onCancel={() => setDiscarding(false)}
+        />
+      )}
       <ErrorMsg>{error}</ErrorMsg>
       {workouts === null && !error && <p className="msg">Loading…</p>}
 
