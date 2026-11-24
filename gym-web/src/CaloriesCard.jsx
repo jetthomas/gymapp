@@ -2,14 +2,8 @@ import { useEffect, useState } from 'react';
 import { getFood, getHealth } from './api';
 import { Meter } from './CaloriesScreen';
 import targets from './targets';
-import { MEALS } from './meals';
+import { MACROS, MEALS } from './meals';
 import { dayKey } from './week';
-
-const MACROS = [
-  ['Protein', 'proteinG'],
-  ['Carbs', 'carbsG'],
-  ['Fats', 'fatG'],
-];
 
 const total = (entries, field) => entries.reduce((sum, e) => sum + e[field], 0);
 
