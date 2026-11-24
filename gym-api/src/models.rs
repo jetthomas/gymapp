@@ -275,6 +275,13 @@ pub struct DayQuery {
     pub date: NaiveDate,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProgressPoint {
+    pub day: String,
+    pub est_1rm_kg: f64,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewFood {

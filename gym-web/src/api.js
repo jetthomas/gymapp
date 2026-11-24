@@ -123,3 +123,11 @@ export const getFood = (token, date) => request(`/me/food?date=${date}`, { token
 export const getRecentFood = (token) => request('/me/food/recent', { token });
 export const addFood = (token, food) => request('/me/food', { method: 'POST', token, body: food });
 export const deleteFood = (token, id) => request(`/me/food/${id}`, { method: 'DELETE', token });
+export const startCheckout = (token) => request('/billing/checkout', { method: 'POST', token });
+export const openPortal = (token) => request('/billing/portal', { method: 'POST', token });
+// Plus only: [{ day, est1rmKg }] for an exercise, oldest first
+export const getProgress = (token, exerciseId) =>
+  request(`/exercises/${exerciseId}/progress`, { token });
+// Plus only: { name, kcal, proteinG, carbsG, fatG } per 100 g
+export const lookupBarcode = (token, code) =>
+  request(`/food/barcode/${encodeURIComponent(code)}`, { token });

@@ -1177,6 +1177,40 @@ button.row:active {
   gap: 8px;
   margin-top: 20px;
 }
+/* Pushes Cancel and Add to the right, leaving the scan button bottom left */
+.sheet-actions .scan-btn {
+  margin-right: auto;
+}
+/* Plus card once paid: dimmed, with Purchased and a small Manage membership link */
+.card.purchased {
+  opacity: 0.6;
+}
+.link-btn.inline {
+  margin: 4px 0 0;
+  padding: 4px 0;
+}
+/* Free members: the scan button is greyed out with a lock; hovering says how to get it, tapping opens the upgrade pop-up */
+.pill-btn.locked {
+  position: relative;
+  color: var(--text-secondary);
+}
+.pill-btn.locked .tip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  padding: 8px 12px;
+  font-weight: 400;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  visibility: hidden;
+  pointer-events: none;
+}
+.pill-btn.locked:hover .tip,
+.pill-btn.locked:focus-visible .tip {
+  visibility: visible;
+}
 
 @media (prefers-reduced-motion: no-preference) {
   .sheet[open] {
@@ -2296,4 +2330,17 @@ html:has(.workout-bar) {
 } /* nav + workout bar */
 html:has(.rest-bar) {
   scroll-padding-bottom: 80px;
+}
+
+/* Barcode scanner: the camera feed, cropped to a wide box that suits a barcode */
+.scanner {
+  margin-block: 12px;
+}
+.scanner-video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 12px;
+  background: #000;
 }

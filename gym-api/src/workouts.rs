@@ -8,9 +8,10 @@ use axum::{
 use chrono::{Datelike, NaiveDateTime};
 use tiberius::Row;
 
-use crate::extractors::AuthUser;
+use crate::extractors::{AuthUser, Member, PlusUser};
 use crate::models::{
-    LoggedExercise, LoggedSet, MuscleSets, NewWorkout, StatsQuery, Workout, WorkoutDetail,
+    LoggedExercise, LoggedSet, MuscleSets, NewWorkout, ProgressPoint, StatsQuery, Workout,
+    WorkoutDetail,
 };
 use crate::passwords::{fits, plain};
 use crate::state::{ApiResult, Db, all_rows, batch, col, internal, one_row, record, set_user};
@@ -291,10 +292,11 @@ pub async fn last_sets(
 
 // How many sets hit each muscle lately, for the muscle map. Muscles with none are left out
 pub async fn muscle_sets(
-    AuthUser(user_id, mut db): AuthUser,
+    Member(user_id, plus, mut db): Member,
     Query(q): Query<StatsQuery>,
 ) -> ApiResult<Json<Vec<MuscleSets>>> {
-    let days = q.days.unwrap_or(30).clamp(1, 365);
+    // Free members see up to 30 days; Plus up to a year
+    let days = q.days.unwrap_or(30).clamp(1, if plus { 365 } else { 30 });
     set_user(&mut db, user_id).await.map_err(internal)?;
     let rows = all_rows(
         &mut db,
@@ -314,6 +316,38 @@ pub async fn muscle_sets(
         out.push(MuscleSets {
             muscle: col::<&str>(r, "Muscle")?.to_string(),
             sets: col(r, "Sets")?,
+        });
+    }
+    Ok(Json(out))
+}
+
+// Plus: the best estimated one-rep max for an exercise in each of the last 50 workouts that had it.
+// Epley formula: weight × (1 + reps / 30)
+pub async fn exercise_progress(
+    PlusUser(user_id, mut db): PlusUser,
+    Path(exercise_id): Path<i32>,
+) -> ApiResult<Json<Vec<ProgressPoint>>> {
+    set_user(&mut db, user_id).await.map_err(internal)?;
+    let rows = all_rows(
+        &mut db,
+        // 30e0 is a FLOAT literal, so Reps / 30e0 isn't integer division (8 / 30 would be 0)
+        "SELECT TOP 50 CONVERT(char(10), w.[Date], 23) AS Day,
+                MAX(s.WeightKg * (1 + s.Reps / 30e0)) AS Est1rm
+         FROM dbo.Workouts w
+         JOIN dbo.WorkoutExercises we ON we.WorkoutId = w.Id
+         JOIN dbo.Sets s ON s.WorkoutExerciseId = we.Id
+         WHERE w.UserId = @P1 AND we.ExerciseId = @P2
+         GROUP BY CONVERT(char(10), w.[Date], 23)
+         ORDER BY Day DESC",
+        &[&user_id, &exercise_id],
+    )
+    .await?;
+    // Newest 50 were picked above; the chart reads oldest first
+    let mut out = Vec::new();
+    for r in rows.iter().rev() {
+        out.push(ProgressPoint {
+            day: col::<&str>(r, "Day")?.to_string(),
+            est_1rm_kg: col(r, "Est1rm")?,
         });
     }
     Ok(Json(out))

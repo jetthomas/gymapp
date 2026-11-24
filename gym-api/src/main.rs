@@ -34,11 +34,14 @@ use crate::auth::{
 use crate::billing::{create_checkout, create_portal, webhook};
 use crate::exercises::{create_exercise, delete_exercise, list_exercises, update_exercise};
 use crate::nutrition::{
-    add_food, delete_food, delete_health, get_health, list_food, put_health, recent_food,
+    add_food, barcode_food, delete_food, delete_health, get_health, list_food, put_health,
+    recent_food,
 };
 use crate::state::{AppState, ProxyIpKeyExtractor, connect};
 use crate::two_factor::{totp_confirm, totp_disable, totp_setup, totp_verify};
-use crate::workouts::{create_workout, get_workout, last_sets, list_workouts, muscle_sets};
+use crate::workouts::{
+    create_workout, exercise_progress, get_workout, last_sets, list_workouts, muscle_sets,
+};
 
 fn env_or(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_string())
@@ -155,6 +158,7 @@ async fn main() {
         stripe_key: env_required("STRIPE_KEY"),
         stripe_price_id: env_required("STRIPE_PRICE_ID"),
         stripe_webhook_secret: env_required("STRIPE_WEBHOOK_SECRET"),
+        food_user_agent: env_required("FOOD_USER_AGENT"),
         // 5 tries, then one more each minute
         totp_attempts: DefaultKeyedRateLimiter::keyed(
             Quota::with_period(Duration::from_secs(60))
@@ -240,6 +244,8 @@ async fn main() {
         .route("/me/food/{id}", delete(delete_food))
         .route("/billing/checkout", post(create_checkout))
         .route("/billing/portal", post(create_portal))
+        .route("/food/barcode/{code}", get(barcode_food))
+        .route("/exercises/{id}/progress", get(exercise_progress))
         .route("/stripe/webhook", post(webhook))
         .merge(limited)
         .with_state(state);

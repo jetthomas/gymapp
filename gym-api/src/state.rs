@@ -34,6 +34,8 @@ pub struct AppState {
     pub stripe_key: String,
     pub stripe_price_id: String,
     pub stripe_webhook_secret: String,
+    // Open Food Facts asks every app to name itself: "AppName/Version (ContactEmail)"
+    pub food_user_agent: String,
 }
 
 // The API only listens on 127.0.0.1 behind a proxy, so the client IP is the last

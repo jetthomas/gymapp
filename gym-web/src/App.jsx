@@ -10,7 +10,7 @@ import HomeScreen from './HomeScreen';
 import MuscleMap from './musclemap';
 import NavBar from './NavBar';
 import ResetPasswordForm from './ResetPasswordForm';
-import { logout, refresh, setOnSessionExpired, verifyEmail } from './api';
+import { getProfile, logout, refresh, setOnSessionExpired, verifyEmail } from './api';
 import { flush, userIdOf } from './outbox';
 import WorkoutScreen from './WorkoutScreen';
 
@@ -24,7 +24,13 @@ export default function App() {
   const [link] = useState(() => new URLSearchParams(window.location.hash.slice(1)));
   const resetToken = link.get('reset');
   const verifyToken = link.get('verify');
-  const [page, setPage] = useState(resetToken ? 'reset' : 'login');
+  // Stripe sends members back to /?membership=done (paid) or /?membership=cancelled
+  const [membership] = useState(() =>
+    new URLSearchParams(window.location.search).get('membership'),
+  );
+  const [page, setPage] = useState(resetToken ? 'reset' : membership ? 'account' : 'login');
+  // Gym App Plus: paid, or an admin. The server checks it again on every Plus request
+  const [plus, setPlus] = useState(false);
   const [email, setEmail] = useState('');
   const [notice, setNotice] = useState('');
   const [lastLogin, setLastLogin] = useState(null);
@@ -51,7 +57,8 @@ export default function App() {
 
   useEffect(() => {
     // Drop #reset=... / #verify=... right away so the token doesn't stay in the address bar or history
-    if (resetToken || verifyToken) window.history.replaceState(null, '', window.location.pathname);
+    if (resetToken || verifyToken || membership)
+      window.history.replaceState(null, '', window.location.pathname);
     if (verifyToken)
       verifyEmail(verifyToken)
         .then(() => setNotice('Email confirmed. Log in to continue.'))
@@ -79,7 +86,31 @@ export default function App() {
           setNotice('Your session expired. Log in again.');
         }),
     );
-  }, [resetToken, verifyToken]);
+  }, [resetToken, verifyToken, membership]);
+  // Right after paying, the webhook may still be on its way, so ask again every 2 s for up to 10 s
+  useEffect(() => {
+    if (!token) return;
+    let tries = membership === 'done' ? 5 : 1;
+    let timer;
+    const check = () => {
+      clearTimeout(timer);
+      getProfile(token)
+        .then((p) => {
+          setPlus(p.plus);
+          tries -= 1;
+          if (!p.plus && tries > 0) timer = setTimeout(check, 2000);
+        })
+        .catch(() => {});
+    };
+    check();
+    // The home-screen app opens Stripe in a separate browser view, so check again when it's back on screen
+    const onShow = () => document.visibilityState === 'visible' && check();
+    document.addEventListener('visibilitychange', onShow);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onShow);
+    };
+  }, [token, membership]);
 
   // Offline mode: sign in properly as soon as there's signal again
   useEffect(() => {
@@ -135,6 +166,7 @@ export default function App() {
   function logOut() {
     localStorage.removeItem('user-id');
     setToken(null);
+    setPlus(false);
     setIsAdmin(false);
     setHas2fa(false);
     setLastLogin(null);
@@ -224,6 +256,7 @@ export default function App() {
           onManageUsers={() => go('admin')}
           onViewProgress={() => go('progress')}
           showCalories={showCalories}
+          plus={plus}
           onShowCaloriesChanged={(on) => {
             setShowCalories(on);
             localStorage.setItem('show-calories', on ? '1' : '0');
@@ -242,16 +275,17 @@ export default function App() {
           <div className="page-head">
             <h1 className="page-title">Progress</h1>
           </div>
-          <MuscleMap token={token} />
+          <MuscleMap token={token} plus={plus} />
         </main>
       ) : page === 'calories' && showCalories ? (
-        <CaloriesScreen token={token} />
+        <CaloriesScreen token={token} plus={plus} />
       ) : (
         <HomeScreen
           key={visit}
           token={token}
           showCalories={showCalories}
           onOpenCalories={() => go('calories')}
+          plus={plus}
         />
       )}
     </div>
