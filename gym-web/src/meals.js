@@ -5,3 +5,10 @@ export const MEALS = [
   ['dinner', 'Dinner'],
   ['snacks', 'Snacks'],
 ];
+
+// The three macros, as the API names them and as the screens label them
+export const MACROS = [
+  ['Protein', 'proteinG'],
+  ['Carbs', 'carbsG'],
+  ['Fat', 'fatG'],
+];

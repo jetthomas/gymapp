@@ -234,8 +234,6 @@ pub async fn use_totp_code(db: &mut Db, id: i32, totp: &TOTP, code: &str) -> Api
 mod tests {
     use super::*;
 
-    use totp_rs::Secret;
-
     #[test]
     fn recovery_codes_look_right_and_differ() {
         let a = recovery_code();

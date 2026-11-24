@@ -249,11 +249,6 @@ pub fn send_security_notice(state: &Arc<AppState>, email: &str, what: &'static s
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::{IpAddr, SocketAddr};
-
-    use axum::{extract::ConnectInfo, http::Request};
-
-    use tower_governor::key_extractor::KeyExtractor;
 
     #[test]
     fn client_ip_is_the_entry_our_proxy_added() {

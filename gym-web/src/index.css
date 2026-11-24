@@ -393,7 +393,9 @@ button {
   position: sticky;
   top: 0;
   z-index: 10;
-  display: flex;
+  /* Links left, name centred, account right */
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 16px;
   height: 64px;
@@ -403,20 +405,15 @@ button {
 }
 
 .nav-brand {
-  margin-right: 16px;
   font-weight: 800;
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
 
-/* Fits the brand and all three buttons on one line on a phone */
+/* Fits all the buttons on one line on a phone */
 @media (max-width: 480px) {
   .nav {
     gap: 4px;
-  }
-
-  .nav-brand {
-    margin-right: 8px;
   }
 
   .nav-btn {
@@ -429,13 +426,8 @@ button {
   gap: 4px;
 }
 
-.nav-account {
-  margin-left: auto;
-}
-
-/* Account is a person icon: square padding, and flex so the SVG sits centred */
+/* Even padding around the name and photo, not .nav-btn's wider sides */
 .nav-btn.nav-account {
-  display: flex;
   padding: 10px;
 }
 
@@ -2190,15 +2182,6 @@ button.row:active {
 
 /* ---------- Nav bar: links left, name centred, account right ---------- */
 
-.nav {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-}
-
-.nav-brand {
-  margin-right: 0;
-}
-
 .nav-right {
   display: flex;
   align-items: center;
@@ -2212,7 +2195,6 @@ button.row:active {
   gap: 10px;
   color: var(--text);
   margin-left: 0;
-  padding-block: 4px;
 }
 
 .nav-account .avatar {
