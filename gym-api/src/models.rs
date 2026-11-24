@@ -218,7 +218,7 @@ pub struct UserSummary {
 }
 
 #[derive(Deserialize)]
-pub struct StatsQuery {
+pub struct DaysQuery {
     pub days: Option<i32>,
 }
 

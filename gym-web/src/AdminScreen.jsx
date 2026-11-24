@@ -42,6 +42,8 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
   const [announce, setAnnounce] = useState('');
   const [confirming, setConfirming] = useState(null); // { user, kind: 'role' | 'reactivate' } awaiting a yes
   const [stats, setStats] = useState(null);
+  // Its own error, so a stats answer can't clear a failed users load
+  const [statsError, setStatsError] = useState('');
   const [range, setRange] = useState(() => lastDays(30)); // the days the Activity screen covers
   const [view, setView] = useState('users'); // 'users' or 'activity'
 
@@ -56,9 +58,9 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
     getStats(token, range.from, range.to)
       .then((rows) => {
         setStats(rows);
-        setError('');
+        setStatsError('');
       })
-      .catch((err) => setError(err.message));
+      .catch((err) => setStatsError(err.message));
   }, [token, range]);
 
   async function handleReset(userId) {
@@ -220,8 +222,8 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
               </button>
             ))}
           </div>
-          <ErrorMsg>{error}</ErrorMsg>
-          {!stats && !error && <p className="msg">Loading activity…</p>}
+          <ErrorMsg>{statsError}</ErrorMsg>
+          {!stats && !statsError && <p className="msg">Loading activity…</p>}
           <div className="chart-grid">
             {charts.map(({ title, data, tone, alertAt }) => {
               const peak = data.reduce((a, b) => (b.value > a.value ? b : a));

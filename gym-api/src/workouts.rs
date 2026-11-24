@@ -10,7 +10,7 @@ use tiberius::Row;
 
 use crate::extractors::{AuthUser, Member, PlusUser};
 use crate::models::{
-    LoggedExercise, LoggedSet, MuscleSets, NewWorkout, ProgressPoint, StatsQuery, Workout,
+    DaysQuery, LoggedExercise, LoggedSet, MuscleSets, NewWorkout, ProgressPoint, Workout,
     WorkoutDetail,
 };
 use crate::passwords::{fits, plain};
@@ -293,7 +293,7 @@ pub async fn last_sets(
 // How many sets hit each muscle lately, for the muscle map. Muscles with none are left out
 pub async fn muscle_sets(
     Member(user_id, plus, mut db): Member,
-    Query(q): Query<StatsQuery>,
+    Query(q): Query<DaysQuery>,
 ) -> ApiResult<Json<Vec<MuscleSets>>> {
     // Free members see up to 30 days; Plus up to a year
     let days = q.days.unwrap_or(30).clamp(1, if plus { 365 } else { 30 });

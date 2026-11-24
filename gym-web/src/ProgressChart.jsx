@@ -30,7 +30,8 @@ export default function ProgressChart({ token, exerciseId }) {
       total={best}
       totalLabel="kg best"
       data={data}
-      max={Math.ceil(best / 10) * 10}
+      // At least 10: bodyweight exercises logged at 0 kg would otherwise divide by 0
+      max={Math.max(10, Math.ceil(best / 10) * 10)}
     />
   );
 }

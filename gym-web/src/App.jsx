@@ -80,11 +80,8 @@ export default function App() {
       refresh()
         .then((r) => setToken(r.accessToken))
         .catch(() => {
-          localStorage.removeItem('user-id');
-          setToken(null);
-          setIsAdmin(false);
-          setPage('login');
-          setHas2fa(false);
+          // logOut only calls setters, so this first render's copy is safe to keep
+          logOut();
           setNotice('Your session expired. Log in again.');
         }),
     );

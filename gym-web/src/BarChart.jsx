@@ -25,8 +25,9 @@ export default function BarChart({
             <span>{max * v}</span>
           </div>
         ))}
-        {data.map((d) => (
-          <div key={d.label} className="bar-col" title={`${d.label}: ${d.value}`}>
+        {/* Keyed by position: labels can repeat (a one-day range, or the same MM-DD a year apart) */}
+        {data.map((d, i) => (
+          <div key={i} className="bar-col" title={`${d.label}: ${d.value}`}>
             {d.value > 0 && <span className="bar-value">{d.value}</span>}
             <div
               className={`bar ${d.value > alertAt ? 'alert' : tone}`}
@@ -36,8 +37,8 @@ export default function BarChart({
         ))}
       </div>
       <div className="bar-axis" aria-hidden="true">
-        {axis.map((d) => (
-          <span key={d.label}>{d.label}</span>
+        {axis.map((d, i) => (
+          <span key={i}>{d.label}</span>
         ))}
       </div>
       {/* The bars are a picture; a screen reader gets the exact numbers from this table */}
@@ -51,8 +52,8 @@ export default function BarChart({
             </tr>
           </thead>
           <tbody>
-            {data.map((d) => (
-              <tr key={d.label}>
+            {data.map((d, i) => (
+              <tr key={i}>
                 <td>{d.label}</td>
                 <td>{d.value}</td>
               </tr>

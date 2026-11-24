@@ -298,12 +298,7 @@ export default function WorkoutScreen({ token, onDone }) {
                         type="button"
                         aria-label={`Remove set ${j + 1}`}
                         // The card's Remove takes the whole exercise
-                        disabled={
-                          !s.done &&
-                          (ready.weightKg === '' ||
-                            isNaN(ready.weightKg) ||
-                            !(Number(ready.reps) > 0))
-                        }
+                        disabled={e.sets.length === 1}
                         onClick={() => removeSet(i, j)}
                       >
                         ×

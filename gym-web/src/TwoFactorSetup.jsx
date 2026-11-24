@@ -23,18 +23,13 @@ export default function TwoFactorSetup({ token, onEnabled }) {
     run(async () => setSetup(await setup2fa(token, password)));
   }
 
-  // Takes the value directly: in onChange, the `code` state still holds the previous digits
-  function confirmCode(value) {
+  function confirm(event) {
+    event.preventDefault();
     run(async () => {
-      const result = await confirm2fa(token, value);
+      const result = await confirm2fa(token, code);
       // Not onEnabled() yet: it signs the member out before they've saved the codes
       setCodes(result.codes);
     });
-  }
-
-  function confirm(event) {
-    event.preventDefault();
-    confirmCode(code);
   }
 
   function cancel() {

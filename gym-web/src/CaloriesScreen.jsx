@@ -4,7 +4,7 @@ import ErrorMsg from './ErrorMsg';
 import FoodSheet from './FoodSheet';
 import ProfileForm from './ProfileForm';
 import targets from './targets';
-import { MEALS } from './meals';
+import { MACROS, MEALS } from './meals';
 import { addDays, dayKey } from './week';
 
 const today = () => dayKey(new Date());
@@ -172,11 +172,7 @@ export default function CaloriesScreen({ token, plus }) {
           <span>{target.kcal.toLocaleString()} target</span>
         </div>
         <dl className="macros">
-          {[
-            ['Protein', 'proteinG'],
-            ['Carbs', 'carbsG'],
-            ['Fat', 'fatG'],
-          ].map(([label, field]) => (
+          {MACROS.map(([label, field]) => (
             <div key={field}>
               <dt>{label}</dt>
               <Meter value={sum(field)} max={target[field]} />

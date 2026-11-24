@@ -174,15 +174,10 @@ pub fn with_refresh_cookie(
 mod tests {
     use super::*;
 
-    use axum::http::{HeaderMap, header::COOKIE};
-
-    use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
-
     use serde::Serialize;
 
     use totp_rs::Secret;
 
-    use crate::models::Claims;
     use crate::passwords::{decode_secret, make_totp};
 
     #[test]
