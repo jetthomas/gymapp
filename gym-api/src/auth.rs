@@ -10,8 +10,8 @@ use jsonwebtoken::{DecodingKey, Validation, decode};
 
 use crate::extractors::{AuthUser, has_plus, verify_credentials};
 use crate::models::{
-    Claims, Credentials, ForgotRequest, LoginResponse, NewUser, PasswordChange, PasswordOnly,
-    Profile, ResetRequest, TokenRequest,
+    Claims, Credentials, ForgotRequest, LoginResponse, NewAvatar, NewUser, PasswordChange,
+    PasswordOnly, Profile, ResetRequest, TokenRequest,
 };
 use crate::passwords::{
     check_password, fits, hash_password, password_matches, plain, totp_for, use_totp_code,
@@ -22,8 +22,8 @@ use crate::state::{
     send_mail, send_security_notice, send_verify_mail,
 };
 use crate::tokens::{
-    CLEAR_REFRESH, cookie, make_challenge, make_token, read_token, refresh_key, reset_key,
-    self_reset_key, session_valid, sign, verify_key, with_refresh_cookie,
+    CLEAR_REFRESH, cookie, make_challenge, make_self_reset_token, make_token, read_token,
+    refresh_key, reset_key, self_reset_key, session_valid, verify_key, with_refresh_cookie,
 };
 use tiberius::Row;
 
@@ -108,7 +108,7 @@ pub async fn login(
     }
     if !account.email_verified {
         send_verify_mail(&state, c.email.to_lowercase(), account.id)?;
-        // 409, not 403: the frontend reads 403 as "deactivated" (section 2.5)
+        // 409, not 403: the frontend reads 403 as "deactivated"
         return Err((
             StatusCode::CONFLICT,
             "Check your email: we've sent a new link to finish signing up.".into(),
@@ -117,12 +117,8 @@ pub async fn login(
     if account.totp_enabled {
         let challenge = make_challenge(account.id, &state.jwt_secret).map_err(internal)?;
         return Ok(Json(LoginResponse {
-            access_token: None,
-            is_admin: false,
             challenge: Some(challenge),
-            two_factor: false,
-            last_login: None,
-            failed_since: 0,
+            ..Default::default()
         })
         .into_response());
     }
@@ -155,10 +151,10 @@ pub async fn finish_login(
     let resp = Json(LoginResponse {
         access_token: Some(token),
         is_admin,
-        challenge: None,
         two_factor,
         last_login,
         failed_since,
+        ..Default::default()
     });
     with_refresh_cookie(resp, remember, id, session_version, state)
 }
@@ -182,13 +178,7 @@ pub async fn forgot_password(
     {
         let id: i32 = col(&row, "Id")?;
         let stored: &str = col(&row, "PasswordHash")?;
-        let token = sign(
-            id,
-            0,
-            &self_reset_key(&state.jwt_secret, stored),
-            chrono::Duration::minutes(15),
-        )
-        .map_err(internal)?;
+        let token = make_self_reset_token(id, &state.jwt_secret, stored).map_err(internal)?;
         send_mail(
             state.clone(),
             email,
@@ -309,7 +299,7 @@ pub async fn reactivate_account(
 pub async fn get_profile(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Json<Profile>> {
     let row = one_row(
         &mut db,
-        "SELECT FirstName, LastName, Email, IsAdmin, MembershipStatus, MembershipEndsAt
+        "SELECT FirstName, LastName, Email, IsAdmin, MembershipStatus, MembershipEndsAt, Avatar
          FROM dbo.Users WHERE Id = @P1",
         &[&user_id],
     )
@@ -324,7 +314,57 @@ pub async fn get_profile(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Json<
         membership_ends_at: row
             .get::<chrono::NaiveDateTime, _>("MembershipEndsAt")
             .map(|t| t.and_utc()),
+        avatar: row.get::<&str, _>("Avatar").map(str::to_string),
     }))
+}
+
+// The page sends a 256 px JPEG of about 20 to 60 KB; 256 KB of base64 leaves plenty of room
+const MAX_AVATAR_CHARS: usize = 256 * 1024;
+
+// A profile picture must be base64 of a JPEG. Only JPEG: every JPEG starts FF D8 FF, which is "/9j/" in
+// base64, and the page always shows it as image/jpeg, so nothing else can be smuggled in
+pub fn check_avatar(image: &str) -> ApiResult<()> {
+    if image.len() > MAX_AVATAR_CHARS {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "That picture is too big. Try another photo.".into(),
+        ));
+    }
+    let jpeg = image.starts_with("/9j/")
+        && image
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'='));
+    if !jpeg {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "That picture can't be used. Try another photo.".into(),
+        ));
+    }
+    Ok(())
+}
+
+pub async fn put_avatar(
+    AuthUser(user_id, mut db): AuthUser,
+    Json(a): Json<NewAvatar>,
+) -> ApiResult<StatusCode> {
+    check_avatar(&a.image)?;
+    db.execute(
+        "UPDATE dbo.Users SET Avatar = @P1 WHERE Id = @P2",
+        &[&a.image.as_str(), &user_id],
+    )
+    .await
+    .map_err(internal)?;
+    Ok(StatusCode::OK)
+}
+
+pub async fn delete_avatar(AuthUser(user_id, mut db): AuthUser) -> ApiResult<StatusCode> {
+    db.execute(
+        "UPDATE dbo.Users SET Avatar = NULL WHERE Id = @P1",
+        &[&user_id],
+    )
+    .await
+    .map_err(internal)?;
+    Ok(StatusCode::OK)
 }
 
 pub async fn delete_account(
@@ -399,10 +439,8 @@ pub async fn change_password(
     let resp = Json(LoginResponse {
         access_token: Some(token),
         is_admin: row.get("IsAdmin").unwrap_or(false),
-        challenge: None,
         two_factor: row.get("TotpEnabled").unwrap_or(false),
-        last_login: None,
-        failed_since: 0,
+        ..Default::default()
     });
     // The version bump also kills this device's "Stay logged in" cookie, so replace it if there was one
     with_refresh_cookie(
@@ -438,10 +476,8 @@ pub async fn refresh(
     Ok(Json(LoginResponse {
         access_token: Some(access),
         is_admin: row.get("IsAdmin").unwrap_or(false),
-        challenge: None,
         two_factor: row.get("TotpEnabled").unwrap_or(false),
-        last_login: None,
-        failed_since: 0,
+        ..Default::default()
     })
     .into_response())
 }
@@ -456,4 +492,20 @@ pub async fn logout(AuthUser(user_id, mut db): AuthUser) -> ApiResult<impl IntoR
     .map_err(internal)?;
     // The version bump already kills the cookie; this also deletes it from the browser
     Ok(([(SET_COOKIE, CLEAR_REFRESH)], StatusCode::OK))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_small_jpeg_is_stored() {
+        assert!(check_avatar("/9j/4AAQSkZJRg==").is_ok());
+        assert!(check_avatar("iVBORw0KGgo=").is_err(), "a PNG");
+        assert!(check_avatar("/9j/<script>").is_err(), "not base64");
+        assert!(
+            check_avatar(&format!("/9j/{}", "A".repeat(MAX_AVATAR_CHARS))).is_err(),
+            "too big"
+        );
+    }
 }

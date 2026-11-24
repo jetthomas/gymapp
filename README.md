@@ -80,7 +80,7 @@ cd gymapp
 Create the database, then run [`gym-api/sql/schema.sql`](gym-api/sql/schema.sql) against it as the admin login:
 
 ```sql
-CREATE DATABASE GymApp;
+CREATE DATABASE Gym_App;
 ```
 
 `schema.sql` is the one place every table, column and index is defined. It skips whatever already exists, so run it again after pulling a change to it.
@@ -98,6 +98,10 @@ JWT_SECRET=<run: openssl rand -base64 48>
 SMTP_HOST=localhost
 SMTP_PORT=1025
 MAIL_FROM=Gym App <no-reply@localhost>
+STRIPE_KEY=<sk_test_... from the Stripe Dashboard>
+STRIPE_PRICE_ID=<price_... of the Plus price>
+STRIPE_WEBHOOK_SECRET=<whsec_... printed by stripe listen>
+FOOD_USER_AGENT=GymApp/1.0 (<your contact email>)
 ```
 
 Never commit `.env`; it's already in `.gitignore`. Every setting is listed under [Configuration](#configuration).
@@ -117,7 +121,7 @@ curl http://127.0.0.1:5080/health   # ok
 
 ### 5. Load the exercise library
 
-The library comes from [free-exercise-db](https://github.com/yuhonas/free-exercise-db) (`exercises.json`). Turn it into SQL, then run that against `GymApp`:
+The library comes from [free-exercise-db](https://github.com/yuhonas/free-exercise-db) (`exercises.json`). Turn it into SQL, then run that against `Gym_App`:
 
 ```sh
 node scripts/exercise-seed.mjs exercises.json > seed-exercises.sql
@@ -162,7 +166,7 @@ All API settings live in `gym-api/.env`.
 | `DB_HOST`                    | Yes      |                         | SQL Server's address                                                              |
 | `DB_USER`, `DB_PASSWORD`     | Yes      |                         | An admin login until setup step 6, then `gym_app`                                 |
 | `DB_PORT`                    | No       | `1433`                  |                                                                                   |
-| `DB_NAME`                    | No       | `GymApp`                |                                                                                   |
+| `DB_NAME`                    | No       | `Gym_App`               |                                                                                   |
 | `DB_TRUST_CERT`              | No       | `false`                 | `true` accepts SQL Server's self-signed certificate. Development only             |
 | `JWT_SECRET`                 | Yes      |                         | Signs every token. At least 32 characters, or the API refuses to start            |
 | `SMTP_HOST`                  | Yes      |                         | Mail server                                                                       |
@@ -171,6 +175,10 @@ All API settings live in `gym-api/.env`.
 | `MAIL_FROM`                  | Yes      |                         | The From address, e.g. `Gym App <no-reply@yourgym.com>`                           |
 | `FRONTEND_URL`               | No       | `http://localhost:5173` | Used to build links in emails                                                     |
 | `BIND_ADDR`                  | No       | `127.0.0.1:5080`        | Where the API listens. Keep it on `127.0.0.1` behind a proxy                      |
+| `STRIPE_KEY`                 | Yes      |                         | Stripe secret key for Plus (`sk_test_...` in development)                         |
+| `STRIPE_PRICE_ID`            | Yes      |                         | The Plus price (`price_...`); members can't choose their own                      |
+| `STRIPE_WEBHOOK_SECRET`      | Yes      |                         | Webhook signing secret (`whsec_...`); in development `stripe listen` prints one   |
+| `FOOD_USER_AGENT`            | Yes      |                         | Names the app to Open Food Facts: `AppName/Version (ContactEmail)`                |
 
 ## Commands
 
@@ -198,7 +206,7 @@ flowchart LR
     end
     API_JS -- "/api/..." --> Vite["Vite dev server :5173<br/>strips /api, adds X-Forwarded-For"]
     Vite --> Rust["Rust API · axum<br/>127.0.0.1:5080"]
-    Rust -- SQL --> DB[("SQL Server<br/>GymApp")]
+    Rust -- SQL --> DB[("SQL Server<br/>Gym_App")]
     Rust -- SMTP --> Mail["Mail server<br/>Mailpit in dev"]
 ```
 
@@ -382,10 +390,10 @@ Logging and finishing a workout work with no signal. Everything else needs a con
 
 ### The website's structure
 
-- **`App.jsx`** holds who's signed in (`token`, `isAdmin`, `has2fa`) and which screen shows (`page`). There's no router; screens receive the token as a prop and report back through callbacks. Each page change pushes a history entry, so the phone's back gesture returns to the previous page.
+- **`App.jsx`** holds who's signed in (`token`, `isAdmin`, `has2fa`, and `profile` from `GET /account`, which the nav bar and Account screen share) and which screen shows (`page`). There's no router; screens receive the token as a prop and report back through callbacks. Each page change pushes a history entry, so the phone's back gesture returns to the previous page.
 - **`api.js`** has one `request()` function and a one-line wrapper per endpoint.
 - **`useSubmit`** gives forms a loading flag and an error message.
-- **Dialogs** (exercise picker, plate sheet) use the native `<dialog>` element.
+- **Dialogs** (exercise picker, plate sheet, food sheet, confirm, upgrade) use the native `<dialog>` element, opened by `useModal`.
 - **Device settings** are kept in `localStorage`:
 
 | Key                  | Holds                                            |
@@ -397,6 +405,7 @@ Logging and finishing a workout work with no signal. Everything else needs a con
 | `show-rir`           | Whether to show the RIR column                   |
 | `rest-seconds`       | Default rest time                                |
 | `top-plate`          | Largest plate to use in the calculator           |
+| `show-calories`      | Whether the Calories tab and card show           |
 
 ## API reference
 
@@ -415,7 +424,9 @@ Routes are shown as the API sees them; the website calls them with an `/api` pre
 | POST   | `/auth/forgot`      | Limited       | `email`                                      | 200 (always)                                                                                    |
 | POST   | `/auth/reset`       | Limited       | `token`, `password`, `code` (2FA accounts)   | 200                                                                                             |
 | POST   | `/auth/password`    | Auth, Limited | `current`, `new`                             | A new `accessToken`                                                                             |
-| GET    | `/account`          | Auth          |                                              | `firstName`, `lastName`, `email`                                                                |
+| GET    | `/account`          | Auth          |                                              | `firstName`, `lastName`, `email`, `plus`, `membershipStatus`, `membershipEndsAt`, `avatar`      |
+| PUT    | `/account/avatar`   | Auth          | `image` (base64 JPEG, up to 256 KB of text)  | 200                                                                                             |
+| DELETE | `/account/avatar`   | Auth          |                                              | 200                                                                                             |
 | DELETE | `/auth/delete`      | Auth, Limited | `password`                                   | 200; deactivates the account                                                                    |
 | POST   | `/auth/reactivate`  | Limited       | `email`, `password`                          | 200                                                                                             |
 | POST   | `/auth/2fa/setup`   | Auth, Limited | `password`                                   | `qr` (base64 PNG), `secret`                                                                     |
@@ -424,21 +435,41 @@ Routes are shown as the API sees them; the website calls them with an `/api` pre
 
 **Workouts and exercises**
 
-| Method | Route                  | Auth | Body / query                                                                                                       | Returns                                                           |
-| ------ | ---------------------- | ---- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
-| GET    | `/workouts`            | Auth |                                                                                                                    | Your newest 200 workouts, each with `sets` count                  |
-| POST   | `/workouts`            | Auth | `name`, `date`, `notes`, `clientId`, `durationSec`, `exercises: [{ exerciseId, sets: [{ weightKg, reps, rir }] }]` | 201 with the workout, or 200 if that `clientId` was already saved |
-| GET    | `/workouts/{id}`       | Auth |                                                                                                                    | `workout` and its `exercises` with sets                           |
-| GET    | `/exercises`           | Auth | `?q=` name search, `?muscle=`                                                                                      | `[{ id, name, equipment, primaryMuscles, secondaryMuscles }]`     |
-| GET    | `/exercises/{id}/last` | Auth |                                                                                                                    | Your sets from the last time you did it                           |
-| GET    | `/me/muscles`          | Auth | `?days=` (default 30, max 365)                                                                                     | `[{ muscle, sets }]`                                              |
+| Method | Route                      | Auth | Body / query                                                                                                       | Returns                                                           |
+| ------ | -------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| GET    | `/workouts`                | Auth |                                                                                                                    | Your newest 200 workouts, each with `sets` count                  |
+| POST   | `/workouts`                | Auth | `name`, `date`, `notes`, `clientId`, `durationSec`, `exercises: [{ exerciseId, sets: [{ weightKg, reps, rir }] }]` | 201 with the workout, or 200 if that `clientId` was already saved |
+| GET    | `/workouts/{id}`           | Auth |                                                                                                                    | `workout` and its `exercises` with sets                           |
+| GET    | `/exercises`               | Auth | `?q=` name search, `?muscle=`                                                                                      | `[{ id, name, equipment, primaryMuscles, secondaryMuscles }]`     |
+| GET    | `/exercises/{id}/last`     | Auth |                                                                                                                    | Your sets from the last time you did it                           |
+| GET    | `/me/muscles`              | Auth | `?days=` (default 30, max 30, or 365 with Plus)                                                                    | `[{ muscle, sets }]`                                              |
+| GET    | `/exercises/{id}/progress` | Plus |                                                                                                                    | `[{ day, est1rmKg }]`, the last 50 workouts with it, oldest first |
+
+**Calories and Plus**
+
+**Plus** means the member must have Gym App Plus (admins always do); others get 403.
+
+| Method | Route                  | Auth                      | Body / query                                                 | Returns                                                                   |
+| ------ | ---------------------- | ------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| GET    | `/me/health`           | Auth                      |                                                              | Goal, birth date, sex, height, activity, target, latest weight; or `null` |
+| PUT    | `/me/health`           | Auth                      | Same fields, plus `weightKg` and `today` to log a weight     | 204                                                                       |
+| DELETE | `/me/health`           | Auth                      |                                                              | 204; deletes the profile, weight log and every food entry                 |
+| GET    | `/me/food`             | Auth                      | `?date=YYYY-MM-DD`                                           | `[{ id, meal, name, kcal, proteinG, carbsG, fatG }]`                      |
+| POST   | `/me/food`             | Auth                      | `date`, `meal`, `name`, `kcal`, `proteinG`, `carbsG`, `fatG` | 201; at most 100 entries a day                                            |
+| PUT    | `/me/food/{id}`        | Auth                      | Same as POST (the day and meal stay)                         | 204                                                                       |
+| DELETE | `/me/food/{id}`        | Auth                      |                                                              | 204                                                                       |
+| GET    | `/me/food/recent`      | Auth                      |                                                              | The 20 foods logged most recently, each once                              |
+| GET    | `/food/barcode/{code}` | Plus                      |                                                              | `{ name, kcal, proteinG, carbsG, fatG }` per 100 g                        |
+| POST   | `/billing/checkout`    | Auth                      |                                                              | `url` of Stripe's payment page                                            |
+| POST   | `/billing/portal`      | Auth                      |                                                              | `url` of Stripe's Customer Portal                                         |
+| POST   | `/stripe/webhook`      | none (Stripe's signature) | Stripe's event                                               | 200; keeps the membership in step with Stripe                             |
 
 **Admin**
 
 | Method | Route                          | Body / query                                              | Returns                                                       |
 | ------ | ------------------------------ | --------------------------------------------------------- | ------------------------------------------------------------- |
 | GET    | `/admin/users`                 |                                                           | Every user with login and workout counts                      |
-| GET    | `/admin/stats`                 | `?days=` (default 30, 7 to 365)                           | `[{ day, kind, n }]` event counts per day, in Sydney time     |
+| GET    | `/admin/stats`                 | `?from=&to=` (YYYY-MM-DD, up to a year apart)             | `[{ day, kind, n }]` event counts per day, in Sydney time     |
 | PUT    | `/admin/users/{id}/admin`      | `isAdmin`                                                 | 200                                                           |
 | POST   | `/admin/users/{id}/reset-link` |                                                           | `link` (valid 15 minutes; turns 2FA off), or 403 for an admin |
 | POST   | `/admin/users/{id}/reactivate` |                                                           | 200                                                           |
@@ -469,6 +500,9 @@ gymapp/
 │       ├── workouts.rs        Workouts, last sets, muscle totals
 │       ├── exercises.rs       Exercise library
 │       ├── admin.rs           Users, stats, admin actions
+│       ├── nutrition.rs       Calories: health profile, food log, barcode lookup
+│       ├── billing.rs         Plus: Checkout, Customer Portal, Stripe webhook
+│       ├── stripe.rs          Stripe API calls and webhook signature check
 │       └── models.rs          JSON request and response types
 └── gym-web/                   React website
     ├── public/sw.js           Service worker (offline app shell)

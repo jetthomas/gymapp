@@ -3,6 +3,7 @@ import { getFood, getHealth } from './api';
 import { Meter } from './CaloriesScreen';
 import targets from './targets';
 import { MEALS } from './meals';
+import { dayKey } from './week';
 
 const MACROS = [
   ['Protein', 'proteinG'],
@@ -22,7 +23,7 @@ export default function CaloriesCard({ token, onOpen }) {
     getHealth(token)
       .then(setProfile)
       .catch(() => {});
-    getFood(token, new Date().toLocaleDateString('en-CA'))
+    getFood(token, dayKey(new Date()))
       .then(setEntries)
       .catch(() => {});
   }, [token]);

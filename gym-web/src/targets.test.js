@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import targets, { age } from './targets.js';
 
-const today = new Date(2026, 10, 17); // 17 Nov 2026
 const member = {
   goal: 'maintain',
   birthDate: '1996-11-17',
@@ -11,6 +10,7 @@ const member = {
   weightKg: 80,
   activity: 3,
 };
+const today = new Date(2026, 10, 17); // 17 Nov 2026
 
 test('age counts whole years, and the birthday itself counts', () => {
   assert.equal(age('1996-11-17', today), 30);

@@ -1,20 +1,12 @@
-import { useEffect, useRef } from 'react';
 import { startCheckout } from './api';
 import ErrorMsg from './ErrorMsg';
+import useModal from './useModal';
 import useSubmit from './useSubmit';
 
 // The pop-up that sells Plus: what's in it, then on to Stripe's payment page
 export default function UpgradeDialog({ token, onClose }) {
-  const ref = useRef(null);
+  const ref = useModal();
   const { loading, message, run } = useSubmit();
-  // StrictMode runs effects twice in development, so don't reopen an open dialog
-  useEffect(() => {
-    const dialog = ref.current;
-    if (!dialog.open) {
-      dialog.showModal();
-      return () => dialog.close();
-    }
-  }, []);
   return (
     <dialog ref={ref} className="sheet" aria-labelledby="upgrade-title" onCancel={onClose}>
       <h2 id="upgrade-title">Upgrade to Gym App Plus</h2>

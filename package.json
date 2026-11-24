@@ -1,7 +1,0 @@
-{
-  "dependencies": {
-    "@stripe/react-stripe-js": "^7.1.0",
-    "@stripe/stripe-js": "^10.3.0",
-    "react-native-biometrics": "^3.0.1"
-  }
-}

@@ -130,23 +130,27 @@ export default function ProfileForm({ token, profile, today, onSaved, onCancel }
           : 'Fill in weight, height, date of birth and activity level for an estimate, or type your own number.'}
       </p>
       <ErrorMsg>{message}</ErrorMsg>
-      <button className="login-btn" type="submit" disabled={loading || !target}>
-        {loading ? 'Saving…' : 'Save'}
-      </button>
-      {profile && (
-        <>
-          <button className="link-btn" type="button" onClick={onCancel}>
+      <div className="form-buttons">
+        {profile && (
+          <button className="login-btn" type="button" onClick={onCancel}>
             Cancel
           </button>
+        )}
+        <button className="login-btn primary" type="submit" disabled={loading || !target}>
+          {loading ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+      {profile && (
+        <div className="form-danger">
           <button
-            className="link-btn danger"
+            className="outline-btn danger"
             type="button"
             onClick={() => setDeleting(true)}
             disabled={loading}
           >
             Delete my health data
           </button>
-        </>
+        </div>
       )}
       {deleting && (
         <ConfirmDialog
