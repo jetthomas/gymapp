@@ -13,14 +13,15 @@ Object.defineProperty(globalThis, 'localStorage', {
 });
 globalThis.window = new EventTarget();
 
-// A login token for user `id`: only its middle part is read
-const tokenFor = (id) => `x.${btoa(JSON.stringify({ sub: id }))}.y`;
-const token = tokenFor('7');
-const workout = (clientId) => ({ clientId, name: 'Push', exercises: [] });
 const failWith = (status) => async () => {
   throw Object.assign(new Error('refused'), { status });
 };
+// A login token for user `id`: only its middle part is read. Out of A–Z order on purpose:
+// `token` calls it while the file loads, so it has to come first
+const tokenFor = (id) => `x.${btoa(JSON.stringify({ sub: id }))}.y`;
+const token = tokenFor('7');
 const waiting = () => JSON.parse(localStorage.getItem('outbox'));
+const workout = (clientId) => ({ clientId, name: 'Push', exercises: [] });
 
 beforeEach(() => store.clear());
 

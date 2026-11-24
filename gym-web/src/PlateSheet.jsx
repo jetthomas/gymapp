@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import plates, { PLATES } from './plates';
+import useModal, { closeOnBackdrop } from './useModal';
 
 // Shows which plates go on each side of the bar for a weight
 export default function PlateSheet({ weightKg, onClose }) {
-  const ref = useRef(null);
+  const ref = useModal();
   const [target, setTarget] = useState(weightKg);
   const [bar, setBar] = useState(20);
   // The biggest plate to load, remembered on this device; smaller plates fill the gap
@@ -19,29 +20,15 @@ export default function PlateSheet({ weightKg, onClose }) {
     localStorage.setItem('top-plate', p);
   }
 
-  // StrictMode runs effects twice in development, so don't reopen an open dialog
-  useEffect(() => {
-    const dialog = ref.current;
-    if (!dialog.open) {
-      dialog.showModal();
-      return () => dialog.close();
-    }
-  }, []);
-
   return (
     <dialog
       ref={ref}
       className="sheet"
       aria-labelledby="plates-title"
-      // Tapping outside closes it; closedby does that natively, the onClick is for Safari, which lacks it
+      // Tapping outside closes it
       closedby="any"
       onCancel={onClose}
-      onClick={(e) => {
-        if ('closedBy' in HTMLDialogElement.prototype || e.target !== e.currentTarget) return;
-        const r = e.currentTarget.getBoundingClientRect();
-        if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)
-          onClose();
-      }}
+      onClick={closeOnBackdrop(onClose)}
     >
       <h2 id="plates-title">Plates</h2>
       <div className="plate-inputs">

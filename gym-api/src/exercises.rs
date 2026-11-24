@@ -193,7 +193,7 @@ pub async fn delete_exercise(
     match done {
         Ok(0) => Err((StatusCode::NOT_FOUND, "Exercise not found.".into())),
         Ok(_) => Ok(StatusCode::NO_CONTENT),
-        // 547 = a foreign key stopped it: the exercise is in a logged workout (Phase 2)
+        // 547 = a foreign key stopped it: the exercise is in a logged workout
         Err(tiberius::error::Error::Server(e)) if e.code() == 547 => Err((
             StatusCode::CONFLICT,
             "This exercise is in a logged workout, so it can't be deleted.".into(),

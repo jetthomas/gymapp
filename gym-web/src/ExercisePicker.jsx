@@ -1,27 +1,19 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getExercises } from './api';
 import ErrorMsg from './ErrorMsg';
 import { MUSCLES } from './muscles';
+import useModal, { closeOnBackdrop } from './useModal';
 
 // shortcut: only the first 50 matches are drawn; searching narrows it down
 const SHOWN = 50;
 
 // The sheet for adding an exercise to the workout in progress
 export default function ExercisePicker({ token, onPick, onClose }) {
-  const ref = useRef(null);
+  const ref = useModal();
   const [q, setQ] = useState('');
   const [muscle, setMuscle] = useState('');
   const [library, setLibrary] = useState(null); // null = still loading
   const [error, setError] = useState('');
-
-  // StrictMode runs effects twice in development, so don't reopen an open dialog
-  useEffect(() => {
-    const dialog = ref.current;
-    if (!dialog.open) {
-      dialog.showModal();
-      return () => dialog.close();
-    }
-  }, []);
 
   // The whole library once (about 900 exercises); searching then happens here, with no request per key
   useEffect(() => {
@@ -50,15 +42,10 @@ export default function ExercisePicker({ token, onPick, onClose }) {
       ref={ref}
       className="sheet picker"
       aria-labelledby="picker-title"
-      // Tapping outside closes it; closedby does that natively, the onClick is for Safari, which lacks it
+      // Tapping outside closes it
       closedby="any"
       onCancel={onClose}
-      onClick={(e) => {
-        if ('closedBy' in HTMLDialogElement.prototype || e.target !== e.currentTarget) return;
-        const r = e.currentTarget.getBoundingClientRect();
-        if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)
-          onClose();
-      }}
+      onClick={closeOnBackdrop(onClose)}
     >
       <div className="section-head">
         <h2 id="picker-title">Add exercise</h2>
@@ -90,7 +77,7 @@ export default function ExercisePicker({ token, onPick, onClose }) {
         </select>
       </search>
       <ErrorMsg>{error}</ErrorMsg>
-      {exercises === null && !error && <p className="msg">Loading exercises…</p>}
+      {library === null && !error && <p className="msg">Loading exercises…</p>}
       {exercises?.length === 0 && <p className="msg">No matches</p>}
       {exercises?.length > 0 && (
         <div className="group exercise-list">

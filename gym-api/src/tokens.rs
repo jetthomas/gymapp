@@ -63,6 +63,20 @@ pub fn make_reset_token(
     )
 }
 
+// A member's own "Forgot password?" link
+pub fn make_self_reset_token(
+    user_id: i32,
+    secret: &str,
+    password_hash: &str,
+) -> Result<String, jsonwebtoken::errors::Error> {
+    sign(
+        user_id,
+        0,
+        &self_reset_key(secret, password_hash),
+        chrono::Duration::minutes(15),
+    )
+}
+
 pub fn refresh_key(secret: &str) -> Vec<u8> {
     format!("{secret}:refresh").into_bytes()
 }

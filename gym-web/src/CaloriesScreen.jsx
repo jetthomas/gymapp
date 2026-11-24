@@ -5,16 +5,20 @@ import FoodSheet from './FoodSheet';
 import ProfileForm from './ProfileForm';
 import targets from './targets';
 import { MEALS } from './meals';
-import { dayKey } from './week';
+import { addDays, dayKey } from './week';
 
 const today = () => dayKey(new Date());
-
-function shift(date, days) {
-  // Noon, so a daylight-saving change can't push it into the wrong day
-  const d = new Date(`${date}T12:00:00`);
-  d.setDate(d.getDate() + days);
-  return dayKey(d);
-}
+// P 50g · C 100g · F 20g in the macro tile colours, summed over one food or a whole meal
+const macros = (foods) =>
+  [
+    ['P', 'proteinG', 'macro-protein'],
+    ['C', 'carbsG', 'macro-carbs'],
+    ['F', 'fatG', 'macro-fat'],
+  ].map(([letter, field, className]) => (
+    <span key={field} className={className}>
+      {letter} {Math.round(foods.reduce((t, f) => t + f[field], 0))}g
+    </span>
+  ));
 
 // A filled bar: `value` out of `max`, amber once it goes over
 export function Meter({ value, max }) {
@@ -32,6 +36,7 @@ export default function CaloriesScreen({ token, plus }) {
   const [date, setDate] = useState(today);
   const [day, setDay] = useState(null); // { date, entries } for the day last loaded
   const [addingTo, setAddingTo] = useState(null); // the meal the food sheet is open for
+  const [editingFood, setEditingFood] = useState(null); // the logged food the sheet is editing
   const [error, setError] = useState('');
   const [changes, setChanges] = useState(0); // goes up after each save, to load again
   const [removing, setRemoving] = useState(null); // the entry being deleted
@@ -90,6 +95,14 @@ export default function CaloriesScreen({ token, plus }) {
   if (!target || editing) {
     return (
       <main className="admin-content calories">
+        <button
+          className="outline-btn back-btn"
+          type="button"
+          // Editing goes back to the day it came from; a first visit has no day yet, so the page before
+          onClick={() => (target ? setEditing(false) : window.history.back())}
+        >
+          <span aria-hidden="true">‹</span> Back
+        </button>
         <div className="page-head">
           <h1 className="page-title">Calories</h1>
         </div>
@@ -125,7 +138,7 @@ export default function CaloriesScreen({ token, plus }) {
             className="outline-btn"
             type="button"
             aria-label="Previous day"
-            onClick={() => setDate(shift(date, -1))}
+            onClick={() => setDate(addDays(date, -1))}
           >
             ‹
           </button>
@@ -134,7 +147,7 @@ export default function CaloriesScreen({ token, plus }) {
             type="button"
             aria-label="Next day"
             disabled={date === today()}
-            onClick={() => setDate(shift(date, 1))}
+            onClick={() => setDate(addDays(date, 1))}
           >
             ›
           </button>
@@ -183,12 +196,24 @@ export default function CaloriesScreen({ token, plus }) {
             <section className="card" key={meal} aria-label={label}>
               <div className="food-row">
                 <h2 className="card-title">{label}</h2>
-                <span className="row-sub">{foods.reduce((t, f) => t + f.kcal, 0)} kcal</span>
+                <span className="row-sub">
+                  {foods.reduce((t, f) => t + f.kcal, 0)} cal · {macros(foods)}
+                </span>
               </div>
               {foods.map((f) => (
                 <div className="food-row" key={f.id}>
                   <span>{f.name}</span>
-                  <span className="row-sub">{f.kcal}</span>
+                  <span className="row-sub">
+                    {f.kcal} cal · {macros([f])}
+                  </span>
+                  <button
+                    className="link-btn"
+                    type="button"
+                    aria-label={`Edit ${f.name}`}
+                    onClick={() => setEditingFood(f)}
+                  >
+                    Edit
+                  </button>
                   <button
                     className="link-btn danger"
                     type="button"
@@ -207,17 +232,22 @@ export default function CaloriesScreen({ token, plus }) {
           );
         })}
 
-      {addingTo && (
+      {(addingTo || editingFood) && (
         <FoodSheet
           token={token}
           plus={plus}
           date={date}
-          meal={addingTo}
+          meal={editingFood?.meal ?? addingTo}
+          food={editingFood}
           onAdded={() => {
             setAddingTo(null);
+            setEditingFood(null);
             setChanges(changes + 1);
           }}
-          onClose={() => setAddingTo(null)}
+          onClose={() => {
+            setAddingTo(null);
+            setEditingFood(null);
+          }}
         />
       )}
     </main>

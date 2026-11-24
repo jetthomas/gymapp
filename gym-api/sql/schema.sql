@@ -1,7 +1,7 @@
 -- Every table, column and index the API uses. Run as your ADMIN user (not gym_app), before
 -- security.sql. Safe to run again: it skips whatever already exists, so an existing database
 -- only gets what's new (e.g. the Events indexes).
--- Change GymApp if your DB_NAME differs.
+-- Change Gym_App if your DB_NAME differs.
 USE Gym_App;
 GO
 
@@ -153,4 +153,9 @@ IF OBJECT_ID('dbo.BarcodeFoods', 'U') IS NULL
         FatG FLOAT NOT NULL,
         FetchedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
     );
+GO
+
+-- Profile picture: base64 of a 256 px JPEG. VARCHAR, not NVARCHAR: base64 is plain ASCII
+IF COL_LENGTH('dbo.Users', 'Avatar') IS NULL
+    ALTER TABLE dbo.Users ADD Avatar VARCHAR(MAX) NULL;
 GO
