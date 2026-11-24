@@ -5,7 +5,7 @@
 -- Part 10: a login that can only read/write the app's five tables
 CREATE LOGIN gym_app WITH PASSWORD = '<a long random password>';
 GO
-USE GymApp;
+USE Gym_App;
 GO
 CREATE USER gym_app FOR LOGIN gym_app;
 -- No DELETE on Users: delete_account only sets Active = 0
@@ -60,4 +60,8 @@ ALTER SECURITY POLICY Security.WorkoutPolicy
     ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.BodyWeights AFTER UPDATE,
     ADD FILTER PREDICATE Security.fn_workout_owner(UserId) ON dbo.FoodEntries,
     ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.FoodEntries AFTER INSERT;
+GO
+
+-- Gym App Plus: the shared barcode cache (Users already has SELECT, INSERT, UPDATE above)
+GRANT SELECT, INSERT ON dbo.BarcodeFoods TO gym_app;
 GO

@@ -19,3 +19,8 @@ totp-rs = { version = "5", features = ["qr", "gen_secret"] }
 tower_governor = "0.8.0"
 governor = "0.10"
 lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls-tls", "hostname"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "json", "form", "query"] }
+hmac = "0.13"
+sha2 = "0.11"
+hex = "0.4"
+serde_json = "1"
