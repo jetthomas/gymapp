@@ -75,9 +75,9 @@ const subscribe = (onChange) => {
   return () => window.removeEventListener('outbox', onChange);
 };
 
-// How many of this member's workouts are still waiting; re-renders the component when that changes
-export const useWaiting = (token) => useSyncExternalStore(subscribe, () => mine(token).length);
-
 // Why the server refused a waiting workout, or '' when none was refused
 export const useRefused = (token) =>
   useSyncExternalStore(subscribe, () => mine(token).find((i) => i.error)?.error ?? '');
+
+// How many of this member's workouts are still waiting; re-renders the component when that changes
+export const useWaiting = (token) => useSyncExternalStore(subscribe, () => mine(token).length);

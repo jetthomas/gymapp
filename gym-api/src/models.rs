@@ -11,6 +11,12 @@ pub struct Credentials {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewAvatar {
+    pub image: String, // base64 of a JPEG, no "data:" prefix
+}
+
+#[derive(Deserialize)]
 pub struct ResetRequest {
     pub token: String,
     pub password: String,
@@ -48,7 +54,7 @@ pub struct NewUser {
     pub password: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct LoginResponse {
     pub access_token: Option<String>,
@@ -253,6 +259,7 @@ pub struct Profile {
     pub plus: bool,
     pub membership_status: Option<String>,
     pub membership_ends_at: Option<DateTime<Utc>>,
+    pub avatar: Option<String>,
 }
 
 // What the member told the Calories screen. Every answer is optional; the same shape is sent back to them

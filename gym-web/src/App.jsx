@@ -29,8 +29,10 @@ export default function App() {
     new URLSearchParams(window.location.search).get('membership'),
   );
   const [page, setPage] = useState(resetToken ? 'reset' : membership ? 'account' : 'login');
+  // Who is signed in: name, photo and membership, shared by the nav bar and the Account screen
+  const [profile, setProfile] = useState(null);
   // Gym App Plus: paid, or an admin. The server checks it again on every Plus request
-  const [plus, setPlus] = useState(false);
+  const plus = profile?.plus ?? false;
   const [email, setEmail] = useState('');
   const [notice, setNotice] = useState('');
   const [lastLogin, setLastLogin] = useState(null);
@@ -93,7 +95,7 @@ export default function App() {
       clearTimeout(timer);
       getProfile(token)
         .then((p) => {
-          setPlus(p.plus);
+          setProfile(p);
           tries -= 1;
           if (!p.plus && tries > 0) timer = setTimeout(check, 2000);
         })
@@ -163,7 +165,7 @@ export default function App() {
   function logOut() {
     localStorage.removeItem('user-id');
     setToken(null);
-    setPlus(false);
+    setProfile(null);
     setIsAdmin(false);
     setHas2fa(false);
     setLastLogin(null);
@@ -236,6 +238,7 @@ export default function App() {
     <div className="admin-page">
       <NavBar
         token={token}
+        profile={profile}
         // Signed in, the login and reset pages show the dashboard
         page={page === 'login' || page === 'reset' ? 'home' : page}
         isAdmin={isAdmin}
@@ -254,6 +257,8 @@ export default function App() {
           onViewProgress={() => go('progress')}
           showCalories={showCalories}
           plus={plus}
+          profile={profile}
+          onProfileChanged={setProfile}
           onShowCaloriesChanged={(on) => {
             setShowCalories(on);
             localStorage.setItem('show-calories', on ? '1' : '0');

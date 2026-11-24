@@ -1,32 +1,33 @@
-import { useEffect, useRef, useState } from 'react';
-import { addFood, getRecentFood, lookupBarcode } from './api';
+import { useEffect, useState } from 'react';
+import { addFood, getRecentFood, lookupBarcode, updateFood } from './api';
 import BarcodeScanner from './BarcodeScanner';
 import ErrorMsg from './ErrorMsg';
 import UpgradeDialog from './UpgradeDialog';
+import useModal from './useModal';
 import useSubmit from './useSubmit';
 
 // Adds one food to a meal: type it in, or tap one logged before
-export default function FoodSheet({ token, plus, date, meal, onAdded, onClose }) {
-  const ref = useRef(null);
-  const [name, setName] = useState('');
-  const [kcal, setKcal] = useState('');
-  const [protein, setProtein] = useState('');
-  const [carbs, setCarbs] = useState('');
-  const [fat, setFat] = useState('');
+export default function FoodSheet({ token, plus, date, meal, onAdded, onClose, food }) {
+  const ref = useModal();
   const [recent, setRecent] = useState([]);
   const [scanning, setScanning] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
   const { loading, message, run } = useSubmit();
+  const [name, setName] = useState(food?.name ?? '');
+  const [kcal, setKcal] = useState(food ? String(food.kcal) : '');
+  const [protein, setProtein] = useState(food ? String(Math.round(food.proteinG)) : '');
+  const [carbs, setCarbs] = useState(food ? String(Math.round(food.carbsG)) : '');
+  const [fat, setFat] = useState(food ? String(Math.round(food.fatG)) : '');
+  const [kcalTyped, setKcalTyped] = useState(Boolean(food));
 
-  // StrictMode runs effects twice in development, so don't reopen an open dialog
-  useEffect(() => {
-    const dialog = ref.current;
-    if (!dialog.open) {
-      dialog.showModal();
-      return () => dialog.close();
-    }
-  }, []);
-
+  const setMacro = (set, field) =>
+    digits((value) => {
+      set(value);
+      if (kcalTyped) return;
+      const g = { protein, carbs, fat, [field]: value };
+      const total = 4 * Number(g.protein) + 4 * Number(g.carbs) + 9 * Number(g.fat);
+      setKcal(total ? String(total) : '');
+    });
   useEffect(() => {
     // The list is a shortcut; the form works without it
     getRecentFood(token)
@@ -34,9 +35,10 @@ export default function FoodSheet({ token, plus, date, meal, onAdded, onClose })
       .catch(() => {});
   }, [token]);
 
-  function add(food) {
+  function add(f) {
     run(async () => {
-      await addFood(token, { date, meal, ...food });
+      if (food) await updateFood(token, food.id, { date, meal, ...f });
+      else await addFood(token, { date, meal, ...f });
       onAdded();
     });
   }
@@ -68,9 +70,9 @@ export default function FoodSheet({ token, plus, date, meal, onAdded, onClose })
 
   const digits = (set) => (e) => /^\d*$/.test(e.target.value) && set(e.target.value);
   const macros = [
-    ['food-protein', 'Protein (g)', protein, setProtein],
-    ['food-carbs', 'Carbs (g)', carbs, setCarbs],
-    ['food-fat', 'Fat (g)', fat, setFat],
+    ['food-protein', 'Protein (g)', protein, setProtein, 'protein'],
+    ['food-carbs', 'Carbs (g)', carbs, setCarbs, 'carbs'],
+    ['food-fat', 'Fat (g)', fat, setFat, 'fat'],
   ];
 
   return (
@@ -95,14 +97,17 @@ export default function FoodSheet({ token, plus, date, meal, onAdded, onClose })
               required
               inputMode="numeric"
               value={kcal}
-              onChange={digits(setKcal)}
+              onChange={digits((v) => {
+                setKcal(v);
+                setKcalTyped(v !== '');
+              })}
             />
           </div>
           <div className="field-pair">
-            {macros.map(([id, label, value, set]) => (
+            {macros.map(([id, label, value, set, field]) => (
               <div className="field" key={id}>
                 <label htmlFor={id}>{label}</label>
-                <input id={id} inputMode="numeric" value={value} onChange={digits(set)} />
+                <input id={id} inputMode="numeric" value={value} onChange={setMacro(set, field)} />
               </div>
             ))}
           </div>

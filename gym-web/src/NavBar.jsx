@@ -1,19 +1,10 @@
-import { useEffect, useState } from 'react';
-import { getProfile } from './api';
 import { displayName, initials } from './names';
 import { useWaiting } from './outbox';
 
-// The bar across the top of every signed-in screen
-export default function NavBar({ token, page, isAdmin, showCalories, onNavigate }) {
+// The bar across the top of every signed-in screen. Until the profile loads, or if it fails,
+// the account button just says Account
+export default function NavBar({ token, profile, page, isAdmin, showCalories, onNavigate }) {
   const waiting = useWaiting(token);
-  const [profile, setProfile] = useState(null);
-
-  useEffect(() => {
-    // Until this loads, or if it fails, the button just says Account
-    getProfile(token)
-      .then(setProfile)
-      .catch(() => {});
-  }, [token]);
 
   function link(to, label, className = 'nav-btn') {
     return (
@@ -49,7 +40,11 @@ export default function NavBar({ token, page, isAdmin, showCalories, onNavigate 
               <span className="visually-hidden">Account: </span>
               <span className="nav-name">{profile.firstName || displayName(profile)}</span>
               <span className="avatar" aria-hidden="true">
-                {initials(profile)}
+                {profile.avatar ? (
+                  <img src={`data:image/jpeg;base64,${profile.avatar}`} alt="" />
+                ) : (
+                  initials(profile)
+                )}
               </span>
             </>
           ) : (

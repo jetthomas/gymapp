@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { deleteAccount, getProfile, openPortal } from './api';
+import { deleteAccount, deleteAvatar, openPortal, putAvatar } from './api';
+import { toAvatar } from './avatar';
 import ChangePasswordForm from './ChangePasswordForm';
 import { clock } from './Draft';
 import ErrorMsg from './ErrorMsg';
@@ -17,6 +18,8 @@ export default function AccountScreen({
   isAdmin,
   has2fa,
   plus,
+  profile, // null until App has loaded it
+  onProfileChanged,
   onTokenChanged,
   onManageUsers,
   onViewProgress,
@@ -25,7 +28,6 @@ export default function AccountScreen({
   onLogOut,
   onSignedOut,
 }) {
-  const [profile, setProfile] = useState(null);
   const [open, setOpen] = useState(null); // 'password', '2fa' or null: the row whose form is showing
   const [notice, setNotice] = useState('');
   const deleting = useSubmit();
@@ -38,13 +40,15 @@ export default function AccountScreen({
     () => localStorage.getItem('rest-seconds') ?? '90',
   );
   const waiting = useWaiting(token);
+  const photo = useSubmit();
+  const [photoSavedAt, setPhotoSavedAt] = useState(0); // a new value restarts the 3 s timer
 
   useEffect(() => {
-    // The card just stays hidden if this fails; nothing else on the screen needs it
-    getProfile(token)
-      .then(setProfile)
-      .catch(() => {});
-  }, [token, plus]);
+    if (!photoSavedAt) return;
+    const timer = setTimeout(() => setPhotoSavedAt(0), 3000);
+    return () => clearTimeout(timer);
+  }, [photoSavedAt]);
+
   // Mirrors can_join in billing.rs: only these can start a new subscription; the rest manage theirs
   const status = profile?.membershipStatus;
   const canJoin = !status || status === 'canceled' || status === 'incomplete_expired';
@@ -107,9 +111,56 @@ export default function AccountScreen({
         <aside className="card profile-card">
           {profile && (
             <>
-              <div className="profile-avatar" aria-hidden="true">
-                {initials(profile)}
+              <div className="profile-photo">
+                <div className="profile-avatar" aria-hidden="true">
+                  {profile.avatar ? (
+                    <img src={`data:image/jpeg;base64,${profile.avatar}`} alt="" />
+                  ) : (
+                    initials(profile)
+                  )}
+                </div>
+                <label className="link-btn">
+                  Change photo
+                  <input
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={(e) => {
+                      const file = e.target.files[0];
+                      // Cleared so the same photo can be picked again; a cancelled pick has no file
+                      e.target.value = '';
+                      if (!file) return;
+                      photo.run(async () => {
+                        const image = await toAvatar(file);
+                        await putAvatar(token, image);
+                        onProfileChanged((p) => ({ ...p, avatar: image }));
+                        setPhotoSavedAt(Date.now());
+                      });
+                    }}
+                  />
+                </label>
+                {profile.avatar && (
+                  <button
+                    className="link-btn danger"
+                    type="button"
+                    disabled={photo.loading}
+                    onClick={() =>
+                      photo.run(async () => {
+                        await deleteAvatar(token);
+                        onProfileChanged((p) => ({ ...p, avatar: null }));
+                      })
+                    }
+                  >
+                    Remove photo
+                  </button>
+                )}
               </div>
+              {photoSavedAt > 0 && (
+                <p key={photoSavedAt} className="msg success photo-saved" role="status">
+                  Photo saved.
+                </p>
+              )}
+              <ErrorMsg>{photo.message}</ErrorMsg>
               <div className="profile-name">{displayName(profile)}</div>
               <div className="profile-email">{profile.email}</div>
             </>

@@ -1,8 +1,8 @@
 -- Parts 10 and 11: run once, connected as your ADMIN user (not gym_app), after schema.sql.
 -- Replace the password with the output of: openssl rand -base64 24
--- Change GymApp if your DB_NAME differs.
+-- Change Gym_App if your DB_NAME differs.
 
--- Part 10: a login that can only read/write the app's five tables
+-- Part 10: a login that can only read/write the app's tables
 CREATE LOGIN gym_app WITH PASSWORD = '<a long random password>';
 GO
 USE Gym_App;
@@ -64,4 +64,12 @@ GO
 
 -- Gym App Plus: the shared barcode cache (Users already has SELECT, INSERT, UPDATE above)
 GRANT SELECT, INSERT ON dbo.BarcodeFoods TO gym_app;
+GO
+
+-- Calories: editing a logged food (PUT /me/food/{id}). Already set up? Run just this part:
+-- the UPDATE right, and the same owner check as Profiles and BodyWeights
+GRANT UPDATE ON dbo.FoodEntries TO gym_app;
+GO
+ALTER SECURITY POLICY Security.WorkoutPolicy
+    ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.FoodEntries AFTER UPDATE;
 GO

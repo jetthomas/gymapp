@@ -26,6 +26,17 @@
   --mono: ui-monospace, 'SF Mono', Menlo, monospace;
   /* Space at the sides of the nav and every page */
   --gutter: 16px;
+  --protein: #6cc4f2;
+  --carbs: #a78bfa;
+  --fat: #f5a15b;
+}
+
+.profile-avatar img,
+.avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 @media (min-width: 640px) {
@@ -472,6 +483,8 @@ button {
 }
 
 .back-btn {
+  /* Its own size at the left, even inside a grid page like Calories that stretches its children */
+  justify-self: start;
   margin-bottom: 24px;
 }
 
@@ -660,11 +673,6 @@ button {
 
 .user-table tbody tr {
   border-top: 1px solid var(--border);
-}
-
-.user-table .num {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
 }
 
 .user-table .actions {
@@ -946,7 +954,8 @@ button {
 
 @media (min-width: 760px) {
   .account {
-    grid-template-columns: 190px 1fr;
+    /* As wide as the email; past 340px a long email wraps instead */
+    grid-template-columns: fit-content(340px) 1fr;
     gap: 24px;
   }
 }
@@ -957,10 +966,43 @@ button {
 }
 
 .profile-card {
+  min-width: 190px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
+}
+
+/* The avatar with "Change photo" beside it */
+.profile-photo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.profile-photo .link-btn {
+  margin: 0;
+}
+
+.profile-card .msg {
+  margin: 0 0 8px;
+}
+
+/* Shown for 3 s after a photo saves; fades out over the last half second */
+@media (prefers-reduced-motion: no-preference) {
+  .photo-saved {
+    animation: photo-saved 3s forwards;
+  }
+}
+
+@keyframes photo-saved {
+  83% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
 }
 
 .profile-avatar {
@@ -968,7 +1010,6 @@ button {
   place-items: center;
   width: 40px;
   height: 40px;
-  margin-bottom: 12px;
   font-size: 0.9375rem;
   font-weight: 600;
   color: var(--on-accent);
@@ -1624,140 +1665,6 @@ button.row:active {
   margin-left: 0;
 }
 
-/* ---------- Dashboard Workout card (WorkoutCard.jsx) ---------- */
-
-.workout-card {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  padding: 24px;
-  margin-bottom: 40px;
-}
-
-.workout-card-label {
-  margin: 0;
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.workout-card-head {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px 32px;
-}
-
-.workout-card-title {
-  margin: 0;
-  font-size: 2.5rem;
-  font-weight: 800;
-  line-height: 1.1;
-  letter-spacing: -0.03em;
-}
-
-.workout-card-sub {
-  display: block;
-  margin: 4px 0 0;
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-}
-
-.workout-card-stats {
-  display: flex;
-  gap: 32px;
-  margin: 0;
-  text-align: right;
-}
-
-/* Number above its label, as in the mockup */
-.workout-card-stats div {
-  display: flex;
-  flex-direction: column-reverse;
-}
-
-.workout-card-stats dt {
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-}
-
-.workout-card-stats dd {
-  margin: 0;
-  font-size: 1.0625rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.workout-card-bar {
-  height: 8px;
-  overflow: hidden;
-  background: var(--surface-2);
-  border-radius: 4px;
-}
-
-.workout-card-bar div {
-  height: 100%;
-  background: var(--accent);
-  border-radius: 4px;
-}
-
-.workout-card-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.workout-card-list li {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px 0;
-  font-size: 0.9375rem;
-  font-weight: 600;
-  border-top: 1px solid var(--border);
-}
-
-.workout-card-value {
-  flex-shrink: 0;
-  font-weight: 400;
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-}
-
-.workout-card-when {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 16px;
-  margin-top: auto;
-  font-size: 0.9375rem;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-
-.workout-card-when .workout-card-sub {
-  margin: 0 0 2px;
-  font-size: 0.8125rem;
-}
-
-.workout-card-clock {
-  display: grid;
-  flex-shrink: 0;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  color: var(--text-secondary);
-  background: var(--surface-2);
-  border-radius: 50%;
-}
-
-.workout-card-action {
-  width: 100%;
-  padding-block: 12px;
-}
-
 /* ---------- Calories (CaloriesScreen.jsx, ProfileForm.jsx, FoodSheet.jsx) ---------- */
 
 .calories,
@@ -1865,6 +1772,43 @@ button.row:active {
 .calories .card > .link-btn {
   margin-top: 8px;
   padding-left: 0;
+}
+
+/* The target form's Cancel and Save, side by side and the same width */
+.form-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.form-buttons .login-btn {
+  flex: 1;
+  margin-top: 0;
+}
+
+/* Save is filled cream, so it reads as the button to press */
+.form-buttons .primary {
+  color: var(--on-accent);
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+}
+
+/* The shared hover and press colours would turn it dark; these keep it cream */
+@media (hover: hover) {
+  .form-buttons .primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
+}
+
+.form-buttons .primary:active:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+/* Deleting health data sits apart below a line, like the Account screen's danger zone */
+.form-danger {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
 }
 
 .profile-form .row-sub {
@@ -2228,18 +2172,36 @@ button.row:active {
 }
 
 .macro-tiles > div {
-  --macro: #6cc4f2;
+  --macro: var(--protein);
   padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: 12px;
 }
 
 .macro-tiles > div:nth-child(2) {
-  --macro: #a78bfa;
+  --macro: var(--carbs);
 }
 
 .macro-tiles > div:nth-child(3) {
-  --macro: #f5a15b;
+  --macro: var(--fat);
+}
+
+.macro-protein {
+  color: var(--protein);
+}
+.macro-carbs {
+  color: var(--carbs);
+}
+.macro-fat {
+  color: var(--fat);
+}
+
+/* The grey " · " between the numbers */
+.macro-protein::before,
+.macro-carbs::before,
+.macro-fat::before {
+  content: ' · ';
+  color: var(--text-secondary);
 }
 
 .macro-tiles dt {

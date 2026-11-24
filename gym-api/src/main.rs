@@ -28,14 +28,14 @@ use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 
 use crate::admin::{admin_stats, create_reset_link, list_users, reactivate_user, set_admin};
 use crate::auth::{
-    change_password, delete_account, forgot_password, get_profile, login, logout,
-    reactivate_account, refresh, register, reset_password, verify_email,
+    change_password, delete_account, delete_avatar, forgot_password, get_profile, login, logout,
+    put_avatar, reactivate_account, refresh, register, reset_password, verify_email,
 };
 use crate::billing::{create_checkout, create_portal, webhook};
 use crate::exercises::{create_exercise, delete_exercise, list_exercises, update_exercise};
 use crate::nutrition::{
     add_food, barcode_food, delete_food, delete_health, get_health, list_food, put_health,
-    recent_food,
+    recent_food, update_food,
 };
 use crate::state::{AppState, ProxyIpKeyExtractor, connect};
 use crate::two_factor::{totp_confirm, totp_disable, totp_setup, totp_verify};
@@ -105,7 +105,7 @@ async fn main() {
             .parse()
             .expect("DB_PORT must be a number"),
     );
-    db_config.database(env_or("DB_NAME", "GymApp"));
+    db_config.database(env_or("DB_NAME", "Gym_App"));
     db_config.authentication(AuthMethod::sql_server(
         env_required("DB_USER"),
         env_required("DB_PASSWORD"),
@@ -219,6 +219,7 @@ async fn main() {
         .route("/health", get(|| async { "ok" }))
         .route("/auth/logout", post(logout))
         .route("/account", get(get_profile))
+        .route("/account/avatar", put(put_avatar).delete(delete_avatar))
         .route("/auth/2fa/confirm", post(totp_confirm))
         .route("/admin/users", get(list_users))
         .route("/admin/stats", get(admin_stats))
@@ -241,7 +242,7 @@ async fn main() {
         )
         .route("/me/food", get(list_food).post(add_food))
         .route("/me/food/recent", get(recent_food))
-        .route("/me/food/{id}", delete(delete_food))
+        .route("/me/food/{id}", put(update_food).delete(delete_food))
         .route("/billing/checkout", post(create_checkout))
         .route("/billing/portal", post(create_portal))
         .route("/food/barcode/{code}", get(barcode_food))

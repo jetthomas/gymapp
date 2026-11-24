@@ -8,7 +8,7 @@ use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use serde_json::Value;
 
 use crate::extractors::{AuthUser, PLUS_STATUSES};
@@ -192,7 +192,20 @@ async fn sync_customer(state: &AppState, customer: &str) -> ApiResult<()> {
     )
     .await?;
     let subs = list["data"].as_array().cloned().unwrap_or_default();
-    // One that gives Plus wins; otherwise the newest (Stripe lists newest first)
+    let (status, ends) = best_subscription(&subs);
+    let mut db = connect(state).await.map_err(internal)?;
+    db.execute(
+        "UPDATE dbo.Users SET MembershipStatus = @P1, MembershipEndsAt = @P2 WHERE StripeCustomerId = @P3",
+        &[&status, &ends, &customer],
+    )
+    .await
+    .map_err(internal)?;
+    Ok(())
+}
+
+// The subscription that decides Plus, as its status and the end of its paid period.
+// One that gives Plus wins; otherwise the newest (Stripe lists newest first)
+fn best_subscription(subs: &[Value]) -> (Option<&str>, Option<NaiveDateTime>) {
     let best = subs
         .iter()
         .find(|s| {
@@ -207,19 +220,31 @@ async fn sync_customer(state: &AppState, customer: &str) -> ApiResult<()> {
         .and_then(|s| s["items"]["data"][0]["current_period_end"].as_i64())
         .and_then(|t| DateTime::from_timestamp(t, 0))
         .map(|t| t.naive_utc());
-    let mut db = connect(state).await.map_err(internal)?;
-    db.execute(
-        "UPDATE dbo.Users SET MembershipStatus = @P1, MembershipEndsAt = @P2 WHERE StripeCustomerId = @P3",
-        &[&status, &ends, &customer],
-    )
-    .await
-    .map_err(internal)?;
-    Ok(())
+    (status, ends)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_subscription_that_gives_plus_wins() {
+        let sub = |status: &str, end: i64| serde_json::json!({ "status": status, "items": { "data": [{ "current_period_end": end }] } });
+        // Newest first: a newer cancelled one must not hide an older one that still gives Plus
+        let subs = [
+            sub("canceled", 1_800_000_000),
+            sub("past_due", 1_790_000_000),
+        ];
+        let (status, ends) = best_subscription(&subs);
+        assert_eq!(status, Some("past_due"));
+        assert_eq!(ends.map(|t| t.and_utc().timestamp()), Some(1_790_000_000));
+        assert_eq!(
+            best_subscription(&[sub("canceled", 1)]).0,
+            Some("canceled"),
+            "none gives Plus: the newest"
+        );
+        assert_eq!(best_subscription(&[]), (None, None), "never joined");
+    }
 
     #[test]
     fn only_members_without_a_live_subscription_can_join() {

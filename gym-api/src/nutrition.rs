@@ -58,30 +58,33 @@ pub fn check_profile(p: &HealthProfile) -> Result<(), &'static str> {
     Ok(())
 }
 
-// Checks a food entry before it is saved; returns the trimmed name
-pub fn check_food(f: &NewFood) -> Result<&str, &'static str> {
-    let name = f.name.trim();
+// The limits every stored food meets, whether a member typed it or it came from a barcode
+fn check_food_values(name: &str, kcal: i32, grams: [f64; 3]) -> Result<(), &'static str> {
     if name.is_empty() || !fits(name, 100) {
         return Err("Food name must be 1 to 100 characters.");
     }
     if !plain(name, false) {
         return Err("Food name can't contain hidden or control characters.");
     }
+    if !(0..=10_000).contains(&kcal) {
+        return Err("Calories must be 0 to 10,000.");
+    }
+    // NaN fails every comparison, so this rejects it too
+    if grams.iter().any(|g| !(0.0..=2000.0).contains(g)) {
+        return Err("Macros must be 0 to 2,000 g.");
+    }
+    Ok(())
+}
+
+// Checks a food entry before it is saved; returns the trimmed name
+pub fn check_food(f: &NewFood) -> Result<&str, &'static str> {
+    let name = f.name.trim();
+    check_food_values(name, f.kcal, [f.protein_g, f.carbs_g, f.fat_g])?;
     if !MEALS.contains(&f.meal.as_str()) {
         return Err("Pick a meal from the list.");
     }
     if !sane(f.date) {
         return Err("That date is out of range.");
-    }
-    if !(0..=10_000).contains(&f.kcal) {
-        return Err("Calories must be 0 to 10,000.");
-    }
-    // NaN fails every comparison, so this rejects it too
-    if [f.protein_g, f.carbs_g, f.fat_g]
-        .iter()
-        .any(|g| !(0.0..=2000.0).contains(g))
-    {
-        return Err("Macros must be 0 to 2,000 g.");
     }
     Ok(name)
 }
@@ -279,6 +282,27 @@ pub async fn delete_food(
     Ok(StatusCode::NO_CONTENT)
 }
 
+// Changes a logged food's name, calories and macros. Its day and meal stay, so the per-day cap holds
+pub async fn update_food(
+    AuthUser(user_id, mut db): AuthUser,
+    Path(id): Path<i32>,
+    Json(f): Json<NewFood>,
+) -> ApiResult<StatusCode> {
+    let name = check_food(&f).map_err(bad)?;
+    set_user(&mut db, user_id).await.map_err(internal)?;
+    let done = db
+        .execute(
+            "UPDATE dbo.FoodEntries SET Name = @P1, Kcal = @P2, ProteinG = @P3, CarbsG = @P4, FatG = @P5
+             WHERE Id = @P6 AND UserId = @P7",
+            &[&name, &f.kcal, &f.protein_g, &f.carbs_g, &f.fat_g, &id, &user_id],
+        )
+        .await
+        .map_err(internal)?;
+    if done.total() == 0 {
+        return Err((StatusCode::NOT_FOUND, "Entry not found.".into()));
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
 // Plus: a packaged food by its barcode, per 100 g. Looked up on Open Food Facts the first time,
 // then kept in dbo.BarcodeFoods, so repeat scans are instant and stay under their limit
 // of 15 product reads a minute. API: https://openfoodfacts.github.io/openfoodfacts-server/api/
@@ -354,14 +378,14 @@ pub async fn barcode_food(
         carbs_g: grams("carbohydrates_100g"),
         fat_g: grams("fat_100g"),
     };
-    // Outside data gets the same checks as a member's own entry (check_food's limits)
-    let sane_grams = [food.protein_g, food.carbs_g, food.fat_g]
-        .iter()
-        .all(|g| (0.0..=2000.0).contains(g));
+    // Outside data gets the same checks as a member's own entry; `name` is the product's own, without " (100 g)"
     if name.is_empty()
-        || !plain(&food.name, false)
-        || !(0..=10_000).contains(&food.kcal)
-        || !sane_grams
+        || check_food_values(
+            &food.name,
+            food.kcal,
+            [food.protein_g, food.carbs_g, food.fat_g],
+        )
+        .is_err()
     {
         return Err(not_found());
     }
@@ -427,6 +451,19 @@ mod tests {
         assert!(
             check_food(&food("Oats", "lunch", 300, f64::NAN)).is_err(),
             "NaN macro"
+        );
+    }
+
+    #[test]
+    fn barcode_foods_meet_the_same_limits() {
+        assert!(check_food_values("Oats (100 g)", 389, [16.9, 66.3, 6.9]).is_ok());
+        assert!(
+            check_food_values("Oats (100 g)", 389, [2001.0, 0.0, 0.0]).is_err(),
+            "too much protein"
+        );
+        assert!(
+            check_food_values("Oats (100 g)", 10_001, [0.0; 3]).is_err(),
+            "too many calories"
         );
     }
 
