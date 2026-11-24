@@ -55,7 +55,19 @@ self.addEventListener('fetch', (event) => {
     );
     return;
   }
-  // Everything else (the page itself, icons) can change, so try the network first
+  // Opening the app shows the kept page at once instead of waiting on a slow link;
+  // the fresh copy fetched alongside it is the one shown on the next open
+  if (event.request.mode === 'navigate') {
+    const fresh = fetchAndKeep(event.request);
+    event.waitUntil(fresh.catch(() => {}));
+    event.respondWith(
+      caches
+        .match(event.request)
+        .then((kept) => kept ?? fresh.catch(() => caches.match('/'))),
+    );
+    return;
+  }
+  // Everything else (icons) can change, so try the network first
   event.respondWith(
     fetchAndKeep(event.request)
       // Any page address falls back to the app itself, which then draws the right screen

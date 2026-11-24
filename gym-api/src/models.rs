@@ -23,6 +23,11 @@ pub struct RangeQuery {
     pub from: NaiveDate,
     pub to: NaiveDate,
 }
+
+#[derive(Serialize)]
+pub struct RedirectUrl {
+    pub url: String,
+}
 #[derive(Serialize)]
 pub struct MuscleSets {
     pub muscle: String,
@@ -245,6 +250,9 @@ pub struct Profile {
     pub first_name: Option<String>,
     pub last_name: Option<String>,
     pub email: String,
+    pub plus: bool,
+    pub membership_status: Option<String>,
+    pub membership_ends_at: Option<DateTime<Utc>>,
 }
 
 // What the member told the Calories screen. Every answer is optional; the same shape is sent back to them
@@ -265,6 +273,13 @@ pub struct HealthProfile {
 #[derive(Deserialize)]
 pub struct DayQuery {
     pub date: NaiveDate,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProgressPoint {
+    pub day: String,
+    pub est_1rm_kg: f64,
 }
 
 #[derive(Deserialize)]

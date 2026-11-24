@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { deleteAccount, getProfile } from './api';
+import { deleteAccount, getProfile, openPortal } from './api';
 import ChangePasswordForm from './ChangePasswordForm';
 import { clock } from './Draft';
 import ErrorMsg from './ErrorMsg';
+import UpgradeDialog from './UpgradeDialog';
 import { displayName, initials } from './names';
 import PasswordInput from './PasswordInput';
 import TwoFactorDisable from './TwoFactorDisable';
@@ -15,6 +16,7 @@ export default function AccountScreen({
   token,
   isAdmin,
   has2fa,
+  plus,
   onTokenChanged,
   onManageUsers,
   onViewProgress,
@@ -27,6 +29,8 @@ export default function AccountScreen({
   const [open, setOpen] = useState(null); // 'password', '2fa' or null: the row whose form is showing
   const [notice, setNotice] = useState('');
   const deleting = useSubmit();
+  const billing = useSubmit();
+  const [upgrading, setUpgrading] = useState(false);
   const [deletePassword, setDeletePassword] = useState('');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [showRir, setShowRir] = useState(() => localStorage.getItem('show-rir') === '1');
@@ -40,7 +44,35 @@ export default function AccountScreen({
     getProfile(token)
       .then(setProfile)
       .catch(() => {});
-  }, [token]);
+  }, [token, plus]);
+  // Mirrors can_join in billing.rs: only these can start a new subscription; the rest manage theirs
+  const status = profile?.membershipStatus;
+  const canJoin = !status || status === 'canceled' || status === 'incomplete_expired';
+  // Paid up: the card dims and says Purchased. past_due still has Plus but must fix their card
+  const purchased = plus && !isAdmin && status !== 'past_due';
+  const until = profile?.membershipEndsAt
+    ? new Date(profile.membershipEndsAt).toLocaleDateString(undefined, {
+        day: 'numeric',
+        month: 'short',
+      })
+    : '';
+  const plusLine = isAdmin
+    ? 'Included free for admins.'
+    : status === 'past_due'
+      ? 'Your last payment failed. Update your card to keep Plus.'
+      : status === 'trialing'
+        ? `Free trial until ${until}`
+        : plus
+          ? `Paid until ${until}`
+          : 'Barcode scanner, progress charts and a year of muscle history.';
+
+  // Sends the browser to Stripe's Customer Portal to change card or cancel
+  function manage() {
+    billing.run(async () => {
+      const { url } = await openPortal(token);
+      window.location.assign(url);
+    });
+  }
 
   function toggle(row) {
     setNotice('');
@@ -214,6 +246,53 @@ export default function AccountScreen({
               </select>
             </div>
           </section>
+          <section
+            className={`card split${purchased ? ' purchased' : ''}`}
+            aria-labelledby="plus-title"
+          >
+            <div>
+              <h2 id="plus-title" className="card-title">
+                Gym App Plus
+              </h2>
+              <p className="row-sub">{plusLine}</p>
+              {purchased && (
+                <button
+                  className="link-btn inline"
+                  type="button"
+                  disabled={billing.loading}
+                  onClick={manage}
+                >
+                  {billing.loading ? 'Opening…' : 'Manage membership'}
+                </button>
+              )}
+              <ErrorMsg>{billing.message}</ErrorMsg>
+            </div>
+            {!isAdmin &&
+              profile &&
+              (purchased ? (
+                <button className="pill-btn" type="button" disabled>
+                  Purchased
+                </button>
+              ) : canJoin ? (
+                <button
+                  className="pill-btn filled"
+                  type="button"
+                  onClick={() => setUpgrading(true)}
+                >
+                  Upgrade
+                </button>
+              ) : (
+                <button
+                  className="outline-btn"
+                  type="button"
+                  disabled={billing.loading}
+                  onClick={manage}
+                >
+                  {billing.loading ? 'Opening…' : 'Manage membership'}
+                </button>
+              ))}
+          </section>
+          {upgrading && <UpgradeDialog token={token} onClose={() => setUpgrading(false)} />}
           <section className="card split" aria-labelledby="progress-title">
             <div>
               <h2 id="progress-title" className="card-title">

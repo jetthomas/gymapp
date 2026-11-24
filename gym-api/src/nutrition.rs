@@ -1,14 +1,17 @@
+use std::sync::Arc;
+
 use axum::{
     Json,
-    extract::{Path, Query},
+    extract::{Path, Query, State},
     http::StatusCode,
 };
 use chrono::{Datelike, NaiveDate};
+use serde_json::Value;
 
-use crate::extractors::AuthUser;
+use crate::extractors::{AuthUser, PlusUser};
 use crate::models::{DayQuery, Food, FoodEntry, HealthProfile, NewFood};
 use crate::passwords::{fits, plain};
-use crate::state::{ApiResult, all_rows, col, internal, one_row, set_user};
+use crate::state::{ApiResult, AppState, all_rows, col, internal, one_row, set_user};
 use tiberius::Row;
 
 // Everything here is health information: every query is tied to the member's own id from the token,
@@ -274,6 +277,113 @@ pub async fn delete_food(
         return Err((StatusCode::NOT_FOUND, "Entry not found.".into()));
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+// Plus: a packaged food by its barcode, per 100 g. Looked up on Open Food Facts the first time,
+// then kept in dbo.BarcodeFoods, so repeat scans are instant and stay under their limit
+// of 15 product reads a minute. API: https://openfoodfacts.github.io/openfoodfacts-server/api/
+pub async fn barcode_food(
+    State(state): State<Arc<AppState>>,
+    PlusUser(_, mut db): PlusUser,
+    Path(code): Path<String>,
+) -> ApiResult<Json<Food>> {
+    // EAN-8, UPC-A (12), EAN-13 and GTIN-14 are 8 to 14 digits
+    if !(8..=14).contains(&code.len()) || !code.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(bad("That isn't a food barcode."));
+    }
+    // Not member data, so no set_user: every member shares one cache
+    if let Some(r) = one_row(
+        &mut db,
+        "SELECT Name, Kcal, ProteinG, CarbsG, FatG FROM dbo.BarcodeFoods WHERE Code = @P1",
+        &[&code.as_str()],
+    )
+    .await?
+    {
+        return Ok(Json(to_food(&r)?));
+    }
+    let not_found = || {
+        (
+            StatusCode::NOT_FOUND,
+            "We couldn't find that food. Type it in instead.".to_string(),
+        )
+    };
+    // v2, not v3: v3.6 answers this request with an empty nutriments object
+    let res = state
+        .http
+        .get(format!(
+            "https://world.openfoodfacts.org/api/v2/product/{code}.json"
+        ))
+        .query(&[("fields", "product_name,nutriments")])
+        .header(reqwest::header::USER_AGENT, &state.food_user_agent)
+        .send()
+        .await
+        .map_err(internal)?;
+    // An unknown barcode is a 404 with {"status":0}; anything else not OK (503 = their limit) is a retry later
+    if res.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err(not_found());
+    }
+    if !res.status().is_success() {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "The food database is busy. Try again in a minute.".to_string(),
+        ));
+    }
+    let body: Value = res.json().await.map_err(internal)?;
+    if body["status"].as_i64() != Some(1) {
+        return Err(not_found());
+    }
+    let product = &body["product"];
+    let n = &product["nutriments"];
+    let mut name = product["product_name"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    // FoodEntries.Name holds 100; leave room for " (100 g)"
+    while !fits(&name, 92) {
+        name.pop();
+    }
+    let Some(kcal) = n["energy-kcal_100g"].as_f64() else {
+        return Err(not_found());
+    };
+    let grams = |key: &str| n[key].as_f64().unwrap_or(0.0);
+    let food = Food {
+        name: format!("{name} (100 g)"),
+        kcal: kcal.round() as i32,
+        protein_g: grams("proteins_100g"),
+        carbs_g: grams("carbohydrates_100g"),
+        fat_g: grams("fat_100g"),
+    };
+    // Outside data gets the same checks as a member's own entry (check_food's limits)
+    let sane_grams = [food.protein_g, food.carbs_g, food.fat_g]
+        .iter()
+        .all(|g| (0.0..=2000.0).contains(g));
+    if name.is_empty()
+        || !plain(&food.name, false)
+        || !(0..=10_000).contains(&food.kcal)
+        || !sane_grams
+    {
+        return Err(not_found());
+    }
+    // Two members scanning the same new food at once: the second insert fails, which is fine
+    if let Err(e) = db
+        .execute(
+            "INSERT INTO dbo.BarcodeFoods (Code, Name, Kcal, ProteinG, CarbsG, FatG)
+             VALUES (@P1, @P2, @P3, @P4, @P5, @P6)",
+            &[
+                &code.as_str(),
+                &food.name.as_str(),
+                &food.kcal,
+                &food.protein_g,
+                &food.carbs_g,
+                &food.fat_g,
+            ],
+        )
+        .await
+    {
+        eprintln!("barcode cache: {e}");
+    }
+    Ok(Json(food))
 }
 
 #[cfg(test)]

@@ -8,7 +8,7 @@ use axum::{
 };
 use jsonwebtoken::{DecodingKey, Validation, decode};
 
-use crate::extractors::{AuthUser, verify_credentials};
+use crate::extractors::{AuthUser, has_plus, verify_credentials};
 use crate::models::{
     Claims, Credentials, ForgotRequest, LoginResponse, NewUser, PasswordChange, PasswordOnly,
     Profile, ResetRequest, TokenRequest,
@@ -309,7 +309,8 @@ pub async fn reactivate_account(
 pub async fn get_profile(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Json<Profile>> {
     let row = one_row(
         &mut db,
-        "SELECT FirstName, LastName, Email FROM dbo.Users WHERE Id = @P1",
+        "SELECT FirstName, LastName, Email, IsAdmin, MembershipStatus, MembershipEndsAt
+         FROM dbo.Users WHERE Id = @P1",
         &[&user_id],
     )
     .await?
@@ -318,6 +319,11 @@ pub async fn get_profile(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Json<
         first_name: row.get::<&str, _>("FirstName").map(str::to_string),
         last_name: row.get::<&str, _>("LastName").map(str::to_string),
         email: col::<&str>(&row, "Email")?.to_string(),
+        plus: has_plus(&row),
+        membership_status: row.get::<&str, _>("MembershipStatus").map(str::to_string),
+        membership_ends_at: row
+            .get::<chrono::NaiveDateTime, _>("MembershipEndsAt")
+            .map(|t| t.and_utc()),
     }))
 }
 

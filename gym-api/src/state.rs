@@ -30,6 +30,12 @@ pub struct AppState {
     pub mail_attempts: DefaultKeyedRateLimiter<String>,
     pub mailer: AsyncSmtpTransport<Tokio1Executor>,
     pub mail_from: Mailbox,
+    pub http: reqwest::Client,
+    pub stripe_key: String,
+    pub stripe_price_id: String,
+    pub stripe_webhook_secret: String,
+    // Open Food Facts asks every app to name itself: "AppName/Version (ContactEmail)"
+    pub food_user_agent: String,
 }
 
 // The API only listens on 127.0.0.1 behind a proxy, so the client IP is the last

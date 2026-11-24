@@ -9,7 +9,7 @@ tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 serde = { version = "1", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
-tiberius = { version = "0.12", default-features = false, features = ["tds73", 
+tiberius = { version = "0.13", default-features = false, features = ["tds73", 
 "rustls", "chrono"] }
 argon2 = { version = "0.5", features = ["std"] }
 jsonwebtoken = "9"
@@ -19,3 +19,8 @@ totp-rs = { version = "5", features = ["qr", "gen_secret"] }
 tower_governor = "0.8.0"
 governor = "0.10"
 lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls-tls", "hostname"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "json", "form", "query"] }
+hmac = "0.13"
+sha2 = "0.11"
+hex = "0.4"
+serde_json = "1"

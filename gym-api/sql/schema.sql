@@ -131,3 +131,26 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Events_UserId_Kind_At'
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Events_At')
     CREATE INDEX IX_Events_At ON dbo.Events (At) INCLUDE (Kind);
 GO
+
+-- Gym App Plus (Stripe). Added to Users rather than a new table: one membership per member
+IF COL_LENGTH('dbo.Users', 'StripeCustomerId') IS NULL
+    ALTER TABLE dbo.Users ADD
+        StripeCustomerId NVARCHAR(255) NULL,  -- cus_..., made the first time they join
+        MembershipStatus NVARCHAR(20) NULL,   -- Stripe's subscription status; NULL = never joined
+        MembershipEndsAt DATETIME2 NULL;      -- end of the period they've paid for, in UTC
+GO
+-- The webhook finds the member by their Stripe customer id
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Users_StripeCustomerId')
+    CREATE INDEX IX_Users_StripeCustomerId ON dbo.Users (StripeCustomerId);
+-- Foods found by barcode, shared by every member (not member data, so no row-level security)
+IF OBJECT_ID('dbo.BarcodeFoods', 'U') IS NULL
+    CREATE TABLE dbo.BarcodeFoods (
+        Code VARCHAR(14) NOT NULL PRIMARY KEY,
+        Name NVARCHAR(100) NOT NULL,
+        Kcal INT NOT NULL,
+        ProteinG FLOAT NOT NULL,
+        CarbsG FLOAT NOT NULL,
+        FatG FLOAT NOT NULL,
+        FetchedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+GO

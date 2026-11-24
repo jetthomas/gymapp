@@ -8,13 +8,14 @@ export default function BarChart({
   max,
   tone = '',
   alertAt = Infinity,
+  totalLabel = 'total',
 }) {
   const axis = [data[0], data[Math.floor((data.length - 1) / 2)], data.at(-1)];
   return (
     <figure className="chart">
       <figcaption className="chart-title">{title}</figcaption>
       <p className="chart-total">
-        <span className={tone}>{total}</span> total
+        <span className={tone}>{total}</span> {totalLabel}
       </p>
       <p className="chart-summary">{summary}</p>
       {/* shortcut: 3-digit daily counts would overlap their neighbours' labels; label only the peak then */}

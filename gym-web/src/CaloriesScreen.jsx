@@ -26,7 +26,7 @@ export function Meter({ value, max }) {
 }
 
 // Today's calories: what's left, the macros, then each meal
-export default function CaloriesScreen({ token }) {
+export default function CaloriesScreen({ token, plus }) {
   const [profile, setProfile] = useState(undefined); // undefined = loading; null = nothing saved yet
   const [editing, setEditing] = useState(false);
   const [date, setDate] = useState(today);
@@ -210,6 +210,7 @@ export default function CaloriesScreen({ token }) {
       {addingTo && (
         <FoodSheet
           token={token}
+          plus={plus}
           date={date}
           meal={addingTo}
           onAdded={() => {

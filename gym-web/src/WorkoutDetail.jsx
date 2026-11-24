@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
 import { getWorkout } from './api';
 import ErrorMsg from './ErrorMsg';
+import PlusLock from './PlusLock';
+import ProgressChart from './ProgressChart';
 
 // One finished workout: its totals, then every set
-export default function WorkoutDetail({ token, id, onBack }) {
+export default function WorkoutDetail({ token, plus, id, onBack }) {
   const [workout, setWorkout] = useState(null);
   const [error, setError] = useState('');
+  const [charting, setCharting] = useState(null); // the exercise whose progress is showing
 
   useEffect(() => {
     getWorkout(token, id)
@@ -57,7 +60,23 @@ export default function WorkoutDetail({ token, id, onBack }) {
           <div className="account-cards">
             {workout.exercises.map((e, i) => (
               <section className="card" key={i}>
-                <h2 className="card-title">{e.name}</h2>
+                <div className="section-head">
+                  <h2 className="card-title">{e.name}</h2>
+                  <button
+                    className="pill-btn"
+                    type="button"
+                    aria-expanded={charting === i}
+                    onClick={() => setCharting(charting === i ? null : i)}
+                  >
+                    Progress
+                  </button>
+                </div>
+                {charting === i &&
+                  (plus ? (
+                    <ProgressChart token={token} exerciseId={e.exerciseId} />
+                  ) : (
+                    <PlusLock token={token} feature="Progress charts" />
+                  ))}
                 <ol className="set-list">
                   {e.sets.map((s, j) => (
                     <li key={j}>

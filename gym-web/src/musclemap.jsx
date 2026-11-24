@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getMuscles } from './api';
 import { MUSCLES } from './muscles';
 import ErrorMsg from './ErrorMsg';
+import PlusLock from './PlusLock';
 
 // One half of each figure (x <= 100), as polygons per muscle; Figure draws each one again mirrored at x = 200 - x
 // prettier-ignore
@@ -31,6 +32,7 @@ const FRONT = {
     [[79, 241], [86, 246], [87, 262], [82, 284], [80, 276]],
   ],
 };
+
 // prettier-ignore
 const BACK = {
   neck: [[[93, 42], [100, 44], [100, 52], [91, 52]]],
@@ -106,17 +108,21 @@ function Figure({ shapes, sets, dx, label, hovered, onHover }) {
   );
 }
 
-// A front and back body, each muscle shaded by how many sets hit it in the last 30 days
-export default function MuscleMap({ token }) {
+// Free members can look back 30 days; Plus up to a year (the API enforces the same limit)
+const RANGES = [7, 30, 90, 365];
+
+// A front and back body, each muscle shaded by how many sets hit it in the chosen number of days
+export default function MuscleMap({ token, plus }) {
+  const [days, setDays] = useState(30);
   const [sets, setSets] = useState(null); // { chest: 24, ... }; null = still loading
   const [hovered, setHovered] = useState(null); // the muscle under the pointer
   const [error, setError] = useState('');
 
   useEffect(() => {
-    getMuscles(token)
+    getMuscles(token, days)
       .then((rows) => setSets(Object.fromEntries(rows.map((r) => [r.muscle, r.sets]))))
       .catch(() => setError("Couldn't load your progress. Check your signal and try again."));
-  }, [token]);
+  }, [token, days]);
 
   if (error) return <ErrorMsg>{error}</ErrorMsg>;
   if (!sets) return <p className="msg">Loading…</p>;
@@ -129,7 +135,23 @@ export default function MuscleMap({ token }) {
       <h2 id="muscles-title" className="card-title">
         Muscles trained
       </h2>
-      <p className="row-sub">Sets in the last 30 days. Brighter means more.</p>
+      <p className="row-sub">Sets in the last {days} days. Brighter means more.</p>
+      {plus ? (
+        <select
+          className="role-select"
+          aria-label="Days to show"
+          value={days}
+          onChange={(e) => setDays(Number(e.target.value))}
+        >
+          {RANGES.map((d) => (
+            <option key={d} value={d}>
+              Last {d} days
+            </option>
+          ))}
+        </select>
+      ) : (
+        <PlusLock token={token} feature="Looking back 90 or 365 days" />
+      )}
       <div className="muscle-map">
         {/* The figure is a picture; the list beside it carries the same numbers as text */}
         <div className="muscle-figure" aria-hidden="true">
@@ -165,7 +187,7 @@ export default function MuscleMap({ token }) {
           </p>
         </div>
         <div>
-          {trained.length === 0 && <p className="hint">Nothing logged in the last 30 days.</p>}
+          {trained.length === 0 && <p className="hint">Nothing logged in the last {days} days.</p>}
           <dl className="muscle-list">
             {trained.map((m) => (
               <div key={m}>
