@@ -49,6 +49,11 @@ export default function App() {
     () => localStorage.getItem('show-calories') !== '0',
   );
 
+  // Same as Calories: the nav tab, the dashboard card and the Workout page
+  const [showWorkout, setShowWorkout] = useState(
+    () => localStorage.getItem('show-workout') !== '0',
+  );
+
   // A refresh only works with a "Stay logged in" cookie, so remember who it was for offline mode
   function signedInWithCookie(r) {
     setToken(r.accessToken);
@@ -243,6 +248,7 @@ export default function App() {
         page={page === 'login' || page === 'reset' ? 'home' : page}
         isAdmin={isAdmin}
         showCalories={showCalories}
+        showWorkout={showWorkout}
         onNavigate={go}
       />
       {page === 'admin' ? (
@@ -256,12 +262,17 @@ export default function App() {
           onManageUsers={() => go('admin')}
           onViewProgress={() => go('progress')}
           showCalories={showCalories}
+          showWorkout={showWorkout}
           plus={plus}
           profile={profile}
           onProfileChanged={setProfile}
           onShowCaloriesChanged={(on) => {
             setShowCalories(on);
             localStorage.setItem('show-calories', on ? '1' : '0');
+          }}
+          onShowWorkoutChanged={(on) => {
+            setShowWorkout(on);
+            localStorage.setItem('show-workout', on ? '1' : '0');
           }}
           onLogOut={handleLogOut}
           onSignedOut={(doneNotice = '') => {
@@ -281,11 +292,14 @@ export default function App() {
         </main>
       ) : page === 'calories' && showCalories ? (
         <CaloriesScreen token={token} plus={plus} />
+      ) : page === 'workout' && showWorkout ? (
+        <WorkoutScreen token={token} onDone={() => go('home')} />
       ) : (
         <HomeScreen
           key={visit}
           token={token}
           showCalories={showCalories}
+          showWorkout={showWorkout}
           onOpenCalories={() => go('calories')}
           plus={plus}
         />

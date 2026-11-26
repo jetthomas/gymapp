@@ -80,6 +80,7 @@ export default function WorkoutDetail({ token, plus, id, onBack }) {
                 <ol className="set-list">
                   {e.sets.map((s, j) => (
                     <li key={j}>
+                      {s.side && `${s.side} · `}
                       {s.weightKg} kg × {s.reps}
                       {s.rir != null && <span className="row-sub"> · RIR {s.rir}</span>}
                     </li>

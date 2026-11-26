@@ -159,3 +159,8 @@ GO
 IF COL_LENGTH('dbo.Users', 'Avatar') IS NULL
     ALTER TABLE dbo.Users ADD Avatar VARCHAR(MAX) NULL;
 GO
+
+-- Unilateral sets: 'L' or 'R' for one side; NULL = both sides, as every set before this
+IF COL_LENGTH('dbo.Sets', 'Side') IS NULL
+    ALTER TABLE dbo.Sets ADD Side CHAR(1) NULL CHECK (Side IN ('L', 'R'));
+GO

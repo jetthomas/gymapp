@@ -119,6 +119,7 @@ pub struct NewSet {
     pub weight_kg: f64,
     pub reps: i32,
     pub rir: Option<i32>, // reps in reserve; only sent when the member has "Show RIR" on
+    pub side: Option<String>, // "L" or "R" for one side of a unilateral exercise; None = both
 }
 
 #[derive(Deserialize)]
@@ -158,6 +159,7 @@ pub struct LoggedSet {
     pub weight_kg: f64,
     pub reps: i32,
     pub rir: Option<i32>,
+    pub side: Option<String>,
 }
 
 #[derive(Serialize)]
