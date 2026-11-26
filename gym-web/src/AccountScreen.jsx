@@ -25,6 +25,8 @@ export default function AccountScreen({
   onViewProgress,
   showCalories,
   onShowCaloriesChanged,
+  showWorkout,
+  onShowWorkoutChanged,
   onLogOut,
   onSignedOut,
 }) {
@@ -273,6 +275,20 @@ export default function AccountScreen({
                 type="checkbox"
                 checked={showCalories}
                 onChange={(e) => onShowCaloriesChanged(e.target.checked)}
+              />
+            </div>
+            <div className="row static">
+              <label className="row-text" htmlFor="show-workout">
+                Show Workout
+                <span className="row-sub">
+                  Off hides the Workout tab and card. Your past workouts stay in History.
+                </span>
+              </label>
+              <input
+                id="show-workout"
+                type="checkbox"
+                checked={showWorkout}
+                onChange={(e) => onShowWorkoutChanged(e.target.checked)}
               />
             </div>
             <div className="row static">

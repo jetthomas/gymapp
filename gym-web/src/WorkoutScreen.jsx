@@ -53,6 +53,22 @@ export default function WorkoutScreen({ token, onDone }) {
     }));
   }
 
+  // Each row becomes a left and a right row, or each pair goes back to one row.
+  // Locked once a set is ticked, so nothing logged is lost
+  function setUnilateral(i, on) {
+    const pair = (r) => [
+      { ...r, side: 'L' },
+      { ...r, side: 'R' },
+    ];
+    const single = (rows) => rows.filter((r) => r.side !== 'R').map((r) => ({ ...r, side: null }));
+    changeExercise(i, (e) => ({
+      ...e,
+      unilateral: on,
+      sets: on ? e.sets.flatMap(pair) : single(e.sets),
+      previous: on ? e.previous.flatMap(pair) : single(e.previous),
+    }));
+  }
+
   async function addExercise(exercise) {
     setPicking(false);
     // No history (or no signal) just means an empty "previous" column
@@ -66,8 +82,10 @@ export default function WorkoutScreen({ token, onDone }) {
           name: exercise.name,
           equipment: exercise.equipment,
           previous,
+          // Unilateral last time opens as L/R rows again
+          unilateral: previous.some((p) => p.side),
           // Start with as many rows as last time
-          sets: previous.length ? previous.map(newSet) : [newSet()],
+          sets: previous.length ? previous.map((p) => ({ ...newSet(), side: p.side })) : [newSet()],
         },
       ],
     }));
@@ -112,6 +130,7 @@ export default function WorkoutScreen({ token, onDone }) {
             weightKg: Number(s.weightKg),
             reps: Number(s.reps),
             rir: s.rir === '' ? null : Number(s.rir),
+            side: s.side ?? null,
           })),
       }))
       .filter((e) => e.sets.length > 0);
@@ -171,6 +190,17 @@ export default function WorkoutScreen({ token, onDone }) {
         <section className="card" key={i} aria-label={e.name}>
           <div className="section-head">
             <h2 className="card-title">{e.name}</h2>
+            {e.equipment !== 'barbell' && (
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={!!e.unilateral}
+                  disabled={e.sets.some((s) => s.done)}
+                  onChange={(ev) => setUnilateral(i, ev.target.checked)}
+                />
+                Unilateral
+              </label>
+            )}
             <button
               className="link-btn danger"
               type="button"
@@ -206,15 +236,19 @@ export default function WorkoutScreen({ token, onDone }) {
               {e.sets.map((s, j) => {
                 const prev = e.previous[j];
                 const ready = filled(e, j);
+                // "2L", counted so removing one side doesn't renumber the rest
+                const label = s.side
+                  ? `${e.sets.slice(0, j + 1).filter((x) => x.side !== 'R').length}${s.side}`
+                  : j + 1;
                 return (
                   <tr key={j} className={s.done ? 'done' : ''}>
-                    <th scope="row">{j + 1}</th>
+                    <th scope="row">{label}</th>
                     <td className="prev">{prev ? `${prev.weightKg} × ${prev.reps}` : '–'}</td>
                     <td>
                       <input
                         inputMode="decimal"
                         enterKeyHint="next"
-                        aria-label={`Set ${j + 1} weight in kg`}
+                        aria-label={`Set ${label} weight in kg`}
                         placeholder={prev?.weightKg ?? ''}
                         value={s.weightKg}
                         readOnly={s.done}
@@ -229,7 +263,7 @@ export default function WorkoutScreen({ token, onDone }) {
                       <input
                         inputMode="numeric"
                         enterKeyHint="next"
-                        aria-label={`Set ${j + 1} reps`}
+                        aria-label={`Set ${label} reps`}
                         placeholder={prev?.reps ?? ''}
                         value={s.reps}
                         readOnly={s.done}
@@ -244,7 +278,7 @@ export default function WorkoutScreen({ token, onDone }) {
                         <input
                           inputMode="numeric"
                           enterKeyHint="next"
-                          aria-label={`Set ${j + 1} reps in reserve`}
+                          aria-label={`Set ${label} reps in reserve`}
                           value={s.rir}
                           readOnly={s.done}
                           onChange={(ev) =>
@@ -259,7 +293,7 @@ export default function WorkoutScreen({ token, onDone }) {
                         <button
                           className="tick plate-btn"
                           type="button"
-                          aria-label={`Plates for set ${j + 1}`}
+                          aria-label={`Plates for set ${label}`}
                           disabled={ready.weightKg === '' || isNaN(ready.weightKg)}
                           onClick={() => setPlateWeight(ready.weightKg)}
                         >
@@ -284,7 +318,7 @@ export default function WorkoutScreen({ token, onDone }) {
                         className="tick"
                         type="button"
                         aria-pressed={s.done}
-                        aria-label={`Set ${j + 1} done`}
+                        aria-label={`Set ${label} done`}
                         // Nothing to log until there's a weight and at least 1 rep
                         disabled={!s.done && !validSet(ready)}
                         onClick={() => tick(i, j)}
@@ -296,7 +330,7 @@ export default function WorkoutScreen({ token, onDone }) {
                       <button
                         className="remove-set"
                         type="button"
-                        aria-label={`Remove set ${j + 1}`}
+                        aria-label={`Remove set ${label}`}
                         // The card's Remove takes the whole exercise
                         disabled={e.sets.length === 1}
                         onClick={() => removeSet(i, j)}
@@ -312,7 +346,20 @@ export default function WorkoutScreen({ token, onDone }) {
           <button
             className="link-btn"
             type="button"
-            onClick={() => changeExercise(i, (x) => ({ ...x, sets: [...x.sets, newSet()] }))}
+            onClick={() =>
+              changeExercise(i, (x) => ({
+                ...x,
+                sets: [
+                  ...x.sets,
+                  ...(x.unilateral
+                    ? [
+                        { ...newSet(), side: 'L' },
+                        { ...newSet(), side: 'R' },
+                      ]
+                    : [newSet()]),
+                ],
+              }))
+            }
           >
             + Add set
           </button>

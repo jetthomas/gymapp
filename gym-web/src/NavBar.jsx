@@ -3,7 +3,7 @@ import { useWaiting } from './outbox';
 
 // The bar across the top of every signed-in screen. Until the profile loads, or if it fails,
 // the account button just says Account
-export default function NavBar({ token, profile, page, isAdmin, showCalories, onNavigate }) {
+export default function NavBar({ token, profile, page, isAdmin, showCalories, showWorkout, onNavigate }) {
   const waiting = useWaiting(token);
 
   function link(to, label, className = 'nav-btn') {
@@ -23,6 +23,7 @@ export default function NavBar({ token, profile, page, isAdmin, showCalories, on
     <header className="nav">
       <nav className="nav-links">
         {link('home', 'Dashboard')}
+        {showWorkout && link('workout', 'Workout')}
         {showCalories && link('calories', 'Calories')}
         {isAdmin && link('admin', 'Admin')}
       </nav>

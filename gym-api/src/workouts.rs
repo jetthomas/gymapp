@@ -43,6 +43,7 @@ fn to_set(r: &Row) -> ApiResult<LoggedSet> {
         weight_kg: col(r, "WeightKg")?,
         reps: col(r, "Reps")?,
         rir: r.get("Rir"),
+        side: r.get::<&str, _>("Side").map(String::from),
     })
 }
 
@@ -87,6 +88,9 @@ pub fn check_workout(w: &NewWorkout) -> Result<&str, String> {
         }
         if s.rir.is_some_and(|r| !(0..=10).contains(&r)) {
             return Err("RIR must be 0 to 10".into());
+        }
+        if s.side.as_deref().is_some_and(|x| x != "L" && x != "R") {
+            return Err("side must be L or R".into());
         }
     }
     Ok(name)
@@ -201,9 +205,9 @@ pub async fn create_workout(
         .ok_or_else(|| internal("insert returned no Id"))?;
         for (j, s) in e.sets.iter().enumerate() {
             db.execute(
-                "INSERT INTO dbo.Sets (WorkoutExerciseId, Position, WeightKg, Reps, Rir)
-                 VALUES (@P1, @P2, @P3, @P4, @P5)",
-                &[&we_id, &(j as i32), &s.weight_kg, &s.reps, &s.rir],
+                "INSERT INTO dbo.Sets (WorkoutExerciseId, Position, WeightKg, Reps, Rir, Side)
+                 VALUES (@P1, @P2, @P3, @P4, @P5, @P6)",
+                &[&we_id, &(j as i32), &s.weight_kg, &s.reps, &s.rir, &s.side],
             )
             .await
             .map_err(internal)?;
@@ -240,7 +244,7 @@ pub async fn get_workout(
     // WorkoutExercises and Sets have no UserId of their own: the workout above was already checked as this member's
     let rows = all_rows(
         &mut db,
-        "SELECT we.Id AS WeId, we.ExerciseId, e.Name, s.WeightKg, s.Reps, s.Rir
+        "SELECT we.Id AS WeId, we.ExerciseId, e.Name, s.WeightKg, s.Reps, s.Rir, s.Side
          FROM dbo.WorkoutExercises we
          JOIN dbo.Exercises e ON e.Id = we.ExerciseId
          JOIN dbo.Sets s ON s.WorkoutExerciseId = we.Id
@@ -277,7 +281,7 @@ pub async fn last_sets(
     set_user(&mut db, user_id).await.map_err(internal)?;
     let rows = all_rows(
         &mut db,
-        "SELECT s.WeightKg, s.Reps, s.Rir FROM dbo.Sets s
+        "SELECT s.WeightKg, s.Reps, s.Rir, s.Side FROM dbo.Sets s
          WHERE s.WorkoutExerciseId = (
             SELECT TOP 1 we.Id FROM dbo.WorkoutExercises we
             JOIN dbo.Workouts w ON w.Id = we.WorkoutId
@@ -300,8 +304,10 @@ pub async fn muscle_sets(
     set_user(&mut db, user_id).await.map_err(internal)?;
     let rows = all_rows(
         &mut db,
-        // 1e0 and 5e-1 are FLOAT literals, so the sum comes back as a float, not a DECIMAL
-        "SELECT m.Muscle, SUM(CASE WHEN m.Role = 'primary' THEN 1e0 ELSE 5e-1 END) AS Sets
+        // 1e0 and 5e-1 are FLOAT literals, so the sum comes back as a float, not a DECIMAL.
+        // One side of a unilateral set is half a set, so L + R counts once
+        "SELECT m.Muscle, SUM(CASE WHEN m.Role = 'primary' THEN 1e0 ELSE 5e-1 END
+                * CASE WHEN s.Side IS NULL THEN 1e0 ELSE 5e-1 END) AS Sets
          FROM dbo.Workouts w
          JOIN dbo.WorkoutExercises we ON we.WorkoutId = w.Id
          JOIN dbo.Sets s ON s.WorkoutExerciseId = we.Id
@@ -371,6 +377,7 @@ mod tests {
                     weight_kg,
                     reps,
                     rir: Some(2),
+                    side: None,
                 }],
             }],
         }
@@ -405,5 +412,10 @@ mod tests {
             check_workout(&workout(62.5, 8, Some("abc"))).is_err(),
             "bad client id"
         );
+        let mut one_side = workout(20.0, 10, None);
+        one_side.exercises[0].sets[0].side = Some("L".into());
+        assert!(check_workout(&one_side).is_ok(), "left side");
+        one_side.exercises[0].sets[0].side = Some("X".into());
+        assert!(check_workout(&one_side).is_err(), "unknown side");
     }
 }
