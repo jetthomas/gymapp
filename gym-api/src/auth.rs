@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
     Json,
-    extract::State,
+    extract::{ConnectInfo, State},
     http::{HeaderMap, StatusCode, header::SET_COOKIE},
     response::{IntoResponse, Response},
 };
@@ -18,8 +18,8 @@ use crate::passwords::{
     valid_email,
 };
 use crate::state::{
-    ApiResult, AppState, Db, col, connect, internal, last_visit, may_mail, one_row, record,
-    send_mail, send_security_notice, send_verify_mail,
+    ApiResult, AppState, Db, client_ip, col, connect, internal, last_visit, may_mail, one_row,
+    record, send_mail, send_security_notice, send_verify_mail,
 };
 use crate::tokens::{
     CLEAR_REFRESH, cookie, make_challenge, make_self_reset_token, make_token, read_token,
@@ -98,10 +98,13 @@ pub async fn register(
 
 pub async fn login(
     State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(c): Json<Credentials>,
 ) -> ApiResult<Response> {
     let mut db = connect(&state).await.map_err(internal)?;
-    let account = verify_credentials(&mut db, &c).await?;
+    let ip = client_ip(peer.ip(), &headers);
+    let account = verify_credentials(&state, &mut db, &c, ip).await?;
     // Checked after the password so a stranger can't probe which emails are deactivated
     if !account.active {
         return Err((StatusCode::FORBIDDEN, "Account is deactivated.".into()));
@@ -244,12 +247,12 @@ pub async fn reset_password(
     let (sql, notice) = if by_admin {
         // Also turns 2FA off: an admin reset link is the way back in after losing the phone
         (
-            "UPDATE dbo.Users SET PasswordHash = @P1, TotpEnabled = 0, TotpSecret = NULL, TotpFailures = 0, LoginFailures = 0, LockedUntil = NULL, SessionVersion = SessionVersion + 1 WHERE Id = @P2",
+            "UPDATE dbo.Users SET PasswordHash = @P1, TotpEnabled = 0, TotpSecret = NULL, TotpFailures = 0, SessionVersion = SessionVersion + 1 WHERE Id = @P2",
             "Your password was reset with a link from an admin, and two-factor was turned off.",
         )
     } else {
         (
-            "UPDATE dbo.Users SET PasswordHash = @P1, LoginFailures = 0, LockedUntil = NULL, SessionVersion = SessionVersion + 1 WHERE Id = @P2",
+            "UPDATE dbo.Users SET PasswordHash = @P1, SessionVersion = SessionVersion + 1 WHERE Id = @P2",
             "Your password was reset.",
         )
     };
@@ -281,10 +284,13 @@ pub async fn verify_email(
 
 pub async fn reactivate_account(
     State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(c): Json<Credentials>,
 ) -> ApiResult<StatusCode> {
     let mut db = connect(&state).await.map_err(internal)?;
-    let account = verify_credentials(&mut db, &c).await?;
+    let ip = client_ip(peer.ip(), &headers);
+    let account = verify_credentials(&state, &mut db, &c, ip).await?;
     // Bump SessionVersion so tokens from before the deactivation don't come back to life.
     // Active = 0 means an already-active account isn't touched, so this can't sign anyone out.
     db.execute(

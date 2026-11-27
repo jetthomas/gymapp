@@ -3,6 +3,7 @@ import { getWorkouts } from './api';
 import CaloriesCard from './CaloriesCard';
 import ConfirmDialog from './ConfirmDialog';
 import ErrorMsg from './ErrorMsg';
+import MuscleCard from './MuscleCard';
 import { drop, useRefused, useWaiting } from './outbox';
 import WeekCard from './WeekCard';
 import WorkoutCard from './WorkoutCard';
@@ -29,7 +30,8 @@ export default function HomeScreen({ token, showCalories, showWorkout, onOpenCal
       .catch((err) => setError(err.message));
   }, [token, view, waiting]);
 
-  if (view === 'active') return <WorkoutScreen token={token} onDone={() => setView('home')} />;
+  if (view === 'active')
+    return <WorkoutScreen token={token} start onDone={() => setView('home')} />;
   if (view !== 'home') {
     return <WorkoutDetail token={token} plus={plus} id={view} onBack={() => setView('home')} />;
   }
@@ -78,48 +80,52 @@ export default function HomeScreen({ token, showCalories, showWorkout, onOpenCal
       {workouts === null && !error && <p className="msg">Loading…</p>}
 
       {workouts && (
-        <div className="dash">
+        <>
           <WeekCard workouts={workouts} />
-          {showCalories && <CaloriesCard token={token} onOpen={onOpenCalories} />}
-          {showWorkout && (
-            <WorkoutCard
-              token={token}
-              last={workouts[0]}
-              onStart={() => setView('active')}
-              onOpen={setView}
-            />
-          )}
-        </div>
-      )}
-
-      {workouts?.length > 0 && (
-        <section aria-labelledby="history-title">
-          <h2 id="history-title" className="section-title">
-            History
-          </h2>
-          <div className="group exercise-list">
-            {workouts.map((w) => (
-              <button className="row" type="button" key={w.id} onClick={() => setView(w.id)}>
-                <span className="row-text">
-                  {w.name}
-                  <span className="row-sub">
-                    {[
-                      new Date(w.date).toLocaleDateString(undefined, {
-                        weekday: 'short',
-                        day: 'numeric',
-                        month: 'short',
-                      }),
-                      `${w.sets} ${w.sets === 1 ? 'set' : 'sets'}`,
-                      w.durationSec && `${Math.round(w.durationSec / 60)} min`,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </span>
-                </span>
-              </button>
-            ))}
+          <div className="dash">
+            {showWorkout && (
+              <WorkoutCard
+                token={token}
+                last={workouts[0]}
+                onStart={() => setView('active')}
+                onOpen={setView}
+              />
+            )}
+            {showCalories && <CaloriesCard token={token} onOpen={onOpenCalories} />}
+            <MuscleCard token={token} />
+            {workouts.length > 0 && (
+              <section className="card" aria-labelledby="history-title">
+                <h2 id="history-title" className="eyebrow">
+                  History
+                </h2>
+                <div className="list">
+                  {workouts.map((w) => (
+                    <button className="row" type="button" key={w.id} onClick={() => setView(w.id)}>
+                      <span className="row-text">
+                        {w.name}
+                        <span className="row-sub">
+                          {new Date(w.date).toLocaleDateString(undefined, {
+                            weekday: 'short',
+                            day: 'numeric',
+                            month: 'short',
+                          })}
+                        </span>
+                      </span>
+                      <span className="row-end">
+                        {[
+                          `${w.sets} ${w.sets === 1 ? 'set' : 'sets'}`,
+                          w.durationSec && `${Math.round(w.durationSec / 60)} min`,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
           </div>
-        </section>
+        </>
       )}
     </main>
   );

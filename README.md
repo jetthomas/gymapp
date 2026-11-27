@@ -286,7 +286,7 @@ sequenceDiagram
 
 **Forgot password.** `POST /auth/forgot` always answers 200; if the account exists, it emails a 15-minute link. `POST /auth/reset` sets the new password. On a 2FA account, a member's own reset also needs a current code (the first attempt answers 401 and the form asks for it), so access to someone's inbox isn't enough to get around 2FA. A reset signs out every session and emails the member.
 
-**Admin reset link.** Made on the Admin screen and passed to the member by hand. It also turns 2FA off: it's the way back in after losing a phone. The member is emailed as soon as it's made, and the admin who made it is recorded. Admins can't get one for another admin (or themselves), so one stolen admin login can't open the other admins' accounts; an admin who loses their 2FA phone uses a recovery code.
+**Admin reset link.** Made on the Admin screen and passed to the member by hand. It also turns 2FA off: it's the way back in after losing a phone. The member is emailed as soon as it's made, and the admin who made it is recorded. Admins can't get one for another admin (or themselves), and neither can a former admin, so one stolen admin login can't open the other admins' accounts, even by removing their admin access first. Removing someone's admin access emails them. An admin who loses their 2FA phone uses a recovery code.
 
 **Change password.** `POST /auth/password` with the current and new passwords. Other devices are signed out; this one gets a new token (and refresh cookie) in the response.
 
@@ -302,11 +302,11 @@ Every security change (password, 2FA, reset) emails the member.
 
 - Hashed with Argon2 (about 19 MiB per hash). Hashing runs in `spawn_blocking` so it doesn't stall other requests, and a semaphore caps how many run at once.
 - At least 10 characters (at most 128) with a symbol, and [zxcvbn](https://github.com/dropbox/zxcvbn) must score it 4/4, taking the member's name and email into account.
-- 10 wrong passwords in a row lock the account for 15 minutes.
+- 10 tries at one account from one IP, then 1 every 90 seconds. It's counted per IP, so someone guessing at a member's email can't lock the member out.
 
 **Not revealing who has an account**
 
-- An unknown email still runs a full Argon2 check against a dummy hash, and a locked account still checks the password, so timing reveals nothing.
+- An unknown email still runs a full Argon2 check against a dummy hash, and a login over the limit still checks the password, so timing reveals nothing.
 - Register and forgot password always answer 200. "Deactivated" is only reported after the right password.
 - Emails are sent in the background so response time doesn't depend on whether one was sent.
 
@@ -318,11 +318,12 @@ Every security change (password, 2FA, reset) emails the member.
 
 **Rate limits**
 
-| Limit     | Applies to                                                   | Rule                           |
-| --------- | ------------------------------------------------------------ | ------------------------------ |
-| Per IP    | `/auth/*` routes that check or hash a password, or send mail | Bursts of 30, then 1 every 2 s |
-| Per user  | 2FA codes at login                                           | 5, then 1 a minute             |
-| Per email | Emails anyone can trigger                                    | 3, then 1 every 20 minutes     |
+| Limit            | Applies to                                                   | Rule                           |
+| ---------------- | ------------------------------------------------------------ | ------------------------------ |
+| Per IP           | `/auth/*` routes that check or hash a password, or send mail | Bursts of 30, then 1 every 2 s |
+| Per account + IP | Passwords at login and reactivate                            | 10, then 1 every 90 s          |
+| Per user         | 2FA codes at login                                           | 5, then 1 a minute             |
+| Per email        | Emails anyone can trigger                                    | 3, then 1 every 20 minutes     |
 
 The client IP is the last `X-Forwarded-For` entry, which our proxy adds; earlier entries can be faked. IPv6 addresses are grouped by /64. Security notices are never rate-limited, so they can't be silenced.
 
@@ -353,7 +354,7 @@ erDiagram
 | `Sets`             | One per set: position, weight in kg, reps, optional RIR, and `Side` (`L`/`R` for one side, NULL for both) |
 | `Exercises`        | The shared library: name, category, equipment, and `SourceId` (NULL for exercises an admin added)      |
 | `ExerciseMuscles`  | The muscles an exercise works (17 names), each `primary` or `secondary`                                |
-| `Events`           | An activity log: `login`, `login_failed`, `workout`, and admin actions                                 |
+| `Events`           | An activity log: `login`, `login_failed`, `workout`, admin actions, and `admin_removed` (against the member who lost admin access) |
 | `RecoveryCodes`    | Hashed 2FA recovery codes and when each was used                                                       |
 
 - There's no route to delete a workout. If one is deleted in the database, its exercises and sets go with it (`ON DELETE CASCADE`).

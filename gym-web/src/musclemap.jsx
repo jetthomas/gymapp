@@ -72,12 +72,7 @@ const shade = (sets) => (sets >= 40 ? 1 : sets >= 20 ? 0.7 : sets > 0 ? 0.4 : 0)
 function Figure({ shapes, sets, dx, label, hovered, onHover }) {
   return (
     // The card colour as the outline is what cuts the body into facets
-    <g
-      transform={`translate(${dx})`}
-      stroke="var(--surface)"
-      strokeWidth="1.5"
-      strokeLinejoin="round"
-    >
+    <g transform={`translate(${dx})`} stroke="var(--card)" strokeWidth="1.5" strokeLinejoin="round">
       {BODY.flatMap(halves).map((points) => (
         <polygon key={points} points={points} fill="var(--border)" />
       ))}
@@ -87,15 +82,15 @@ function Figure({ shapes, sets, dx, label, hovered, onHover }) {
           // A light outline marks the muscle under the pointer, on both figures
           <g
             key={muscle}
-            stroke={muscle === hovered ? 'var(--text)' : undefined}
+            stroke={muscle === hovered ? 'var(--foreground)' : undefined}
             onMouseEnter={() => onHover(muscle)}
             onMouseLeave={() => onHover(null)}
           >
             {list.flatMap(halves).map((points) => (
               <g key={points}>
-                <polygon points={points} fill="var(--input-border)" />
+                <polygon points={points} fill="var(--muted)" />
                 {opacity > 0 && (
-                  <polygon points={points} fill="var(--accent)" fillOpacity={opacity} />
+                  <polygon points={points} fill="var(--primary)" fillOpacity={opacity} />
                 )}
               </g>
             ))}

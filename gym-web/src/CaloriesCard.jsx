@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getFood, getHealth } from './api';
-import { Meter } from './CaloriesScreen';
+import { Meter, Ring } from './CaloriesScreen';
 import targets from './targets';
 import { MACROS, MEALS } from './meals';
 import { dayKey } from './week';
@@ -28,7 +28,7 @@ export default function CaloriesCard({ token, onOpen }) {
   if (!target) {
     return (
       <section className="card" aria-labelledby="calories-title">
-        <h2 id="calories-title" className="card-label">
+        <h2 id="calories-title" className="eyebrow">
           Calories
         </h2>
         <p className="hint">Set a goal to see how much is left to eat each day.</p>
@@ -49,27 +49,26 @@ export default function CaloriesCard({ token, onOpen }) {
   return (
     <>
       <section className="card" aria-labelledby="calories-title">
-        <h2 id="calories-title" className="card-label">
+        <h2 id="calories-title" className="eyebrow">
           Calories
         </h2>
-        <div className="card-top">
-          <div>
-            <p className="card-big">{Math.abs(left).toLocaleString()}</p>
-            <p className="row-sub">{left < 0 ? 'kcal over' : 'kcal remaining'}</p>
-          </div>
-          <dl className="card-stats">
+        <div className="ring-summary">
+          <Ring value={eaten} max={target.kcal}>
+            <span className="ring-value">{Math.abs(left).toLocaleString()}</span>
+            <span className="eyebrow">{left < 0 ? 'kcal over' : 'kcal remaining'}</span>
+          </Ring>
+          <dl className="figures">
             <div>
-              <dt>Goal</dt>
+              <dt className="eyebrow">Goal</dt>
               <dd>{target.kcal.toLocaleString()}</dd>
             </div>
             <div>
-              <dt>Eaten</dt>
+              <dt className="eyebrow">Eaten</dt>
               <dd>{eaten.toLocaleString()}</dd>
             </div>
           </dl>
         </div>
-        <Meter value={eaten} max={target.kcal} />
-        <ul className="card-rows">
+        <ul className="list card-rows">
           {MEALS.map(([meal, label]) => {
             const kcal = total(
               entries.filter((e) => e.meal === meal),

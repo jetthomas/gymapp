@@ -33,6 +33,7 @@ use crate::auth::{
 };
 use crate::billing::{create_checkout, create_portal, webhook};
 use crate::exercises::{create_exercise, delete_exercise, list_exercises, update_exercise};
+use crate::extractors::login_limiter;
 use crate::nutrition::{
     add_food, barcode_food, delete_food, delete_health, get_health, list_food, put_health,
     recent_food, update_food,
@@ -165,6 +166,7 @@ async fn main() {
                 .unwrap()
                 .allow_burst(NonZeroU32::new(5).unwrap()),
         ),
+        login_attempts: login_limiter(),
         // 3 emails to one address, then one more every 20 minutes
         mail_attempts: DefaultKeyedRateLimiter::keyed(
             Quota::with_period(Duration::from_secs(20 * 60))
@@ -194,6 +196,7 @@ async fn main() {
             every_minute.tick().await;
             ip_limiter.retain_recent();
             cleanup_state.totp_attempts.retain_recent();
+            cleanup_state.login_attempts.retain_recent();
             cleanup_state.mail_attempts.retain_recent();
         }
     });

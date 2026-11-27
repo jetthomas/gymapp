@@ -13,6 +13,7 @@ import ResetPasswordForm from './ResetPasswordForm';
 import { getProfile, logout, refresh, setOnSessionExpired, verifyEmail } from './api';
 import { flush, userIdOf } from './outbox';
 import WorkoutScreen from './WorkoutScreen';
+import { ChevronLeft } from './icons';
 
 export default function App() {
   const [token, setToken] = useState(null);
@@ -282,8 +283,8 @@ export default function App() {
         />
       ) : page === 'progress' ? (
         <main className="admin-content">
-          <button className="outline-btn back-btn" type="button" onClick={() => go('account')}>
-            <span aria-hidden="true">‹</span> Account
+          <button className="ghost-btn back-btn" type="button" onClick={() => go('account')}>
+            <ChevronLeft size={18} /> Account
           </button>
           <div className="page-head">
             <h1 className="page-title">Progress</h1>

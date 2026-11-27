@@ -4,6 +4,7 @@ import AdminExercises from './AdminExercises';
 import BarChart from './BarChart';
 import ConfirmDialog from './ConfirmDialog';
 import ErrorMsg from './ErrorMsg';
+import { ChevronLeft } from './icons';
 import { displayName, initials } from './names';
 import perDay from './perDay';
 import { addDays, dayKey } from './week';
@@ -174,7 +175,7 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
       {view === 'activity' ? (
         <>
           <button
-            className="outline-btn back-btn"
+            className="ghost-btn back-btn"
             type="button"
             onClick={() => {
               setView('users');
@@ -182,7 +183,7 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
               setRange(lastDays(30));
             }}
           >
-            <span aria-hidden="true">‹</span> Back to Admin
+            <ChevronLeft size={18} /> Back to Admin
           </button>
           <div className="page-head">
             <div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getWorkout } from './api';
 import { loadDraft } from './Draft';
+import { Play } from './icons';
 import { userIdOf } from './outbox';
 
 // The last workout and what was in it; a workout planner would show today's plan here instead
@@ -21,7 +22,7 @@ export default function WorkoutCard({ token, last, onStart, onOpen }) {
 
   return (
     <section className="card" aria-labelledby="workout-title">
-      <h2 id="workout-title" className="card-label">
+      <h2 id="workout-title" className="eyebrow">
         Workout
       </h2>
       {!last && <p className="hint">No workouts yet. Start your first one.</p>}
@@ -29,7 +30,7 @@ export default function WorkoutCard({ token, last, onStart, onOpen }) {
         <>
           <div className="card-top">
             <div>
-              <p className="card-big">{last.name}</p>
+              <p className="headline">{last.name}</p>
               <p className="row-sub">
                 {[
                   'Last workout',
@@ -58,7 +59,7 @@ export default function WorkoutCard({ token, last, onStart, onOpen }) {
             </dl>
           </div>
           {exercises?.length > 0 && (
-            <ul className="card-rows">
+            <ul className="list card-rows">
               {exercises.map((e, i) => (
                 <li key={i}>
                   {e.name}
@@ -78,6 +79,7 @@ export default function WorkoutCard({ token, last, onStart, onOpen }) {
           </button>
         )}
         <button className="pill-btn filled" type="button" onClick={onStart}>
+          <Play size={16} />
           {loadDraft(userIdOf(token)) ? 'Resume workout' : 'Start workout'}
         </button>
       </div>

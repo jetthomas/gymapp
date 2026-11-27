@@ -4,6 +4,7 @@ import { toAvatar } from './avatar';
 import ChangePasswordForm from './ChangePasswordForm';
 import { clock } from './Draft';
 import ErrorMsg from './ErrorMsg';
+import { Check, LogOut } from './icons';
 import UpgradeDialog from './UpgradeDialog';
 import { displayName, initials } from './names';
 import PasswordInput from './PasswordInput';
@@ -54,7 +55,7 @@ export default function AccountScreen({
   // Mirrors can_join in billing.rs: only these can start a new subscription; the rest manage theirs
   const status = profile?.membershipStatus;
   const canJoin = !status || status === 'canceled' || status === 'incomplete_expired';
-  // Paid up: the card dims and says Purchased. past_due still has Plus but must fix their card
+  // Paid up: the card says Purchased. past_due still has Plus but must fix their card
   const purchased = plus && !isAdmin && status !== 'past_due';
   const until = profile?.membershipEndsAt
     ? new Date(profile.membershipEndsAt).toLocaleDateString(undefined, {
@@ -113,20 +114,23 @@ export default function AccountScreen({
         <aside className="card profile-card">
           {profile && (
             <>
-              <div className="profile-photo">
-                <div className="profile-avatar" aria-hidden="true">
-                  {profile.avatar ? (
-                    <img src={`data:image/jpeg;base64,${profile.avatar}`} alt="" />
-                  ) : (
-                    initials(profile)
-                  )}
-                </div>
+              <div className="profile-avatar" aria-hidden="true">
+                {profile.avatar ? (
+                  <img src={`data:image/jpeg;base64,${profile.avatar}`} alt="" />
+                ) : (
+                  initials(profile)
+                )}
+              </div>
+              <div className="profile-name">{displayName(profile)}</div>
+              <div className="profile-email">{profile.email}</div>
+              <div className="profile-links">
                 <label className="link-btn">
                   Change photo
+                  {/* Hidden from view but not from the keyboard, so Tab reaches it */}
                   <input
                     type="file"
                     accept="image/*"
-                    hidden
+                    className="visually-hidden"
                     onChange={(e) => {
                       const file = e.target.files[0];
                       // Cleared so the same photo can be picked again; a cancelled pick has no file
@@ -163,8 +167,6 @@ export default function AccountScreen({
                 </p>
               )}
               <ErrorMsg>{photo.message}</ErrorMsg>
-              <div className="profile-name">{displayName(profile)}</div>
-              <div className="profile-email">{profile.email}</div>
             </>
           )}
           {waiting > 0 && (
@@ -173,14 +175,15 @@ export default function AccountScreen({
               Logging out keeps them on this device until you log in here again.
             </p>
           )}
-          <button className="outline-btn" type="button" onClick={onLogOut}>
+          <button className="outline-btn wide" type="button" onClick={onLogOut}>
+            <LogOut size={18} />
             Log out
           </button>
         </aside>
 
         <div className="account-cards">
           <section className="card" aria-labelledby="security-title">
-            <h2 id="security-title" className="card-title">
+            <h2 id="security-title" className="section-title">
               Security
             </h2>
             <p className="row-sub">Keep your account protected.</p>
@@ -244,7 +247,7 @@ export default function AccountScreen({
             )}
           </section>
           <section className="card" aria-labelledby="training-title">
-            <h2 id="training-title" className="card-title">
+            <h2 id="training-title" className="section-title">
               Training
             </h2>
             <p className="row-sub">Settings for this device.</p>
@@ -256,6 +259,8 @@ export default function AccountScreen({
               <input
                 id="show-rir"
                 type="checkbox"
+                className="switch"
+                role="switch"
                 checked={showRir}
                 onChange={(e) => {
                   setShowRir(e.target.checked);
@@ -274,6 +279,8 @@ export default function AccountScreen({
               <input
                 id="show-calories"
                 type="checkbox"
+                className="switch"
+                role="switch"
                 checked={showCalories}
                 onChange={(e) => onShowCaloriesChanged(e.target.checked)}
               />
@@ -288,6 +295,8 @@ export default function AccountScreen({
               <input
                 id="show-workout"
                 type="checkbox"
+                className="switch"
+                role="switch"
                 checked={showWorkout}
                 onChange={(e) => onShowWorkoutChanged(e.target.checked)}
               />
@@ -314,12 +323,9 @@ export default function AccountScreen({
               </select>
             </div>
           </section>
-          <section
-            className={`card split${purchased ? ' purchased' : ''}`}
-            aria-labelledby="plus-title"
-          >
+          <section className="card split plus" aria-labelledby="plus-title">
             <div>
-              <h2 id="plus-title" className="card-title">
+              <h2 id="plus-title" className="section-title">
                 Gym App Plus
               </h2>
               <p className="row-sub">{plusLine}</p>
@@ -338,7 +344,8 @@ export default function AccountScreen({
             {!isAdmin &&
               profile &&
               (purchased ? (
-                <button className="pill-btn" type="button" disabled>
+                <button className="pill-btn filled" type="button" disabled>
+                  <Check size={16} />
                   Purchased
                 </button>
               ) : canJoin ? (
@@ -363,7 +370,7 @@ export default function AccountScreen({
           {upgrading && <UpgradeDialog token={token} onClose={() => setUpgrading(false)} />}
           <section className="card split" aria-labelledby="progress-title">
             <div>
-              <h2 id="progress-title" className="card-title">
+              <h2 id="progress-title" className="section-title">
                 Progress
               </h2>
               <p className="row-sub">Muscles trained in the last 30 days</p>
@@ -375,7 +382,7 @@ export default function AccountScreen({
           {isAdmin && (
             <section className="card split" aria-labelledby="team-title">
               <div>
-                <h2 id="team-title" className="card-title">
+                <h2 id="team-title" className="section-title">
                   Team
                 </h2>
                 <p className="row-sub">Manage users</p>
@@ -387,7 +394,7 @@ export default function AccountScreen({
           )}
 
           <section className="card danger" aria-labelledby="danger-title">
-            <h2 id="danger-title" className="card-title">
+            <h2 id="danger-title" className="section-title">
               Danger zone
             </h2>
             <div className="row static">

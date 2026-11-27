@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 import { deleteFood, getFood, getHealth } from './api';
 import ErrorMsg from './ErrorMsg';
 import FoodSheet from './FoodSheet';
+import { ChevronLeft, ChevronRight, Sliders } from './icons';
 import ProfileForm from './ProfileForm';
 import targets from './targets';
 import { MACROS, MEALS } from './meals';
 import { addDays, dayKey } from './week';
 
 const today = () => dayKey(new Date());
-// P 50g · C 100g · F 20g in the macro tile colours, summed over one food or a whole meal
+// P 50g · C 100g · F 20g, summed over one food or a whole meal
 const macros = (foods) =>
   [
     ['P', 'proteinG', 'macro-protein'],
@@ -20,11 +21,34 @@ const macros = (foods) =>
     </span>
   ));
 
-// A filled bar: `value` out of `max`, amber once it goes over
+// A filled bar: `value` out of `max`, full once it goes over
 export function Meter({ value, max }) {
   return (
-    <div className={`meter${value > max ? ' over' : ''}`} aria-hidden="true">
+    <div className="meter" aria-hidden="true">
       <span style={{ '--v': Math.min(1, value / max) }} />
+    </div>
+  );
+}
+
+// A circle that fills clockwise from the top: `value` out of `max`, with `children` in the middle
+export function Ring({ value, max, big, children }) {
+  return (
+    <div className={`ring${big ? ' big' : ''}`}>
+      <svg viewBox="0 0 168 168" aria-hidden="true">
+        <circle className="ring-track" cx="84" cy="84" r="78" />
+        {/* Left out at 0, where its round end would still draw a dot */}
+        {value > 0 && (
+          <circle
+            className="ring-fill"
+            cx="84"
+            cy="84"
+            r="78"
+            pathLength="100"
+            style={{ '--v': Math.min(1, value / max) }}
+          />
+        )}
+      </svg>
+      <div className="ring-label">{children}</div>
     </div>
   );
 }
@@ -96,12 +120,12 @@ export default function CaloriesScreen({ token, plus }) {
     return (
       <main className="admin-content calories">
         <button
-          className="outline-btn back-btn"
+          className="ghost-btn back-btn"
           type="button"
           // Editing goes back to the day it came from; a first visit has no day yet, so the page before
           onClick={() => (target ? setEditing(false) : window.history.back())}
         >
-          <span aria-hidden="true">‹</span> Back
+          <ChevronLeft size={18} /> Back
         </button>
         <div className="page-head">
           <h1 className="page-title">Calories</h1>
@@ -120,56 +144,63 @@ export default function CaloriesScreen({ token, plus }) {
     );
   }
 
+  const isToday = date === today();
+
   return (
     <main className="admin-content calories">
       <div className="page-head">
         <div>
-          <h1 className="page-title">{date === today() ? 'Today' : 'Calories'}</h1>
-          <p className="admin-subtitle">
+          <p className="eyebrow">
             {new Date(`${date}T12:00:00`).toLocaleDateString(undefined, {
               weekday: 'short',
               day: 'numeric',
               month: 'short',
             })}
           </p>
+          <h1 className="page-title">{isToday ? 'Today' : 'Calories'}</h1>
         </div>
-        <div className="day-switch">
+        <div className="head-actions">
           <button
-            className="outline-btn"
+            className="outline-btn icon"
             type="button"
             aria-label="Previous day"
             onClick={() => setDate(addDays(date, -1))}
           >
-            ‹
+            <ChevronLeft size={18} />
           </button>
           <button
-            className="outline-btn"
+            className="outline-btn icon"
             type="button"
             aria-label="Next day"
-            disabled={date === today()}
+            disabled={isToday}
             onClick={() => setDate(addDays(date, 1))}
           >
-            ›
+            <ChevronRight size={18} />
+          </button>
+          <button className="outline-btn" type="button" onClick={() => setEditing(true)}>
+            <Sliders size={18} />
+            Edit target
           </button>
         </div>
       </div>
       <ErrorMsg>{error}</ErrorMsg>
 
       <section className="card" aria-label="Summary">
-        <div className="section-head">
-          <p className="kcal-left">
-            {eaten > target.kcal
-              ? `${(eaten - target.kcal).toLocaleString()} over`
-              : `${(target.kcal - eaten).toLocaleString()} left`}
-          </p>
-          <button className="link-btn" type="button" onClick={() => setEditing(true)}>
-            Edit target
-          </button>
-        </div>
-        <Meter value={eaten} max={target.kcal} />
-        <div className="meter-ends">
-          <span>{eaten.toLocaleString()} eaten</span>
-          <span>{target.kcal.toLocaleString()} target</span>
+        <div className="ring-summary">
+          <Ring value={eaten} max={target.kcal} big>
+            <span className="ring-value">{Math.abs(target.kcal - eaten).toLocaleString()}</span>
+            <span className="eyebrow">{eaten > target.kcal ? 'over' : 'left'}</span>
+          </Ring>
+          <dl className="figures">
+            <div>
+              <dt className="eyebrow">eaten</dt>
+              <dd>{eaten.toLocaleString()}</dd>
+            </div>
+            <div>
+              <dt className="eyebrow">target</dt>
+              <dd>{target.kcal.toLocaleString()}</dd>
+            </div>
+          </dl>
         </div>
         <dl className="macros">
           {MACROS.map(([label, field]) => (
@@ -190,38 +221,44 @@ export default function CaloriesScreen({ token, plus }) {
           const foods = entries.filter((e) => e.meal === meal);
           return (
             <section className="card" key={meal} aria-label={label}>
-              <div className="food-row">
+              <div className="panel-head">
                 <h2 className="card-title">{label}</h2>
                 <span className="row-sub">
                   {foods.reduce((t, f) => t + f.kcal, 0)} cal · {macros(foods)}
                 </span>
               </div>
-              {foods.map((f) => (
-                <div className="food-row" key={f.id}>
-                  <span>{f.name}</span>
-                  <span className="row-sub">
-                    {f.kcal} cal · {macros([f])}
-                  </span>
-                  <button
-                    className="link-btn"
-                    type="button"
-                    aria-label={`Edit ${f.name}`}
-                    onClick={() => setEditingFood(f)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className="link-btn danger"
-                    type="button"
-                    aria-label={`Remove ${f.name}`}
-                    onClick={() => remove(f.id)}
-                    disabled={removing !== null}
-                  >
-                    {removing === f.id ? 'Removing…' : 'Remove'}
-                  </button>
-                </div>
-              ))}
-              <button className="link-btn" type="button" onClick={() => setAddingTo(meal)}>
+              {foods.length > 0 && (
+                <ul className="list">
+                  {foods.map((f) => (
+                    <li className="food-row" key={f.id}>
+                      <span className="row-text">
+                        {f.name}
+                        <span className="row-sub">
+                          {f.kcal} cal · {macros([f])}
+                        </span>
+                      </span>
+                      <button
+                        className="ghost-btn"
+                        type="button"
+                        aria-label={`Edit ${f.name}`}
+                        onClick={() => setEditingFood(f)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="ghost-btn danger"
+                        type="button"
+                        aria-label={`Remove ${f.name}`}
+                        onClick={() => remove(f.id)}
+                        disabled={removing !== null}
+                      >
+                        {removing === f.id ? 'Removing…' : 'Remove'}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <button className="add-btn" type="button" onClick={() => setAddingTo(meal)}>
                 + Add food
               </button>
             </section>
