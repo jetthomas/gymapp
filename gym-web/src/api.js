@@ -1,6 +1,7 @@
 // Every call goes to /api/..., which Vite forwards to the Rust API
 // The iPhone app has no Vite to forward /api, so it calls the API directly
-const BASE = import.meta.env.VITE_API_URL ?? '/api';
+// ?. because import.meta.env only exists in Vite's builds; the tests run in plain Node
+const BASE = import.meta.env?.VITE_API_URL ?? '/api';
 // App sets this so a dead token sends the user back to the login screen
 let onSessionExpired = () => {};
 export const setOnSessionExpired = (fn) => {
