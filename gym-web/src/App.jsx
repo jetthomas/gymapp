@@ -247,7 +247,6 @@ export default function App() {
         profile={profile}
         // Signed in, the login and reset pages show the dashboard
         page={page === 'login' || page === 'reset' ? 'home' : page}
-        isAdmin={isAdmin}
         showCalories={showCalories}
         showWorkout={showWorkout}
         onNavigate={go}

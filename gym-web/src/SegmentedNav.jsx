@@ -7,9 +7,14 @@ function place(nav, pill, glide) {
   pill.hidden = !open;
   if (!open) return false;
   pill.classList.toggle('instant', !glide);
-  // offset* ignore transforms, so a button mid-press (scale 0.97) still measures full size
-  pill.style.transform = `translateX(${open.offsetLeft}px)`;
-  pill.style.width = `${open.offsetWidth}px`;
+  // Sub-pixel: offsetLeft/offsetWidth round to whole pixels, leaving the pill up to 1px off.
+  // The computed width and the rect's centre both ignore a press's scale(0.97)
+  const width = parseFloat(getComputedStyle(open).width);
+  const box = open.getBoundingClientRect();
+  const left =
+    box.left + box.width / 2 - width / 2 - nav.getBoundingClientRect().left - nav.clientLeft;
+  pill.style.transform = `translateX(${left}px)`;
+  pill.style.width = `${width}px`;
   if (!glide) {
     pill.getBoundingClientRect(); // applies the new spot before the transition comes back
     pill.classList.remove('instant');
