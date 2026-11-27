@@ -49,7 +49,7 @@ export default function TwoFactorSetup({ token, onEnabled, onTokenChanged }) {
       <div className="recovery-codes">
         <p className="hint">Save these codes. Each one gets you in once if you lose your phone.</p>
         <pre className="secret-key">{codes.join('\n')}</pre>
-        <a className="link-btn" download="gym-app-recovery-codes.txt" href={downloadUrl}>
+        <a className="link-btn" download="barmetric-recovery-codes.txt" href={downloadUrl}>
           Download
         </a>
         <button className="login-btn" type="button" onClick={onEnabled}>

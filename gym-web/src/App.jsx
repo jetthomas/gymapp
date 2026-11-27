@@ -32,7 +32,7 @@ export default function App() {
   const [page, setPage] = useState(resetToken ? 'reset' : membership ? 'account' : 'login');
   // Who is signed in: name, photo and membership, shared by the nav bar and the Account screen
   const [profile, setProfile] = useState(null);
-  // Gym App Plus: paid, or an admin. The server checks it again on every Plus request
+  // BarMetric Plus: paid, or an admin. The server checks it again on every Plus request
   const plus = profile?.plus ?? false;
   const [email, setEmail] = useState('');
   const [notice, setNotice] = useState('');
@@ -97,19 +97,22 @@ export default function App() {
     if (!token) return;
     let tries = membership === 'done' ? 5 : 1;
     let timer;
+    let plusNow = false;
     const check = () => {
       clearTimeout(timer);
       getProfile(token)
         .then((p) => {
           setProfile(p);
+          plusNow = p.plus;
           tries -= 1;
           if (!p.plus && tries > 0) timer = setTimeout(check, 2000);
         })
         .catch(() => {});
     };
     check();
-    // The home-screen app opens Stripe in a separate browser view, so check again when it's back on screen
-    const onShow = () => document.visibilityState === 'visible' && check();
+    // The home-screen app opens Stripe in a separate browser view, so check again when it's back on screen.
+    // Only until they have Plus: every app switch between sets would otherwise download the profile again
+    const onShow = () => document.visibilityState === 'visible' && !plusNow && check();
     document.addEventListener('visibilitychange', onShow);
     return () => {
       clearTimeout(timer);

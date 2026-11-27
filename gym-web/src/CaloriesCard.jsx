@@ -55,7 +55,7 @@ export default function CaloriesCard({ token, onOpen }) {
         <div className="ring-summary">
           <Ring value={eaten} max={target.kcal}>
             <span className="ring-value">{Math.abs(left).toLocaleString()}</span>
-            <span className="eyebrow">{left < 0 ? 'kcal over' : 'kcal remaining'}</span>
+            <span className="eyebrow">{left < 0 ? 'kcal over' : 'kcal left'}</span>
           </Ring>
           <dl className="figures">
             <div>
@@ -87,7 +87,8 @@ export default function CaloriesCard({ token, onOpen }) {
             <div key={field}>
               <dt>{label}</dt>
               <dd>
-                <strong>{Math.round(total(entries, field))}</strong> / {target[field]} g
+                <strong>{Math.round(total(entries, field))}</strong>
+                <span>/ {target[field]} g</span>
               </dd>
               <Meter value={total(entries, field)} max={target[field]} />
             </div>

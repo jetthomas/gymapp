@@ -1,4 +1,4 @@
-// Lets the app open with no signal: on install it keeps every file of the current build,
+// Lets the app open with no signal: it keeps every file of the current build,
 // and serves those copies when the network fails.
 const CACHE = 'gym-app-v1';
 const MANIFEST = '/asset-manifest.json';
@@ -11,32 +11,31 @@ const builtFiles = (manifest) =>
     ),
   ].map((f) => `/${f}`);
 
+// Keeps a build's files (only the ones not kept yet), then drops older builds' files:
+// their names have a different hash, so nothing asks for them again
+async function keepBuild(cache, manifest) {
+  const files = builtFiles(await manifest.clone().json());
+  const kept = new Set((await cache.keys()).map((r) => new URL(r.url).pathname));
+  await cache.addAll(files.filter((f) => !kept.has(f)));
+  await cache.put(MANIFEST, manifest);
+  for (const req of await cache.keys()) {
+    const path = new URL(req.url).pathname;
+    if (path.startsWith('/assets/') && !files.includes(path)) await cache.delete(req);
+  }
+}
+
 self.addEventListener('install', (event) =>
   event.waitUntil(
     (async () => {
       const cache = await caches.open(CACHE);
-      const res = await fetch(MANIFEST, { cache: 'no-store' });
-      await cache.put(MANIFEST, res.clone());
-      await cache.addAll(['/', ...builtFiles(await res.json())]);
+      await cache.add('/');
+      await keepBuild(cache, await fetch(MANIFEST, { cache: 'no-store' }));
       await self.skipWaiting();
     })(),
   ),
 );
 
-// Drops files from older builds: their names have a different hash, so nothing asks for them again
-self.addEventListener('activate', (event) =>
-  event.waitUntil(
-    (async () => {
-      const cache = await caches.open(CACHE);
-      const current = new Set(builtFiles(await (await cache.match(MANIFEST)).json()));
-      for (const req of await cache.keys()) {
-        const path = new URL(req.url).pathname;
-        if (path.startsWith('/assets/') && !current.has(path)) await cache.delete(req);
-      }
-      await self.clients.claim();
-    })(),
-  ),
-);
+self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
@@ -58,7 +57,7 @@ self.addEventListener('fetch', (event) => {
   // Opening the app shows the kept page at once instead of waiting on a slow link;
   // the fresh copy fetched alongside it is the one shown on the next open
   if (event.request.mode === 'navigate') {
-    const fresh = fetchAndKeep(event.request);
+    const fresh = keepPage(event.request);
     event.waitUntil(fresh.catch(() => {}));
     event.respondWith(
       caches
@@ -74,6 +73,20 @@ self.addEventListener('fetch', (event) => {
       .catch(async () => (await caches.match(event.request)) ?? (await caches.match('/'))),
   );
 });
+
+// A new build's page replaces the kept one only once that build's files are kept too:
+// otherwise the next open with no signal would load scripts that aren't here, and show nothing
+async function keepPage(request) {
+  const [page, manifest] = await Promise.all([
+    fetch(request),
+    fetch(MANIFEST, { cache: 'no-store' }),
+  ]);
+  if (!page.ok || !manifest.ok) return page;
+  const cache = await caches.open(CACHE);
+  await keepBuild(cache, manifest);
+  await cache.put(request, page.clone());
+  return page;
+}
 
 function fetchAndKeep(request) {
   return fetch(request).then((response) => {

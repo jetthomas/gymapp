@@ -141,7 +141,7 @@ export default function FoodSheet({ token, plus, date, meal, onAdded, onClose, f
                 </svg>
                 Scan barcode
                 <span id="scan-tip" className="tip" role="tooltip">
-                  Subscribe to Gym App Plus to scan barcodes
+                  Subscribe to BarMetric Plus to scan barcodes
                 </span>
               </button>
             )}

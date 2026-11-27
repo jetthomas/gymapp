@@ -16,9 +16,11 @@ async function request(path, { method = 'GET', body, token } = {}) {
       method,
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      // Weak gym signal can leave a request hanging for minutes; give up so it can be tried again
+      signal: AbortSignal.timeout(20_000),
     });
   } catch {
-    // fetch only throws when the server can't be reached at all
+    // fetch only throws when the server can't be reached at all (or took too long)
     throw new Error("Couldn't connect. Check your internet and try again.");
   }
 
@@ -52,6 +54,7 @@ export const createResetLink = (token, userId) =>
 export const createWorkout = (token, workout) =>
   request('/workouts', { method: 'POST', body: workout, token });
 
+// Only deactivates; eraseAccount deletes for good
 export const deleteAccount = (token, password) =>
   request('/auth/delete', { method: 'DELETE', token, body: { password } });
 
@@ -62,6 +65,13 @@ export const deleteExercise = (token, id) =>
 
 export const disable2fa = (token, password, code) =>
   request('/auth/2fa/disable', { method: 'POST', token, body: { password, code } });
+
+// Deletes the account, its workouts, food log and profile; there's no undo
+export const eraseAccount = (token, password) =>
+  request('/auth/erase', { method: 'DELETE', token, body: { password } });
+
+// { workouts, food, bodyWeights } from the last 30 days, for the Account screen's Export
+export const getExport = (token) => request('/me/export', { token });
 
 export const forgotPassword = (email) =>
   request('/auth/forgot', { method: 'POST', body: { email } });

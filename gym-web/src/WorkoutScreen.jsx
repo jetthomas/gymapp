@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getLastSets } from './api';
+import { Ring } from './CaloriesScreen';
 import ConfirmDialog from './ConfirmDialog';
 import { clearDraft, clock, loadDraft, newDraft, newSet, saveDraft } from './Draft';
 import ErrorMsg from './ErrorMsg';
@@ -19,6 +20,7 @@ export default function WorkoutScreen({ token, start, onDone }) {
   const [draft, setDraft] = useState(() => loadDraft(userId) ?? (start ? newDraft() : null));
   const [now, setNow] = useState(() => Date.now());
   const [restEnds, setRestEnds] = useState(0); // a time in ms; 0 = not resting
+  const [restFrom, setRestFrom] = useState(0); // when this rest began: the ring is full there
   const [picking, setPicking] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const [message, setMessage] = useState('');
@@ -130,6 +132,7 @@ export default function WorkoutScreen({ token, start, onDone }) {
     }
     // doneAt: the workout's length runs to its last ticked set, not to when Finish is tapped
     changeSet(i, j, { ...filled(exercise, j), done: true, doneAt: Date.now() });
+    setRestFrom(Date.now());
     setRestEnds(Date.now() + restSeconds() * 1000);
   }
 
@@ -399,6 +402,9 @@ export default function WorkoutScreen({ token, start, onDone }) {
       {rest > 0 && (
         <div className="rest-bar">
           <Timer size={18} />
+          {/* Phones show this ring, emptying as the rest runs down, in place of the icon and the time.
+              ±15 s moves restEnds, so the share left stays right */}
+          <Ring value={rest} max={restEnds - restFrom} />
           <span className="rest-label">Rest</span>
           <span className="rest-time" role="timer" aria-label="Rest time left">
             {clock(rest)}

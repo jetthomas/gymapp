@@ -1,4 +1,4 @@
-// Gym App Plus: joining (Checkout), managing (Customer Portal) and keeping the database in step
+// BarMetric Plus: joining (Checkout), managing (Customer Portal) and keeping the database in step
 // with Stripe (the webhook). Guide: https://docs.stripe.com/billing/subscriptions/build-subscriptions
 use std::sync::Arc;
 
@@ -18,7 +18,7 @@ use crate::stripe;
 
 // A new Checkout only makes sense with no subscription, or one that has fully ended.
 // Anything else (active, past_due, paused...) is changed in the Customer Portal instead
-fn can_join(status: Option<&str>) -> bool {
+pub fn can_join(status: Option<&str>) -> bool {
     matches!(status, None | Some("canceled" | "incomplete_expired"))
 }
 
@@ -45,7 +45,24 @@ pub async fn create_checkout(
     }
     // One Stripe customer per member, made the first time they join and reused after that
     let customer = match row.get::<&str, _>("StripeCustomerId") {
-        Some(id) => id.to_string(),
+        Some(id) => {
+            // MembershipStatus waits on the webhook; Stripe already knows about a payment made seconds ago,
+            // so a member who taps Upgrade again before the webhook lands isn't charged twice
+            let subs = stripe::get(
+                &state,
+                "subscriptions",
+                &[("customer", id), ("status", "all"), ("limit", "10")],
+            )
+            .await?;
+            let subs = subs["data"].as_array().map_or(&[][..], Vec::as_slice);
+            if !can_join(best_subscription(subs).0) {
+                return Err((
+                    StatusCode::CONFLICT,
+                    "You already have Plus. Use Manage membership to change it.".into(),
+                ));
+            }
+            id.to_string()
+        }
         None => {
             let email: &str = col(&row, "Email")?;
             let user = user_id.to_string();

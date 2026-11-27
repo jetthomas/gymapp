@@ -20,7 +20,7 @@ export default function NavBar({ token, profile, page, showCalories, showWorkout
         <span className="logo-mark" aria-hidden="true">
           <Dumbbell size={20} />
         </span>
-        GYM APP
+        BarMetric
       </span>
       <SegmentedNav
         className="nav-links"

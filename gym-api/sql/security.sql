@@ -8,7 +8,7 @@ GO
 USE Gym_App;
 GO
 CREATE USER gym_app FOR LOGIN gym_app;
--- No DELETE on Users: delete_account only sets Active = 0
+-- No DELETE on Users: deactivating sets Active = 0, and deleting goes through dbo.DeleteMember (below)
 GRANT SELECT, INSERT, UPDATE ON dbo.Users TO gym_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.Workouts TO gym_app;
 GRANT SELECT, INSERT ON dbo.Events TO gym_app;
@@ -62,7 +62,7 @@ ALTER SECURITY POLICY Security.WorkoutPolicy
     ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.FoodEntries AFTER INSERT;
 GO
 
--- Gym App Plus: the shared barcode cache (Users already has SELECT, INSERT, UPDATE above)
+-- BarMetric Plus: the shared barcode cache (Users already has SELECT, INSERT, UPDATE above)
 GRANT SELECT, INSERT ON dbo.BarcodeFoods TO gym_app;
 GO
 
@@ -72,4 +72,10 @@ GRANT UPDATE ON dbo.FoodEntries TO gym_app;
 GO
 ALTER SECURITY POLICY Security.WorkoutPolicy
     ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.FoodEntries AFTER UPDATE;
+GO
+
+-- Deleting an account. Already set up? Run just this part, after schema.sql has made the procedure.
+-- An EXECUTE right, not DELETE on Users or Events: the procedure owns those deletes (ownership
+-- chaining), and only for the member the connection is tagged with
+GRANT EXECUTE ON dbo.DeleteMember TO gym_app;
 GO

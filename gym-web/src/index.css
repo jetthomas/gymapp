@@ -20,6 +20,9 @@
   --protein: #6cc4f2;
   --carbs: #a78bfa;
   --fat: #f5a15b;
+  /* The rest timer's ring on a phone: orange like the iPhone's Clock timer, dark enough to show on the
+     white rest bar (3.3:1) */
+  --rest: oklch(0.65 0.19 48);
   /* Primary calls to action float on a soft white glow */
   --glow: 0 14px 44px -16px color-mix(in oklab, var(--primary) 40%, transparent);
   /* Photo-less avatars: light grey with dark initials */
@@ -214,7 +217,9 @@ label:has(> input[type='file']:focus-visible) {
   padding: 0;
 }
 
-.ghost-btn.danger {
+/* Grey at rest like the other ghost buttons, so a list isn't a column of red; red once touched */
+.ghost-btn.danger:focus-visible,
+.ghost-btn.danger:active:not(:disabled) {
   color: var(--destructive);
 }
 
@@ -255,6 +260,11 @@ label:has(> input[type='file']:focus-visible) {
 
 .link-btn.danger {
   color: var(--destructive);
+}
+
+/* Under a field ("Forgot password?"): at its right edge, the text lined up with the box */
+.field > .link-btn {
+  margin: 8px -8px 0 auto;
 }
 
 /* Dashed: adds a row to the card above it (+ Add set, + Add food) */
@@ -390,7 +400,13 @@ fieldset.field {
 .hint {
   margin: 6px 4px 0;
   font-size: 0.8rem;
+  line-height: 1.45;
   color: var(--muted-foreground);
+}
+
+/* A hint that opens a form (deactivate or delete): flush with the labels, with room before them */
+form > .hint:first-child {
+  margin: 0 0 16px;
 }
 
 .caps-lock {
@@ -721,7 +737,7 @@ fieldset.field {
   font-weight: 700;
   letter-spacing: -0.01em;
   white-space: nowrap;
-  color: #9b9b9b;
+  color: var(--muted-foreground);
   background: transparent;
   border: none;
   border-radius: 999px;
@@ -731,12 +747,12 @@ fieldset.field {
 }
 
 .seg-nav-btn[aria-current='page'] {
-  color: #0a0a0a;
+  color: var(--primary-foreground);
 }
 
 .seg-nav-btn:focus-visible,
 .nav-account:focus-visible {
-  outline: 2px solid #5b9dff;
+  outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
 
@@ -794,7 +810,7 @@ fieldset.field {
   font-weight: 700;
   letter-spacing: -0.01em;
   white-space: nowrap;
-  color: #9b9b9b;
+  color: var(--muted-foreground);
   background: transparent;
   border: none;
   border-radius: 999px;
@@ -807,7 +823,7 @@ fieldset.field {
 
 /* The same white double-ring pill as the open tab. One button, so it fades in rather than slides */
 .nav-account[aria-current='page'] {
-  color: #0a0a0a;
+  color: var(--primary-foreground);
   background: #ffffff;
   box-shadow:
     inset 0 0 0 2px #ffffff,
@@ -1002,6 +1018,14 @@ fieldset.field {
   gap: 16px;
 }
 
+/* A phone: the button goes under the text, so the text isn't squeezed into a narrow column */
+@media (max-width: 480px) {
+  .card.split {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+  }
+}
+
 .admin-content > section + section {
   margin-top: 40px;
 }
@@ -1047,7 +1071,13 @@ fieldset.field {
 .row-sub {
   margin: 2px 0 0;
   font-size: 0.8125rem;
+  line-height: 1.45;
   color: var(--muted-foreground);
+}
+
+/* A readable line length for a row's description on a wide screen */
+.row-text .row-sub {
+  max-width: 65ch;
 }
 
 .row-panel {
@@ -1745,6 +1775,14 @@ span.role-select {
   border-top: none;
 }
 
+/* A phone: Deactivate and Delete go under the text instead of squeezing it */
+@media (max-width: 480px) {
+  .card.danger > .row {
+    grid-auto-flow: row;
+    justify-items: start;
+  }
+}
+
 /* ---------- Dialog (ConfirmDialog.jsx) ---------- */
 
 .sheet {
@@ -1777,6 +1815,7 @@ span.role-select {
 .sheet p {
   margin: 0;
   font-size: 0.9375rem;
+  line-height: 1.45;
   color: var(--muted-foreground);
 }
 
@@ -1936,7 +1975,9 @@ span.role-select {
 /* An exercise: muscles, name, Unilateral and the bin along the top */
 .exercise-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  /* One column per control that's there, so Remove sits at the edge with or without Unilateral */
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
   align-items: center;
   gap: 12px;
 }
@@ -2091,6 +2132,21 @@ span.role-select {
   outline-color: var(--primary-foreground);
 }
 
+/* The rest ring: only on a phone (below), a small orange arc on a faint track */
+.rest-bar .ring {
+  display: none;
+  width: 32px;
+  height: 32px;
+}
+
+.rest-bar .ring-track {
+  stroke: color-mix(in oklab, var(--primary-foreground) 12%, transparent);
+}
+
+.rest-bar .ring-fill {
+  stroke: var(--rest);
+}
+
 @media (hover: hover) {
   .rest-btn:hover {
     background: color-mix(in oklab, var(--primary-foreground) 82%, var(--primary));
@@ -2135,11 +2191,45 @@ html:has(.rest-bar) {
 
   .rest-bar {
     gap: 6px;
-    padding-left: 12px;
+    padding-left: 8px;
+  }
+
+  /* The ring takes the place of the timer icon and the time, to save room */
+  .rest-bar .ring {
+    display: block;
+  }
+
+  .rest-bar > svg {
+    display: none;
+  }
+
+  /* Hidden, not removed: a screen reader still reads the time */
+  .rest-time {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .rest-btn {
     padding: 0 11px;
+  }
+
+  /* "Wednesday workout" and the clock fit on one line */
+  .workout-head .page-title {
+    font-size: 1.5rem;
+  }
+
+  /* Finish across the width; Discard a quiet red line under it, not its equal */
+  .finish-row {
+    flex-direction: column;
+  }
+
+  .finish-row .outline-btn.danger {
+    min-height: 44px;
+    border-color: transparent;
   }
 }
 
@@ -2315,9 +2405,11 @@ html:has(.rest-bar) {
   fill: currentColor;
 }
 
-.plate-btn:not(:disabled):hover {
-  color: var(--foreground);
-  border-color: var(--muted-foreground);
+@media (hover: hover) {
+  .plate-btn:not(:disabled):hover {
+    color: var(--foreground);
+    border-color: var(--muted-foreground);
+  }
 }
 
 /* The × that removes one set: quiet until hovered */
@@ -2333,8 +2425,10 @@ html:has(.rest-bar) {
   cursor: pointer;
 }
 
-.remove-set:not(:disabled):hover {
-  color: var(--destructive);
+@media (hover: hover) {
+  .remove-set:not(:disabled):hover {
+    color: var(--destructive);
+  }
 }
 
 .remove-set:disabled {
@@ -2342,10 +2436,24 @@ html:has(.rest-bar) {
   cursor: not-allowed;
 }
 
+/* Touch screens: every tap target at least 44px, Apple's minimum */
 @media (pointer: coarse) {
   .remove-set {
     width: 44px;
     height: 44px;
+  }
+
+  .link-btn,
+  .check,
+  .chip {
+    min-height: 44px;
+  }
+
+  /* The gap stands in for the space before an arrow, which a flex box drops */
+  .link-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.25em;
   }
 }
 
@@ -2365,7 +2473,7 @@ html:has(.rest-bar) {
   margin-top: 0;
 }
 
-/* Previous day, next day and Edit target */
+/* Buttons side by side: previous day, next day and Edit target; Deactivate and Delete */
 .head-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2493,19 +2601,43 @@ html:has(.rest-bar) {
   font-size: 2.5rem;
 }
 
-/* The ring with its figures beside it */
+/* The ring centred in its card with the figures at the right edge. A narrow card (a phone, or
+   the dashboard's two columns on a small tablet) stacks them: the ring, then the figures side by side */
+.card:has(> .ring-summary) {
+  container-type: inline-size;
+}
+
 .ring-summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 24px 32px;
+  display: grid;
+  justify-items: center;
+  gap: 24px;
   margin: 8px 0 24px;
 }
 
 .figures {
   display: grid;
-  gap: 20px;
+  grid-auto-flow: column;
+  gap: 40px;
   margin: 0;
+  text-align: center;
+}
+
+@container (min-width: 480px) {
+  .ring-summary {
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+  }
+
+  .ring-summary .ring {
+    grid-column: 2;
+  }
+
+  .ring-summary .figures {
+    grid-auto-flow: row;
+    gap: 20px;
+    justify-self: end;
+    text-align: right;
+  }
 }
 
 .figures dt {
@@ -2719,7 +2851,8 @@ html:has(.rest-bar) {
 }
 
 .week-name {
-  font-size: 0.625rem;
+  /* 11px: Apple's smallest text size */
+  font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -2733,7 +2866,7 @@ html:has(.rest-bar) {
 }
 
 .week-date {
-  font-size: 1.125rem;
+  font-size: 1.5rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -2765,10 +2898,6 @@ html:has(.rest-bar) {
     gap: 6px;
     padding: 12px 2px;
     border-radius: 12px;
-  }
-
-  .week-date {
-    font-size: 1.5rem;
   }
 }
 
@@ -2808,8 +2937,10 @@ html:has(.rest-bar) {
   margin-bottom: 8px;
 }
 
+/* No bigger than the page title above it */
 .card-top .headline {
   margin: 4px 0 10px;
+  font-size: 2rem;
 }
 
 .card-top .row-sub {
@@ -2875,6 +3006,19 @@ html:has(.rest-bar) {
   min-height: 52px;
 }
 
+/* Phones: the Workout card's buttons come before its exercise list, so Start or Resume is on
+   screen without scrolling, and the filled button is the first of the two */
+@media (max-width: 767px) {
+  .dash .card:has(> .card-actions) > .card-rows {
+    order: 1;
+    margin-bottom: 0;
+  }
+
+  .dash .card-actions .filled {
+    order: -1;
+  }
+}
+
 /* Protein, carbs and fat on the calories card, each in its colour */
 .macro-tiles {
   display: grid;
@@ -2917,6 +3061,11 @@ html:has(.rest-bar) {
   color: var(--macro);
 }
 
+/* "/ 160 g" on its own line, so a narrow tile never leaves the "g" alone */
+.macro-tiles dd span {
+  display: block;
+}
+
 .macro-tiles .meter {
   height: 5px;
 }
@@ -2936,12 +3085,6 @@ html:has(.rest-bar) {
 .last-entry > div {
   padding-left: 16px;
   border-left: 3px solid var(--primary);
-}
-
-.last-entry .eyebrow {
-  font-size: 0.75rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .last-entry p {

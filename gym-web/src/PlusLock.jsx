@@ -7,7 +7,7 @@ export default function PlusLock({ token, feature }) {
   const [upgrading, setUpgrading] = useState(false);
   return (
     <div className="hint">
-      <p>{feature} is part of Gym App Plus.</p>
+      <p>{feature} is part of BarMetric Plus.</p>
       <button className="pill-btn filled" type="button" onClick={() => setUpgrading(true)}>
         Upgrade to Plus
       </button>

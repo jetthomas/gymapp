@@ -8,6 +8,7 @@ use axum::{
 };
 use jsonwebtoken::{DecodingKey, Validation, decode};
 
+use crate::billing::can_join;
 use crate::extractors::{AuthUser, has_plus, verify_credentials};
 use crate::models::{
     Claims, Credentials, ForgotRequest, LoginResponse, NewAvatar, NewUser, PasswordChange,
@@ -19,7 +20,7 @@ use crate::passwords::{
 };
 use crate::state::{
     ApiResult, AppState, Db, client_ip, col, connect, internal, last_visit, may_mail, one_row,
-    record, send_mail, send_security_notice, send_verify_mail,
+    record, send_mail, send_security_notice, send_verify_mail, set_user,
 };
 use crate::tokens::{
     CLEAR_REFRESH, cookie, make_challenge, make_self_reset_token, make_token, read_token,
@@ -87,7 +88,7 @@ pub async fn register(
                     state.clone(),
                     email.clone(),
                     "Someone tried to sign up with your email",
-                    "Someone tried to create a Gym App account with this email. If that was you, log in or use Forgot password.".into(),
+                    "Someone tried to create a BarMetric account with this email. If that was you, log in or use Forgot password.".into(),
                 );
             }
             Ok(StatusCode::OK)
@@ -185,7 +186,7 @@ pub async fn forgot_password(
         send_mail(
             state.clone(),
             email,
-            "Reset your Gym App password",
+            "Reset your BarMetric password",
             format!(
                 "Choose a new password:\n{}/#reset={token}\n\nThe link works for 15 minutes. If you didn't ask for this, you can ignore this email.",
                 state.frontend_url
@@ -377,13 +378,42 @@ pub async fn delete_account(
     AuthUser(user_id, mut db): AuthUser,
     Json(r): Json<PasswordOnly>,
 ) -> ApiResult<StatusCode> {
-    require_password(&mut db, user_id, r.password).await?;
+    let row = require_password(&mut db, user_id, r.password).await?;
+    // Deactivating doesn't stop Stripe billing, and a deactivated member can't reach Manage membership
+    if !can_join(row.get("MembershipStatus")) {
+        return Err((
+            StatusCode::CONFLICT,
+            "Cancel Plus in Manage membership first, then deactivate.".into(),
+        ));
+    }
     db.execute(
         "UPDATE dbo.Users SET Active = 0 WHERE Id = @P1",
         &[&user_id],
     )
     .await
     .map_err(internal)?;
+    Ok(StatusCode::OK)
+}
+
+// Deletes the account and everything in it for good. The App Store asks for this: deactivating
+// alone isn't enough (guideline 5.1.1(v))
+pub async fn erase_account(
+    AuthUser(user_id, mut db): AuthUser,
+    Json(r): Json<PasswordOnly>,
+) -> ApiResult<StatusCode> {
+    let row = require_password(&mut db, user_id, r.password).await?;
+    // Deleting doesn't stop Stripe billing either, and afterwards there's no account to cancel from
+    if !can_join(row.get("MembershipStatus")) {
+        return Err((
+            StatusCode::CONFLICT,
+            "Cancel Plus in Manage membership first, then delete.".into(),
+        ));
+    }
+    // DeleteMember deletes whoever the connection is tagged with, so it can only ever be this member
+    set_user(&mut db, user_id).await.map_err(internal)?;
+    db.execute("EXEC dbo.DeleteMember", &[])
+        .await
+        .map_err(internal)?;
     Ok(StatusCode::OK)
 }
 
@@ -399,7 +429,7 @@ fn wrong_password() -> (StatusCode, String) {
 pub async fn require_password(db: &mut Db, user_id: i32, password: String) -> ApiResult<Row> {
     let row = one_row(
         db,
-        "SELECT PasswordHash, Email, FirstName, LastName, IsAdmin, TotpEnabled, TotpSecret
+        "SELECT PasswordHash, Email, FirstName, LastName, IsAdmin, TotpEnabled, TotpSecret, MembershipStatus
          FROM dbo.Users WHERE Id = @P1",
         &[&user_id],
     )

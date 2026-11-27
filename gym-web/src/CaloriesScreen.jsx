@@ -16,8 +16,9 @@ const macros = (foods) =>
     ['C', 'carbsG', 'macro-carbs'],
     ['F', 'fatG', 'macro-fat'],
   ].map(([letter, field, className]) => (
+    // A no-break space, so "F 22g" never splits across two lines
     <span key={field} className={className}>
-      {letter} {Math.round(foods.reduce((t, f) => t + f[field], 0))}g
+      {letter}&nbsp;{Math.round(foods.reduce((t, f) => t + f[field], 0))}g
     </span>
   ));
 
@@ -189,16 +190,17 @@ export default function CaloriesScreen({ token, plus }) {
         <div className="ring-summary">
           <Ring value={eaten} max={target.kcal} big>
             <span className="ring-value">{Math.abs(target.kcal - eaten).toLocaleString()}</span>
-            <span className="eyebrow">{eaten > target.kcal ? 'over' : 'left'}</span>
+            <span className="eyebrow">{eaten > target.kcal ? 'kcal over' : 'kcal left'}</span>
           </Ring>
+          {/* Same words and order as the dashboard's Calories card */}
           <dl className="figures">
             <div>
-              <dt className="eyebrow">eaten</dt>
-              <dd>{eaten.toLocaleString()}</dd>
+              <dt className="eyebrow">Goal</dt>
+              <dd>{target.kcal.toLocaleString()}</dd>
             </div>
             <div>
-              <dt className="eyebrow">target</dt>
-              <dd>{target.kcal.toLocaleString()}</dd>
+              <dt className="eyebrow">Eaten</dt>
+              <dd>{eaten.toLocaleString()}</dd>
             </div>
           </dl>
         </div>
@@ -224,7 +226,7 @@ export default function CaloriesScreen({ token, plus }) {
               <div className="panel-head">
                 <h2 className="card-title">{label}</h2>
                 <span className="row-sub">
-                  {foods.reduce((t, f) => t + f.kcal, 0)} cal · {macros(foods)}
+                  {foods.reduce((t, f) => t + f.kcal, 0)} kcal · {macros(foods)}
                 </span>
               </div>
               {foods.length > 0 && (
@@ -234,7 +236,7 @@ export default function CaloriesScreen({ token, plus }) {
                       <span className="row-text">
                         {f.name}
                         <span className="row-sub">
-                          {f.kcal} cal · {macros([f])}
+                          {f.kcal} kcal · {macros([f])}
                         </span>
                       </span>
                       <button

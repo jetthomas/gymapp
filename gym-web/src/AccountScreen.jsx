@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { deleteAccount, deleteAvatar, openPortal, putAvatar } from './api';
+import { deleteAccount, deleteAvatar, eraseAccount, getExport, openPortal, putAvatar } from './api';
 import { toAvatar } from './avatar';
 import ChangePasswordForm from './ChangePasswordForm';
 import { clock } from './Draft';
 import ErrorMsg from './ErrorMsg';
+import toCsv from './exportCsv';
 import { Check, LogOut } from './icons';
 import UpgradeDialog from './UpgradeDialog';
 import { displayName, initials } from './names';
@@ -12,6 +13,7 @@ import TwoFactorDisable from './TwoFactorDisable';
 import TwoFactorSetup from './TwoFactorSetup';
 import { useWaiting } from './outbox';
 import useSubmit from './useSubmit';
+import { dayKey } from './week';
 
 // Settings behind the home screen. Its state resets whenever it closes, including on logout.
 export default function AccountScreen({
@@ -37,7 +39,8 @@ export default function AccountScreen({
   const billing = useSubmit();
   const [upgrading, setUpgrading] = useState(false);
   const [deletePassword, setDeletePassword] = useState('');
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [confirming, setConfirming] = useState(null); // 'deactivate', 'delete' or null: the danger zone's open form
+  const exporting = useSubmit();
   const [showRir, setShowRir] = useState(() => localStorage.getItem('show-rir') === '1');
   const [restSeconds, setRestSeconds] = useState(
     () => localStorage.getItem('rest-seconds') ?? '90',
@@ -89,8 +92,27 @@ export default function AccountScreen({
   function handleDelete(event) {
     event.preventDefault();
     deleting.run(async () => {
-      await deleteAccount(token, deletePassword);
-      onSignedOut();
+      if (confirming === 'delete') {
+        await eraseAccount(token, deletePassword);
+        onSignedOut('Your account and all its data are deleted.');
+      } else {
+        await deleteAccount(token, deletePassword);
+        onSignedOut();
+      }
+    });
+  }
+
+  // Saves the last 30 days as a CSV file
+  function handleExport() {
+    exporting.run(async () => {
+      const data = await getExport(token);
+      const link = document.createElement('a');
+      // The byte-order mark tells Excel the file is UTF-8, so names like "Crème brûlée" stay readable
+      link.href = URL.createObjectURL(
+        new Blob(['﻿', toCsv(data)], { type: 'text/csv;charset=utf-8' }),
+      );
+      link.download = `barmetric-export-${dayKey(new Date())}.csv`;
+      link.click();
     });
   }
 
@@ -326,7 +348,7 @@ export default function AccountScreen({
           <section className="card split plus" aria-labelledby="plus-title">
             <div>
               <h2 id="plus-title" className="section-title">
-                Gym App Plus
+                BarMetric Plus
               </h2>
               <p className="row-sub">{plusLine}</p>
               {purchased && (
@@ -393,29 +415,64 @@ export default function AccountScreen({
             </section>
           )}
 
+          <section className="card split" aria-labelledby="export-title">
+            <div>
+              <h2 id="export-title" className="section-title">
+                Your data
+              </h2>
+              <p className="row-sub">
+                Your workouts, food log and weigh-ins from the last 30 days, as a spreadsheet (CSV).
+              </p>
+              <ErrorMsg>{exporting.message}</ErrorMsg>
+            </div>
+            <button
+              className="outline-btn"
+              type="button"
+              disabled={exporting.loading}
+              onClick={handleExport}
+            >
+              {exporting.loading ? 'Exporting…' : 'Export data'}
+            </button>
+          </section>
+
           <section className="card danger" aria-labelledby="danger-title">
             <h2 id="danger-title" className="section-title">
               Danger zone
             </h2>
             <div className="row static">
               <span className="row-text">
-                Deactivate account
-                {/* delete_account only deactivates, so the label doesn't promise permanent removal */}
-                <span className="row-sub">Deactivates your account. You can undo this.</span>
+                Deactivate or delete account
+                <span className="row-sub">
+                  Deactivating can be undone. Deleting removes your account and all its data for
+                  good.
+                </span>
               </span>
-              <button
-                className="outline-btn danger"
-                type="button"
-                onClick={() => setConfirmingDelete(true)}
-              >
-                Deactivate account
-              </button>
+              <div className="head-actions">
+                <button
+                  className="outline-btn danger"
+                  type="button"
+                  aria-expanded={confirming === 'deactivate'}
+                  onClick={() => setConfirming('deactivate')}
+                >
+                  Deactivate
+                </button>
+                <button
+                  className="outline-btn danger"
+                  type="button"
+                  aria-expanded={confirming === 'delete'}
+                  onClick={() => setConfirming('delete')}
+                >
+                  Delete
+                </button>
+              </div>
             </div>
-            {confirmingDelete && (
+            {confirming && (
               <div className="row-panel">
                 <form onSubmit={handleDelete}>
                   <p className="hint">
-                    This deactivates your account. You can reactivate it from the login screen.
+                    {confirming === 'delete'
+                      ? 'This deletes your account, workouts, food log and weigh-ins for good. It can’t be undone, so export your data first if you want a copy.'
+                      : 'This deactivates your account. You can reactivate it from the login screen.'}
                   </p>
                   <div className="field">
                     <label htmlFor="delete-password">Password</label>
@@ -428,14 +485,14 @@ export default function AccountScreen({
                   </div>
                   <ErrorMsg>{deleting.message}</ErrorMsg>
                   <button className="login-btn danger" type="submit" disabled={deleting.loading}>
-                    Deactivate account
+                    {confirming === 'delete' ? 'Delete account forever' : 'Deactivate account'}
                   </button>
                   <button
                     className="link-btn"
                     type="button"
                     disabled={deleting.loading}
                     onClick={() => {
-                      setConfirmingDelete(false);
+                      setConfirming(null);
                       setDeletePassword('');
                       deleting.setMessage('');
                     }}

@@ -233,7 +233,7 @@ pub fn send_verify_mail(state: &Arc<AppState>, email: String, user_id: i32) -> A
     send_mail(
         state.clone(),
         email,
-        "Confirm your Gym App email",
+        "Confirm your BarMetric email",
         format!(
             "Confirm your email to finish signing up:\n{}/#verify={token}\n\nThe link works for 24 hours.\n\nIf you didn't create this account, ignore this email.",
             state.frontend_url
@@ -248,7 +248,7 @@ pub fn send_security_notice(state: &Arc<AppState>, email: &str, what: &'static s
     send_mail(
         state.clone(),
         email.to_string(),
-        "Your Gym App account was changed",
+        "Your BarMetric account was changed",
         format!(
             "{what}\n\nIf this wasn't you, reset your password from the login screen and tell an admin."
         ),
