@@ -8,6 +8,13 @@ import useSubmit from './useSubmit';
 // '' -> null, '80' -> 80
 const number = (text) => (text === '' ? null : Number(text));
 
+const GOALS = [
+  ['lose', 'Lose weight'],
+  ['maintain', 'Maintain'],
+  ['lean_bulk', 'Lean bulk'],
+  ['bulk', 'Bulk'],
+];
+
 // The questions behind the calorie target. Every one can be left blank
 export default function ProfileForm({ token, profile, today, onSaved, onCancel }) {
   const [goal, setGoal] = useState(profile?.goal ?? 'maintain');
@@ -50,21 +57,25 @@ export default function ProfileForm({ token, profile, today, onSaved, onCancel }
         Used only to estimate your calories. Admins can't see any of it, and every answer is
         optional.
       </p>
-      <div className="field">
-        <label htmlFor="goal">Goal</label>
-        <select
-          id="goal"
-          className="role-select"
-          value={goal}
-          onChange={(e) => setGoal(e.target.value)}
-        >
-          <option value="lose">Lose weight</option>
-          <option value="maintain">Maintain</option>
-          <option value="lean_bulk">Lean bulk</option>
-          <option value="bulk">Bulk</option>
-        </select>
-      </div>
-      <div className="field-pair">
+      <div className="form-grid">
+        {/* Radio buttons drawn as one segmented bar */}
+        <fieldset className="field span-2">
+          <legend>Goal</legend>
+          <div className="segmented">
+            {GOALS.map(([value, label]) => (
+              <label key={value}>
+                <input
+                  type="radio"
+                  name="goal"
+                  value={value}
+                  checked={goal === value}
+                  onChange={() => setGoal(value)}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
         <div className="field">
           <label htmlFor="weight">Weight (kg)</label>
           <input id="weight" inputMode="decimal" value={weight} onChange={decimal(setWeight)} />
@@ -73,8 +84,6 @@ export default function ProfileForm({ token, profile, today, onSaved, onCancel }
           <label htmlFor="height">Height (cm)</label>
           <input id="height" inputMode="decimal" value={height} onChange={decimal(setHeight)} />
         </div>
-      </div>
-      <div className="field-pair">
         <div className="field">
           <label htmlFor="birth-date">Date of birth</label>
           <input
@@ -98,45 +107,60 @@ export default function ProfileForm({ token, profile, today, onSaved, onCancel }
             <option value="male">Male</option>
           </select>
         </div>
+        <div className="field span-2">
+          <label htmlFor="activity">Activity level</label>
+          <select
+            id="activity"
+            className="role-select"
+            value={activity}
+            onChange={(e) => setActivity(e.target.value)}
+          >
+            <option value="">Choose…</option>
+            <option value="1">Sedentary: desk job, little exercise</option>
+            <option value="2">Light: exercise 1 to 3 days a week</option>
+            <option value="3">Moderate: exercise 3 to 5 days a week</option>
+            <option value="4">Active: exercise 6 to 7 days a week</option>
+            <option value="5">Very active: physical job plus training</option>
+          </select>
+        </div>
+        <div className="field span-2">
+          <label htmlFor="own-target">Or set your own daily calories</label>
+          <input
+            id="own-target"
+            inputMode="numeric"
+            value={own}
+            onChange={(e) => /^\d*$/.test(e.target.value) && setOwn(e.target.value)}
+          />
+        </div>
       </div>
-      <div className="field">
-        <label htmlFor="activity">Activity level</label>
-        <select
-          id="activity"
-          className="role-select"
-          value={activity}
-          onChange={(e) => setActivity(e.target.value)}
-        >
-          <option value="">Choose…</option>
-          <option value="1">Sedentary: desk job, little exercise</option>
-          <option value="2">Light: exercise 1 to 3 days a week</option>
-          <option value="3">Moderate: exercise 3 to 5 days a week</option>
-          <option value="4">Active: exercise 6 to 7 days a week</option>
-          <option value="5">Very active: physical job plus training</option>
-        </select>
+      <div className="estimate" role="status">
+        {target ? (
+          <>
+            <p className="eyebrow">Your target</p>
+            <p className="estimate-value">
+              {target.kcal.toLocaleString()} <span>kcal a day.</span>
+            </p>
+            <p className="row-sub">
+              {own
+                ? 'Your own number.'
+                : 'An estimate; adjust it if your weight is not moving the way you want.'}
+            </p>
+          </>
+        ) : (
+          <p className="row-sub">
+            Fill in weight, height, date of birth and activity level for an estimate, or type your
+            own number.
+          </p>
+        )}
       </div>
-      <div className="field">
-        <label htmlFor="own-target">Or set your own daily calories</label>
-        <input
-          id="own-target"
-          inputMode="numeric"
-          value={own}
-          onChange={(e) => /^\d*$/.test(e.target.value) && setOwn(e.target.value)}
-        />
-      </div>
-      <p className="hint" role="status">
-        {target
-          ? `Your target: ${target.kcal.toLocaleString()} kcal a day. ${own ? 'Your own number.' : 'An estimate; adjust it if your weight is not moving the way you want.'}`
-          : 'Fill in weight, height, date of birth and activity level for an estimate, or type your own number.'}
-      </p>
       <ErrorMsg>{message}</ErrorMsg>
       <div className="form-buttons">
         {profile && (
-          <button className="login-btn" type="button" onClick={onCancel}>
+          <button className="outline-btn wide" type="button" onClick={onCancel}>
             Cancel
           </button>
         )}
-        <button className="login-btn primary" type="submit" disabled={loading || !target}>
+        <button className="login-btn" type="submit" disabled={loading || !target}>
           {loading ? 'Saving…' : 'Save'}
         </button>
       </div>

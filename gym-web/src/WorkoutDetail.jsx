@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getWorkout } from './api';
 import ErrorMsg from './ErrorMsg';
+import { ChevronLeft } from './icons';
 import PlusLock from './PlusLock';
 import ProgressChart from './ProgressChart';
 
@@ -23,8 +24,8 @@ export default function WorkoutDetail({ token, plus, id, onBack }) {
 
   return (
     <main className="admin-content">
-      <button className="outline-btn back-btn" type="button" onClick={onBack}>
-        <span aria-hidden="true">‹</span> Back
+      <button className="ghost-btn back-btn" type="button" onClick={onBack}>
+        <ChevronLeft size={18} /> Back
       </button>
       <ErrorMsg>{error}</ErrorMsg>
       {!workout && !error && <p className="msg">Loading workout…</p>}
@@ -32,14 +33,14 @@ export default function WorkoutDetail({ token, plus, id, onBack }) {
         <>
           <div className="page-head">
             <div>
-              <h1 className="page-title">{workout.name}</h1>
-              <p className="admin-subtitle">
+              <p className="eyebrow">
                 {new Date(workout.date).toLocaleDateString(undefined, {
                   weekday: 'long',
                   day: 'numeric',
                   month: 'long',
                 })}
               </p>
+              <h1 className="page-title">{workout.name}</h1>
             </div>
           </div>
           <dl className="stat-grid">

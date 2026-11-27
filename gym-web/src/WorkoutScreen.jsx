@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { getLastSets } from './api';
+import { Ring } from './CaloriesScreen';
 import ConfirmDialog from './ConfirmDialog';
 import { clearDraft, clock, loadDraft, newDraft, newSet, saveDraft } from './Draft';
 import ErrorMsg from './ErrorMsg';
 import ExercisePicker from './ExercisePicker';
+import { Check, Dumbbell, Play, Timer } from './icons';
 import PlateSheet from './PlateSheet';
 import { flush, queue, userIdOf } from './outbox';
 import { validSet } from './setLimits';
@@ -11,12 +13,14 @@ import { validSet } from './setLimits';
 // Set on the Account screen; 90 s until the member picks another
 const restSeconds = () => Number(localStorage.getItem('rest-seconds')) || 90;
 
-// The workout in progress: one card per exercise, one row per set
-export default function WorkoutScreen({ token, onDone }) {
+// The workout in progress: one card per exercise, one row per set.
+// With no draft it waits for Start, unless `start` (the dashboard's Start button) says begin now
+export default function WorkoutScreen({ token, start, onDone }) {
   const userId = userIdOf(token);
-  const [draft, setDraft] = useState(() => loadDraft(userId) ?? newDraft());
+  const [draft, setDraft] = useState(() => loadDraft(userId) ?? (start ? newDraft() : null));
   const [now, setNow] = useState(() => Date.now());
   const [restEnds, setRestEnds] = useState(0); // a time in ms; 0 = not resting
+  const [restFrom, setRestFrom] = useState(0); // when this rest began: the ring is full there
   const [picking, setPicking] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const [message, setMessage] = useState('');
@@ -25,13 +29,32 @@ export default function WorkoutScreen({ token, onDone }) {
   const showRir = localStorage.getItem('show-rir') === '1';
   const [removing, setRemoving] = useState(null); // the exercise waiting to be removed
 
-  useEffect(() => saveDraft(userId, draft), [userId, draft]);
+  useEffect(() => {
+    if (draft) saveDraft(userId, draft);
+  }, [userId, draft]);
 
   // One tick a second drives both the workout clock and the rest countdown
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  if (!draft) {
+    return (
+      <main className="admin-content workout">
+        <section className="card empty-state">
+          <span className="icon-badge" aria-hidden="true">
+            <Dumbbell size={28} />
+          </span>
+          <p className="headline">No workout in progress.</p>
+          <button className="login-btn" type="button" onClick={() => setDraft(newDraft())}>
+            <Play size={18} />
+            Start workout
+          </button>
+        </section>
+      </main>
+    );
+  }
 
   function changeExercise(i, change) {
     setDraft((d) => ({ ...d, exercises: d.exercises.map((e, k) => (k === i ? change(e) : e)) }));
@@ -109,6 +132,7 @@ export default function WorkoutScreen({ token, onDone }) {
     }
     // doneAt: the workout's length runs to its last ticked set, not to when Finish is tapped
     changeSet(i, j, { ...filled(exercise, j), done: true, doneAt: Date.now() });
+    setRestFrom(Date.now());
     setRestEnds(Date.now() + restSeconds() * 1000);
   }
 
@@ -166,29 +190,25 @@ export default function WorkoutScreen({ token, onDone }) {
 
   return (
     <main className="admin-content workout">
-      <div className="workout-bar">
+      <div className="page-head workout-head">
         <div>
           <input
-            className="workout-name"
+            className="page-title workout-name"
             aria-label="Workout name"
             maxLength={200}
             value={draft.name}
             onChange={(e) => setDraft({ ...draft, name: e.target.value })}
           />
-          <div className="row-sub" role="timer" aria-label="Workout time">
-            {clock(now - draft.startedAt)}
-          </div>
         </div>
-        <button className="pill-btn filled" type="button" onClick={() => finish()}>
-          Finish
-        </button>
+        <div className="page-title workout-clock" role="timer" aria-label="Workout time">
+          {clock(now - draft.startedAt)}
+        </div>
       </div>
-      <ErrorMsg>{message}</ErrorMsg>
 
       {draft.exercises.map((e, i) => (
         // Exercises are only added at the end or removed, and the same one can be added twice
         <section className="card" key={i} aria-label={e.name}>
-          <div className="section-head">
+          <div className="exercise-head">
             <h2 className="card-title">{e.name}</h2>
             {e.equipment !== 'barbell' && (
               <label className="check">
@@ -202,7 +222,7 @@ export default function WorkoutScreen({ token, onDone }) {
               </label>
             )}
             <button
-              className="link-btn danger"
+              className="ghost-btn danger"
               type="button"
               aria-label={`Remove ${e.name}`}
               // Only asks when it would throw away ticked sets
@@ -323,7 +343,7 @@ export default function WorkoutScreen({ token, onDone }) {
                         disabled={!s.done && !validSet(ready)}
                         onClick={() => tick(i, j)}
                       >
-                        ✓
+                        <Check size={18} />
                       </button>
                     </td>
                     <td>
@@ -344,7 +364,7 @@ export default function WorkoutScreen({ token, onDone }) {
             </tbody>
           </table>
           <button
-            className="link-btn"
+            className="add-btn"
             type="button"
             onClick={() =>
               changeExercise(i, (x) => ({
@@ -369,18 +389,29 @@ export default function WorkoutScreen({ token, onDone }) {
       <button className="outline-btn wide" type="button" onClick={() => setPicking(true)}>
         Add exercise
       </button>
-      <button className="link-btn danger" type="button" onClick={() => setDiscarding(true)}>
-        Discard workout
-      </button>
+      <ErrorMsg>{message}</ErrorMsg>
+      <div className="finish-row">
+        <button className="login-btn" type="button" onClick={() => finish()}>
+          Finish
+        </button>
+        <button className="outline-btn danger" type="button" onClick={() => setDiscarding(true)}>
+          Discard workout
+        </button>
+      </div>
 
       {rest > 0 && (
         <div className="rest-bar">
-          <span role="timer" aria-label="Rest time left">
-            Rest {clock(rest)}
+          <Timer size={18} />
+          {/* Phones show this ring, emptying as the rest runs down, in place of the icon and the time.
+              ±15 s moves restEnds, so the share left stays right */}
+          <Ring value={rest} max={restEnds - restFrom} />
+          <span className="rest-label">Rest</span>
+          <span className="rest-time" role="timer" aria-label="Rest time left">
+            {clock(rest)}
           </span>
           {/* Dropping below zero just ends the rest, like Skip */}
           <button
-            className="outline-btn"
+            className="rest-btn"
             type="button"
             aria-label="15 seconds less"
             onClick={() => setRestEnds(restEnds - 15000)}
@@ -388,14 +419,14 @@ export default function WorkoutScreen({ token, onDone }) {
             −15s
           </button>
           <button
-            className="outline-btn"
+            className="rest-btn"
             type="button"
             aria-label="15 seconds more"
             onClick={() => setRestEnds(restEnds + 15000)}
           >
             +15s
           </button>
-          <button className="outline-btn" type="button" onClick={() => setRestEnds(0)}>
+          <button className="rest-btn" type="button" onClick={() => setRestEnds(0)}>
             Skip
           </button>
         </div>

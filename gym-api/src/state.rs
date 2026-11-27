@@ -6,7 +6,7 @@ use std::{
 
 use axum::{
     extract::ConnectInfo,
-    http::{Request, StatusCode},
+    http::{HeaderMap, Request, StatusCode},
 };
 use chrono::{DateTime, NaiveDateTime, Utc};
 use governor::DefaultKeyedRateLimiter;
@@ -26,6 +26,9 @@ pub struct AppState {
     // shortcut: in memory, so it resets on restart and isn't shared between processes;
     // move it to a DB column if the API ever runs as more than one process
     pub totp_attempts: DefaultKeyedRateLimiter<i32>,
+    // Password tries per (account, client IP); see login_limiter.
+    // shortcut: in memory like totp_attempts, with the same limit and the same upgrade path
+    pub login_attempts: DefaultKeyedRateLimiter<(i32, IpAddr)>,
     // Caps mail that anyone can trigger, per address, so the app can't be used to flood an inbox
     pub mail_attempts: DefaultKeyedRateLimiter<String>,
     pub mailer: AsyncSmtpTransport<Tokio1Executor>,
@@ -54,30 +57,35 @@ impl KeyExtractor for ProxyIpKeyExtractor {
             .get::<ConnectInfo<SocketAddr>>()
             .map(|c| c.0.ip())
             .ok_or(GovernorError::UnableToExtractKey)?;
-        // Only our proxy (on this machine) may tell us the client's IP
-        let ip = if peer.is_loopback() {
-            req.headers()
-                .get("x-forwarded-for")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|s| {
-                    s.rsplit(',')
-                        .filter_map(|ip| ip.trim().parse::<IpAddr>().ok())
-                        // ::ffff:127.0.0.1 is loopback too
-                        .map(|ip| ip.to_canonical())
-                        .find(|ip| !ip.is_loopback())
-                })
-                .unwrap_or(peer)
-        } else {
-            peer
-        };
-        // One IPv6 customer usually gets a whole /64, so treat it as one client
-        Ok(match ip {
-            IpAddr::V6(v6) => {
-                let s = v6.segments();
-                IpAddr::V6(std::net::Ipv6Addr::new(s[0], s[1], s[2], s[3], 0, 0, 0, 0))
-            }
-            v4 => v4,
-        })
+        Ok(client_ip(peer, req.headers()))
+    }
+}
+
+// The client's IP as the rate limits see it; the per-account login limit uses it too
+pub fn client_ip(peer: IpAddr, headers: &HeaderMap) -> IpAddr {
+    // Only our proxy (on this machine) may tell us the client's IP
+    let ip = if peer.is_loopback() {
+        headers
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| {
+                s.rsplit(',')
+                    .filter_map(|ip| ip.trim().parse::<IpAddr>().ok())
+                    // ::ffff:127.0.0.1 is loopback too
+                    .map(|ip| ip.to_canonical())
+                    .find(|ip| !ip.is_loopback())
+            })
+            .unwrap_or(peer)
+    } else {
+        peer
+    };
+    // One IPv6 customer usually gets a whole /64, so treat it as one client
+    match ip {
+        IpAddr::V6(v6) => {
+            let s = v6.segments();
+            IpAddr::V6(std::net::Ipv6Addr::new(s[0], s[1], s[2], s[3], 0, 0, 0, 0))
+        }
+        v4 => v4,
     }
 }
 
@@ -111,6 +119,7 @@ pub async fn set_user(db: &mut Db, user_id: i32) -> Result<(), tiberius::error::
 
 // One row per login, failed login, logged workout or admin action; kind is 'login', 'login_failed',
 // 'workout', or for admin actions 'admin_changed' / 'reset_link' / 'reactivated' (stored against the admin's id)
+// and 'admin_removed' (stored against the member who lost admin access)
 pub async fn record(db: &mut Db, user_id: i32, kind: &str) -> ApiResult<()> {
     db.execute(
         "INSERT INTO dbo.Events (UserId, Kind) VALUES (@P1, @P2)",
@@ -224,7 +233,7 @@ pub fn send_verify_mail(state: &Arc<AppState>, email: String, user_id: i32) -> A
     send_mail(
         state.clone(),
         email,
-        "Confirm your Gym App email",
+        "Confirm your BarMetric email",
         format!(
             "Confirm your email to finish signing up:\n{}/#verify={token}\n\nThe link works for 24 hours.\n\nIf you didn't create this account, ignore this email.",
             state.frontend_url
@@ -239,7 +248,7 @@ pub fn send_security_notice(state: &Arc<AppState>, email: &str, what: &'static s
     send_mail(
         state.clone(),
         email.to_string(),
-        "Your Gym App account was changed",
+        "Your BarMetric account was changed",
         format!(
             "{what}\n\nIf this wasn't you, reset your password from the login screen and tell an admin."
         ),

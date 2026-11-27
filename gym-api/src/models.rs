@@ -326,3 +326,26 @@ pub struct FoodEntry {
     #[serde(flatten)]
     pub food: Food,
 }
+
+// GET /me/export: the member's last 30 days, downloaded from the Account screen
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Export {
+    pub workouts: Vec<WorkoutDetail>,
+    pub food: Vec<DatedFood>,
+    pub body_weights: Vec<BodyWeight>,
+}
+
+#[derive(Serialize)]
+pub struct DatedFood {
+    pub date: NaiveDate,
+    pub meal: String,
+    #[serde(flatten)]
+    pub food: Food,
+}
+
+#[derive(Serialize)]
+pub struct BodyWeight {
+    pub date: NaiveDate,
+    pub kg: f64,
+}

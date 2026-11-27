@@ -1,6 +1,6 @@
 {
-  "name": "Gym App",
-  "short_name": "Gym App",
+  "name": "BarMetric",
+  "short_name": "BarMetric",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0a0a",

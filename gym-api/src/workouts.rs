@@ -10,9 +10,10 @@ use tiberius::Row;
 
 use crate::extractors::{AuthUser, Member, PlusUser};
 use crate::models::{
-    DaysQuery, LoggedExercise, LoggedSet, MuscleSets, NewWorkout, ProgressPoint, Workout,
-    WorkoutDetail,
+    BodyWeight, DatedFood, DaysQuery, Export, LoggedExercise, LoggedSet, MuscleSets, NewWorkout,
+    ProgressPoint, Workout, WorkoutDetail,
 };
+use crate::nutrition::to_food;
 use crate::passwords::{fits, plain};
 use crate::state::{ApiResult, Db, all_rows, batch, col, internal, one_row, record, set_user};
 
@@ -74,6 +75,10 @@ pub fn check_workout(w: &NewWorkout) -> Result<&str, String> {
     }
     if w.duration_sec.is_some_and(|d| !(0..=86_400).contains(&d)) {
         return Err("duration is out of range".into());
+    }
+    // An exercise with no sets would hide last time's numbers: last_sets picks the newest one
+    if w.exercises.is_empty() || w.exercises.iter().any(|e| e.sets.is_empty()) {
+        return Err("a workout needs at least one exercise, each with at least one set".into());
     }
     if w.exercises.len() > 50 || w.exercises.iter().any(|e| e.sets.len() > 50) {
         return Err("a workout holds up to 50 exercises of 50 sets".into());
@@ -232,8 +237,13 @@ pub async fn get_workout(
     Path(id): Path<i32>,
 ) -> ApiResult<Json<WorkoutDetail>> {
     set_user(&mut db, user_id).await.map_err(internal)?;
+    Ok(Json(workout_detail(&mut db, user_id, id).await?))
+}
+
+// One of the member's workouts with every set; get_workout and export_data both use it
+async fn workout_detail(db: &mut Db, user_id: i32, id: i32) -> ApiResult<WorkoutDetail> {
     let workout = one_row(
-        &mut db,
+        db,
         &format!("SELECT {WORKOUT_COLS} FROM dbo.Workouts w WHERE w.Id = @P1 AND w.UserId = @P2"),
         &[&id, &user_id],
     )
@@ -243,7 +253,7 @@ pub async fn get_workout(
     .ok_or((StatusCode::NOT_FOUND, "Workout not found.".to_string()))?;
     // WorkoutExercises and Sets have no UserId of their own: the workout above was already checked as this member's
     let rows = all_rows(
-        &mut db,
+        db,
         "SELECT we.Id AS WeId, we.ExerciseId, e.Name, s.WeightKg, s.Reps, s.Rir, s.Side
          FROM dbo.WorkoutExercises we
          JOIN dbo.Exercises e ON e.Id = we.ExerciseId
@@ -270,7 +280,63 @@ pub async fn get_workout(
             e.sets.push(to_set(r)?);
         }
     }
-    Ok(Json(WorkoutDetail { workout, exercises }))
+    Ok(WorkoutDetail { workout, exercises })
+}
+
+// The member's last 30 days, saved as a file from the Account screen: every workout with its
+// sets, every food logged and every weigh-in
+pub async fn export_data(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Json<Export>> {
+    set_user(&mut db, user_id).await.map_err(internal)?;
+    let ids = all_rows(
+        &mut db,
+        "SELECT Id FROM dbo.Workouts
+         WHERE UserId = @P1 AND [Date] >= DATEADD(day, -30, SYSUTCDATETIME()) ORDER BY [Date]",
+        &[&user_id],
+    )
+    .await?;
+    let mut workouts = Vec::new();
+    for r in &ids {
+        // shortcut: two queries per workout; fine for a month of training, join them if exports get slow
+        workouts.push(workout_detail(&mut db, user_id, col(r, "Id")?).await?);
+    }
+    let food = all_rows(
+        &mut db,
+        "SELECT [Date], Meal, Name, Kcal, ProteinG, CarbsG, FatG FROM dbo.FoodEntries
+         WHERE UserId = @P1 AND [Date] >= DATEADD(day, -30, CAST(SYSUTCDATETIME() AS DATE))
+         ORDER BY [Date], Id",
+        &[&user_id],
+    )
+    .await?
+    .iter()
+    .map(|r| -> ApiResult<DatedFood> {
+        Ok(DatedFood {
+            date: col(r, "Date")?,
+            meal: col::<&str>(r, "Meal")?.to_string(),
+            food: to_food(r)?,
+        })
+    })
+    .collect::<ApiResult<_>>()?;
+    let body_weights = all_rows(
+        &mut db,
+        "SELECT [Date], Kg FROM dbo.BodyWeights
+         WHERE UserId = @P1 AND [Date] >= DATEADD(day, -30, CAST(SYSUTCDATETIME() AS DATE))
+         ORDER BY [Date]",
+        &[&user_id],
+    )
+    .await?
+    .iter()
+    .map(|r| -> ApiResult<BodyWeight> {
+        Ok(BodyWeight {
+            date: col(r, "Date")?,
+            kg: col(r, "Kg")?,
+        })
+    })
+    .collect::<ApiResult<_>>()?;
+    Ok(Json(Export {
+        workouts,
+        food,
+        body_weights,
+    }))
 }
 
 // The sets from the last time this member did an exercise: the grey "previous" column
@@ -337,13 +403,14 @@ pub async fn exercise_progress(
     let rows = all_rows(
         &mut db,
         // 30e0 is a FLOAT literal, so Reps / 30e0 isn't integer division (8 / 30 would be 0)
-        "SELECT TOP 50 CONVERT(char(10), w.[Date], 23) AS Day,
+        // Days in Sydney/Melbourne time like admin_stats: [Date] is UTC, so a 7 am workout would land on the day before
+        "SELECT TOP 50 CONVERT(char(10), CAST(w.[Date] AT TIME ZONE 'UTC' AT TIME ZONE 'AUS Eastern Standard Time' AS date), 23) AS Day,
                 MAX(s.WeightKg * (1 + s.Reps / 30e0)) AS Est1rm
          FROM dbo.Workouts w
          JOIN dbo.WorkoutExercises we ON we.WorkoutId = w.Id
          JOIN dbo.Sets s ON s.WorkoutExerciseId = we.Id
          WHERE w.UserId = @P1 AND we.ExerciseId = @P2
-         GROUP BY CONVERT(char(10), w.[Date], 23)
+         GROUP BY CONVERT(char(10), CAST(w.[Date] AT TIME ZONE 'UTC' AT TIME ZONE 'AUS Eastern Standard Time' AS date), 23)
          ORDER BY Day DESC",
         &[&user_id, &exercise_id],
     )
@@ -392,6 +459,11 @@ mod tests {
             "no client id"
         );
         assert!(check_workout(&workout(62.5, 0, None)).is_err(), "zero reps");
+        let mut no_sets = workout(62.5, 8, None);
+        no_sets.exercises[0].sets.clear();
+        assert!(check_workout(&no_sets).is_err(), "an exercise with no sets");
+        no_sets.exercises.clear();
+        assert!(check_workout(&no_sets).is_err(), "no exercises");
         let mut with_notes = workout(62.5, 8, None);
         with_notes.notes = Some("felt strong\nup 2.5 kg next time".into());
         assert!(

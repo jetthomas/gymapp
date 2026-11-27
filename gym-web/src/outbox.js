@@ -35,32 +35,45 @@ export function queue(token, workout) {
 }
 
 let flushing = false;
+// A flush was asked for while one was running, e.g. Finish while the app-open flush waits on bad signal
+let again = false;
 
 // Sends this member's waiting workouts, oldest first. Safe to call as often as you like:
 // the server stores each clientId once, however many times it arrives
 export async function flush(token, send = createWorkout) {
   // Offline mode has no token; the next real login sends them
-  if (flushing || !token) return;
+  if (!token) return;
+  if (flushing) {
+    again = true;
+    return;
+  }
   flushing = true;
   try {
-    for (const item of mine(token).filter((i) => !i.error)) {
-      const { clientId } = item.workout;
-      try {
-        await send(token, item.workout);
-        write(read().filter((i) => i.workout.clientId !== clientId));
-      } catch (err) {
-        // No signal, a server error, an expired login or too many tries: these can heal,
-        // so leave everything for the next try
-        if (!err.status || err.status >= 500 || err.status === 401 || err.status === 429) return;
-        // Any other 4xx (400, 422) = the server will never accept it, so stop retrying but keep it
-        // until the member discards it (drop, below)
-        write(
-          read().map((i) => (i.workout.clientId === clientId ? { ...i, error: err.message } : i)),
-        );
-      }
-    }
+    do {
+      again = false;
+      await sendWaiting(token, send);
+    } while (again);
   } finally {
     flushing = false;
+  }
+}
+
+async function sendWaiting(token, send) {
+  for (const item of mine(token).filter((i) => !i.error)) {
+    const { clientId } = item.workout;
+    try {
+      await send(token, item.workout);
+      write(read().filter((i) => i.workout.clientId !== clientId));
+    } catch (err) {
+      // No signal, a server error, an expired login or too many tries: these can heal,
+      // so leave everything for the next try
+      if (!err.status || err.status >= 500 || err.status === 401 || err.status === 429) return;
+      // Any other 4xx (400, 422) = the server will never accept it, so stop retrying but keep it
+      // until the member discards it (drop, below)
+      write(
+        read().map((i) => (i.workout.clientId === clientId ? { ...i, error: err.message } : i)),
+      );
+    }
   }
 }
 
@@ -79,5 +92,7 @@ const subscribe = (onChange) => {
 export const useRefused = (token) =>
   useSyncExternalStore(subscribe, () => mine(token).find((i) => i.error)?.error ?? '');
 
-// How many of this member's workouts are still waiting; re-renders the component when that changes
-export const useWaiting = (token) => useSyncExternalStore(subscribe, () => mine(token).length);
+// How many of this member's workouts are still waiting; re-renders the component when that changes.
+// Refused ones aren't counted: they never upload (useRefused shows them instead)
+export const useWaiting = (token) =>
+  useSyncExternalStore(subscribe, () => mine(token).filter((i) => !i.error).length);

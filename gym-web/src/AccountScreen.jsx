@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { deleteAccount, deleteAvatar, openPortal, putAvatar } from './api';
+import { deleteAccount, deleteAvatar, eraseAccount, getExport, openPortal, putAvatar } from './api';
 import { toAvatar } from './avatar';
 import ChangePasswordForm from './ChangePasswordForm';
 import { clock } from './Draft';
 import ErrorMsg from './ErrorMsg';
+import toCsv from './exportCsv';
+import { Check, LogOut } from './icons';
 import UpgradeDialog from './UpgradeDialog';
 import { displayName, initials } from './names';
 import PasswordInput from './PasswordInput';
@@ -11,6 +13,7 @@ import TwoFactorDisable from './TwoFactorDisable';
 import TwoFactorSetup from './TwoFactorSetup';
 import { useWaiting } from './outbox';
 import useSubmit from './useSubmit';
+import { dayKey } from './week';
 
 // Settings behind the home screen. Its state resets whenever it closes, including on logout.
 export default function AccountScreen({
@@ -36,7 +39,8 @@ export default function AccountScreen({
   const billing = useSubmit();
   const [upgrading, setUpgrading] = useState(false);
   const [deletePassword, setDeletePassword] = useState('');
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [confirming, setConfirming] = useState(null); // 'deactivate', 'delete' or null: the danger zone's open form
+  const exporting = useSubmit();
   const [showRir, setShowRir] = useState(() => localStorage.getItem('show-rir') === '1');
   const [restSeconds, setRestSeconds] = useState(
     () => localStorage.getItem('rest-seconds') ?? '90',
@@ -54,7 +58,7 @@ export default function AccountScreen({
   // Mirrors can_join in billing.rs: only these can start a new subscription; the rest manage theirs
   const status = profile?.membershipStatus;
   const canJoin = !status || status === 'canceled' || status === 'incomplete_expired';
-  // Paid up: the card dims and says Purchased. past_due still has Plus but must fix their card
+  // Paid up: the card says Purchased. past_due still has Plus but must fix their card
   const purchased = plus && !isAdmin && status !== 'past_due';
   const until = profile?.membershipEndsAt
     ? new Date(profile.membershipEndsAt).toLocaleDateString(undefined, {
@@ -88,8 +92,27 @@ export default function AccountScreen({
   function handleDelete(event) {
     event.preventDefault();
     deleting.run(async () => {
-      await deleteAccount(token, deletePassword);
-      onSignedOut();
+      if (confirming === 'delete') {
+        await eraseAccount(token, deletePassword);
+        onSignedOut('Your account and all its data are deleted.');
+      } else {
+        await deleteAccount(token, deletePassword);
+        onSignedOut();
+      }
+    });
+  }
+
+  // Saves the last 30 days as a CSV file
+  function handleExport() {
+    exporting.run(async () => {
+      const data = await getExport(token);
+      const link = document.createElement('a');
+      // The byte-order mark tells Excel the file is UTF-8, so names like "Crème brûlée" stay readable
+      link.href = URL.createObjectURL(
+        new Blob(['﻿', toCsv(data)], { type: 'text/csv;charset=utf-8' }),
+      );
+      link.download = `barmetric-export-${dayKey(new Date())}.csv`;
+      link.click();
     });
   }
 
@@ -113,20 +136,23 @@ export default function AccountScreen({
         <aside className="card profile-card">
           {profile && (
             <>
-              <div className="profile-photo">
-                <div className="profile-avatar" aria-hidden="true">
-                  {profile.avatar ? (
-                    <img src={`data:image/jpeg;base64,${profile.avatar}`} alt="" />
-                  ) : (
-                    initials(profile)
-                  )}
-                </div>
+              <div className="profile-avatar" aria-hidden="true">
+                {profile.avatar ? (
+                  <img src={`data:image/jpeg;base64,${profile.avatar}`} alt="" />
+                ) : (
+                  initials(profile)
+                )}
+              </div>
+              <div className="profile-name">{displayName(profile)}</div>
+              <div className="profile-email">{profile.email}</div>
+              <div className="profile-links">
                 <label className="link-btn">
                   Change photo
+                  {/* Hidden from view but not from the keyboard, so Tab reaches it */}
                   <input
                     type="file"
                     accept="image/*"
-                    hidden
+                    className="visually-hidden"
                     onChange={(e) => {
                       const file = e.target.files[0];
                       // Cleared so the same photo can be picked again; a cancelled pick has no file
@@ -163,8 +189,6 @@ export default function AccountScreen({
                 </p>
               )}
               <ErrorMsg>{photo.message}</ErrorMsg>
-              <div className="profile-name">{displayName(profile)}</div>
-              <div className="profile-email">{profile.email}</div>
             </>
           )}
           {waiting > 0 && (
@@ -173,14 +197,15 @@ export default function AccountScreen({
               Logging out keeps them on this device until you log in here again.
             </p>
           )}
-          <button className="outline-btn" type="button" onClick={onLogOut}>
+          <button className="outline-btn wide" type="button" onClick={onLogOut}>
+            <LogOut size={18} />
             Log out
           </button>
         </aside>
 
         <div className="account-cards">
           <section className="card" aria-labelledby="security-title">
-            <h2 id="security-title" className="card-title">
+            <h2 id="security-title" className="section-title">
               Security
             </h2>
             <p className="row-sub">Keep your account protected.</p>
@@ -244,7 +269,7 @@ export default function AccountScreen({
             )}
           </section>
           <section className="card" aria-labelledby="training-title">
-            <h2 id="training-title" className="card-title">
+            <h2 id="training-title" className="section-title">
               Training
             </h2>
             <p className="row-sub">Settings for this device.</p>
@@ -256,6 +281,8 @@ export default function AccountScreen({
               <input
                 id="show-rir"
                 type="checkbox"
+                className="switch"
+                role="switch"
                 checked={showRir}
                 onChange={(e) => {
                   setShowRir(e.target.checked);
@@ -274,6 +301,8 @@ export default function AccountScreen({
               <input
                 id="show-calories"
                 type="checkbox"
+                className="switch"
+                role="switch"
                 checked={showCalories}
                 onChange={(e) => onShowCaloriesChanged(e.target.checked)}
               />
@@ -288,6 +317,8 @@ export default function AccountScreen({
               <input
                 id="show-workout"
                 type="checkbox"
+                className="switch"
+                role="switch"
                 checked={showWorkout}
                 onChange={(e) => onShowWorkoutChanged(e.target.checked)}
               />
@@ -314,13 +345,10 @@ export default function AccountScreen({
               </select>
             </div>
           </section>
-          <section
-            className={`card split${purchased ? ' purchased' : ''}`}
-            aria-labelledby="plus-title"
-          >
+          <section className="card split plus" aria-labelledby="plus-title">
             <div>
-              <h2 id="plus-title" className="card-title">
-                Gym App Plus
+              <h2 id="plus-title" className="section-title">
+                BarMetric Plus
               </h2>
               <p className="row-sub">{plusLine}</p>
               {purchased && (
@@ -338,7 +366,8 @@ export default function AccountScreen({
             {!isAdmin &&
               profile &&
               (purchased ? (
-                <button className="pill-btn" type="button" disabled>
+                <button className="pill-btn filled" type="button" disabled>
+                  <Check size={16} />
                   Purchased
                 </button>
               ) : canJoin ? (
@@ -363,7 +392,7 @@ export default function AccountScreen({
           {upgrading && <UpgradeDialog token={token} onClose={() => setUpgrading(false)} />}
           <section className="card split" aria-labelledby="progress-title">
             <div>
-              <h2 id="progress-title" className="card-title">
+              <h2 id="progress-title" className="section-title">
                 Progress
               </h2>
               <p className="row-sub">Muscles trained in the last 30 days</p>
@@ -375,7 +404,7 @@ export default function AccountScreen({
           {isAdmin && (
             <section className="card split" aria-labelledby="team-title">
               <div>
-                <h2 id="team-title" className="card-title">
+                <h2 id="team-title" className="section-title">
                   Team
                 </h2>
                 <p className="row-sub">Manage users</p>
@@ -386,29 +415,64 @@ export default function AccountScreen({
             </section>
           )}
 
+          <section className="card split" aria-labelledby="export-title">
+            <div>
+              <h2 id="export-title" className="section-title">
+                Your data
+              </h2>
+              <p className="row-sub">
+                Your workouts, food log and weigh-ins from the last 30 days, as a spreadsheet (CSV).
+              </p>
+              <ErrorMsg>{exporting.message}</ErrorMsg>
+            </div>
+            <button
+              className="outline-btn"
+              type="button"
+              disabled={exporting.loading}
+              onClick={handleExport}
+            >
+              {exporting.loading ? 'Exporting…' : 'Export data'}
+            </button>
+          </section>
+
           <section className="card danger" aria-labelledby="danger-title">
-            <h2 id="danger-title" className="card-title">
+            <h2 id="danger-title" className="section-title">
               Danger zone
             </h2>
             <div className="row static">
               <span className="row-text">
-                Deactivate account
-                {/* delete_account only deactivates, so the label doesn't promise permanent removal */}
-                <span className="row-sub">Deactivates your account. You can undo this.</span>
+                Deactivate or delete account
+                <span className="row-sub">
+                  Deactivating can be undone. Deleting removes your account and all its data for
+                  good.
+                </span>
               </span>
-              <button
-                className="outline-btn danger"
-                type="button"
-                onClick={() => setConfirmingDelete(true)}
-              >
-                Deactivate account
-              </button>
+              <div className="head-actions">
+                <button
+                  className="outline-btn danger"
+                  type="button"
+                  aria-expanded={confirming === 'deactivate'}
+                  onClick={() => setConfirming('deactivate')}
+                >
+                  Deactivate
+                </button>
+                <button
+                  className="outline-btn danger"
+                  type="button"
+                  aria-expanded={confirming === 'delete'}
+                  onClick={() => setConfirming('delete')}
+                >
+                  Delete
+                </button>
+              </div>
             </div>
-            {confirmingDelete && (
+            {confirming && (
               <div className="row-panel">
                 <form onSubmit={handleDelete}>
                   <p className="hint">
-                    This deactivates your account. You can reactivate it from the login screen.
+                    {confirming === 'delete'
+                      ? 'This deletes your account, workouts, food log and weigh-ins for good. It can’t be undone, so export your data first if you want a copy.'
+                      : 'This deactivates your account. You can reactivate it from the login screen.'}
                   </p>
                   <div className="field">
                     <label htmlFor="delete-password">Password</label>
@@ -421,14 +485,14 @@ export default function AccountScreen({
                   </div>
                   <ErrorMsg>{deleting.message}</ErrorMsg>
                   <button className="login-btn danger" type="submit" disabled={deleting.loading}>
-                    Deactivate account
+                    {confirming === 'delete' ? 'Delete account forever' : 'Deactivate account'}
                   </button>
                   <button
                     className="link-btn"
                     type="button"
                     disabled={deleting.loading}
                     onClick={() => {
-                      setConfirmingDelete(false);
+                      setConfirming(null);
                       setDeletePassword('');
                       deleting.setMessage('');
                     }}

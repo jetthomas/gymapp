@@ -1,10 +1,10 @@
-use std::sync::Arc;
+use std::{net::IpAddr, num::NonZeroU32, sync::Arc, time::Duration};
 
 use axum::{
     extract::FromRequestParts,
     http::{StatusCode, header::AUTHORIZATION, request::Parts},
 };
-use chrono::{NaiveDateTime, Utc};
+use governor::{DefaultKeyedRateLimiter, Quota};
 use tiberius::Row;
 
 use crate::models::Credentials;
@@ -130,8 +130,23 @@ pub struct Account {
     pub email_verified: bool,
 }
 
+// 10 password tries at one account from one IP, then one more every 90 s. Keyed by IP as well,
+// so a stranger guessing at a member's email only locks out their own address, not the member
+pub fn login_limiter() -> DefaultKeyedRateLimiter<(i32, IpAddr)> {
+    DefaultKeyedRateLimiter::keyed(
+        Quota::with_period(Duration::from_secs(90))
+            .unwrap()
+            .allow_burst(NonZeroU32::new(10).unwrap()),
+    )
+}
+
 // Returns the user's account flags when the email and password match
-pub async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<Account> {
+pub async fn verify_credentials(
+    state: &AppState,
+    db: &mut Db,
+    c: &Credentials,
+    ip: IpAddr,
+) -> ApiResult<Account> {
     let unauthorized = || {
         (
             StatusCode::UNAUTHORIZED,
@@ -141,7 +156,7 @@ pub async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<Accou
     let email = c.email.to_lowercase();
     let row = one_row(
         db,
-        "SELECT Id, PasswordHash, Active, IsAdmin, TotpEnabled, SessionVersion, LockedUntil, EmailVerified FROM dbo.Users WHERE Email = @P1",
+        "SELECT Id, PasswordHash, Active, IsAdmin, TotpEnabled, SessionVersion, EmailVerified FROM dbo.Users WHERE Email = @P1",
         &[&email],
     )
     .await?;
@@ -158,37 +173,16 @@ pub async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<Accou
     let totp_enabled: bool = col(&row, "TotpEnabled")?;
     let session_version: i32 = col(&row, "SessionVersion")?;
     let email_verified: bool = col(&row, "EmailVerified")?;
-    let locked = row
-        .get::<NaiveDateTime, _>("LockedUntil")
-        .is_some_and(|t| t.and_utc() > Utc::now());
-    // Check the password even when locked, so a locked account answers as slowly as a wrong password
+    // Check the password even when over the limit, so that answers as slowly as a wrong password
     let ok = password_matches(c.password.clone(), stored.to_string()).await?;
-    if locked {
+    // Every try counts, right or wrong: the limiter can't be read without spending one
+    if state.login_attempts.check_key(&(id, ip)).is_err() {
         return Err(unauthorized());
     }
     if !ok {
-        // Lock for 15 minutes after 10 wrong passwords in a row; time-based so nobody can lock a member out for good
-        db.execute(
-            // The counter goes back to 0 when the lock starts, so one typo after it ends doesn't relock.
-            // SQL Server reads the old LoginFailures in both CASEs.
-            "UPDATE dbo.Users SET
-                LoginFailures = CASE WHEN LoginFailures + 1 >= 10 THEN 0 ELSE LoginFailures + 1 END,
-                LockedUntil = CASE WHEN LoginFailures + 1 >= 10
-                                   THEN DATEADD(minute, 15, SYSUTCDATETIME()) END
-             WHERE Id = @P1",
-            &[&id],
-        )
-        .await
-        .map_err(internal)?;
         record(db, id, "login_failed").await?;
         return Err(unauthorized());
     }
-    db.execute(
-        "UPDATE dbo.Users SET LoginFailures = 0, LockedUntil = NULL WHERE Id = @P1",
-        &[&id],
-    )
-    .await
-    .map_err(internal)?;
     Ok(Account {
         id,
         active,
@@ -197,4 +191,27 @@ pub async fn verify_credentials(db: &mut Db, c: &Credentials) -> ApiResult<Accou
         session_version,
         email_verified,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_strangers_wrong_passwords_dont_lock_the_member_out() {
+        let tries = login_limiter();
+        let stranger: IpAddr = "198.51.100.7".parse().unwrap();
+        let member: IpAddr = "203.0.113.9".parse().unwrap();
+        for _ in 0..10 {
+            assert!(tries.check_key(&(7, stranger)).is_ok());
+        }
+        assert!(
+            tries.check_key(&(7, stranger)).is_err(),
+            "the 11th try from one IP"
+        );
+        assert!(
+            tries.check_key(&(7, member)).is_ok(),
+            "the member's own IP still gets in"
+        );
+    }
 }

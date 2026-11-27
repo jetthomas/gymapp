@@ -1,4 +1,4 @@
-# Gym App
+# LoadLog
 
 A full-stack workout tracker for a gym's members. Members log workouts set by set (even with no signal), see which muscles they've trained, and work out which plates to load. Admins manage members and the shared exercise library.
 
@@ -97,11 +97,12 @@ DB_TRUST_CERT=true
 JWT_SECRET=<run: openssl rand -base64 48>
 SMTP_HOST=localhost
 SMTP_PORT=1025
-MAIL_FROM=Gym App <no-reply@localhost>
+MAIL_FROM=BarMetric <no-reply@localhost>
+FRONTEND_URL=http://localhost:5173
 STRIPE_KEY=<sk_test_... from the Stripe Dashboard>
 STRIPE_PRICE_ID=<price_... of the Plus price>
 STRIPE_WEBHOOK_SECRET=<whsec_... printed by stripe listen>
-FOOD_USER_AGENT=GymApp/1.0 (<your contact email>)
+FOOD_USER_AGENT=BarMetric/1.0 (<your contact email>)
 ```
 
 Never commit `.env`; it's already in `.gitignore`. Every setting is listed under [Configuration](#configuration).
@@ -161,24 +162,24 @@ Log in again. After this, admins can make others admins from the Admin screen.
 
 All API settings live in `gym-api/.env`.
 
-| Variable                     | Required | Default                 | What it is                                                                        |
-| ---------------------------- | -------- | ----------------------- | --------------------------------------------------------------------------------- |
-| `DB_HOST`                    | Yes      |                         | SQL Server's address                                                              |
-| `DB_USER`, `DB_PASSWORD`     | Yes      |                         | An admin login until setup step 6, then `gym_app`                                 |
-| `DB_PORT`                    | No       | `1433`                  |                                                                                   |
-| `DB_NAME`                    | No       | `Gym_App`               |                                                                                   |
-| `DB_TRUST_CERT`              | No       | `false`                 | `true` accepts SQL Server's self-signed certificate. Development only             |
-| `JWT_SECRET`                 | Yes      |                         | Signs every token. At least 32 characters, or the API refuses to start            |
-| `SMTP_HOST`                  | Yes      |                         | Mail server                                                                       |
-| `SMTP_PORT`                  | No       | `587`                   | `587` uses STARTTLS, `1025` means Mailpit (no encryption), anything else uses TLS |
-| `SMTP_USER`, `SMTP_PASSWORD` | No       |                         | For a real mail provider                                                          |
-| `MAIL_FROM`                  | Yes      |                         | The From address, e.g. `Gym App <no-reply@yourgym.com>`                           |
-| `FRONTEND_URL`               | No       | `http://localhost:5173` | Used to build links in emails                                                     |
-| `BIND_ADDR`                  | No       | `127.0.0.1:5080`        | Where the API listens. Keep it on `127.0.0.1` behind a proxy                      |
-| `STRIPE_KEY`                 | Yes      |                         | Stripe secret key for Plus (`sk_test_...` in development)                         |
-| `STRIPE_PRICE_ID`            | Yes      |                         | The Plus price (`price_...`); members can't choose their own                      |
-| `STRIPE_WEBHOOK_SECRET`      | Yes      |                         | Webhook signing secret (`whsec_...`); in development `stripe listen` prints one   |
-| `FOOD_USER_AGENT`            | Yes      |                         | Names the app to Open Food Facts: `AppName/Version (ContactEmail)`                |
+| Variable                     | Required | Default          | What it is                                                                                  |
+| ---------------------------- | -------- | ---------------- | ------------------------------------------------------------------------------------------- |
+| `DB_HOST`                    | Yes      |                  | SQL Server's address                                                                        |
+| `DB_USER`, `DB_PASSWORD`     | Yes      |                  | An admin login until setup step 6, then `gym_app`                                           |
+| `DB_PORT`                    | No       | `1433`           |                                                                                             |
+| `DB_NAME`                    | No       | `Gym_App`        |                                                                                             |
+| `DB_TRUST_CERT`              | No       | `false`          | `true` accepts SQL Server's self-signed certificate. Development only                       |
+| `JWT_SECRET`                 | Yes      |                  | Signs every token. At least 32 characters, or the API refuses to start                      |
+| `SMTP_HOST`                  | Yes      |                  | Mail server                                                                                 |
+| `SMTP_PORT`                  | No       | `587`            | `587` uses STARTTLS, `1025` means Mailpit (no encryption), anything else uses TLS           |
+| `SMTP_USER`, `SMTP_PASSWORD` | No       |                  | For a real mail provider                                                                    |
+| `MAIL_FROM`                  | Yes      |                  | The From address, e.g. `BarMetric <no-reply@yourgym.com>`                                     |
+| `FRONTEND_URL`               | Yes      |                  | Used to build links in emails and Stripe redirects (`http://localhost:5173` in development) |
+| `BIND_ADDR`                  | No       | `127.0.0.1:5080` | Where the API listens. Keep it on `127.0.0.1` behind a proxy                                |
+| `STRIPE_KEY`                 | Yes      |                  | Stripe secret key for Plus (`sk_test_...` in development)                                   |
+| `STRIPE_PRICE_ID`            | Yes      |                  | The Plus price (`price_...`); members can't choose their own                                |
+| `STRIPE_WEBHOOK_SECRET`      | Yes      |                  | Webhook signing secret (`whsec_...`); in development `stripe listen` prints one             |
+| `FOOD_USER_AGENT`            | Yes      |                  | Names the app to Open Food Facts: `AppName/Version (ContactEmail)`                          |
 
 ## Commands
 
@@ -286,13 +287,13 @@ sequenceDiagram
 
 **Forgot password.** `POST /auth/forgot` always answers 200; if the account exists, it emails a 15-minute link. `POST /auth/reset` sets the new password. On a 2FA account, a member's own reset also needs a current code (the first attempt answers 401 and the form asks for it), so access to someone's inbox isn't enough to get around 2FA. A reset signs out every session and emails the member.
 
-**Admin reset link.** Made on the Admin screen and passed to the member by hand. It also turns 2FA off: it's the way back in after losing a phone. The member is emailed as soon as it's made, and the admin who made it is recorded. Admins can't get one for another admin (or themselves), so one stolen admin login can't open the other admins' accounts; an admin who loses their 2FA phone uses a recovery code.
+**Admin reset link.** Made on the Admin screen and passed to the member by hand. It also turns 2FA off: it's the way back in after losing a phone. The member is emailed as soon as it's made, and the admin who made it is recorded. Admins can't get one for another admin (or themselves), and neither can a former admin, so one stolen admin login can't open the other admins' accounts, even by removing their admin access first. Removing someone's admin access emails them. An admin who loses their 2FA phone uses a recovery code.
 
 **Change password.** `POST /auth/password` with the current and new passwords. Other devices are signed out; this one gets a new token (and refresh cookie) in the response.
 
 **Turn on 2FA.** `POST /auth/2fa/setup` (password) returns a QR code and saves a secret with 2FA still off. `POST /auth/2fa/confirm` (a code from the app) proves it was scanned, creates 10 recovery codes (stored only as hashes and shown once), turns 2FA on and signs every session out. The answer carries a new access token, so the page that's showing the codes stays signed in until the member taps "I've saved them"; then it signs out and they log in again with a code. **Turning it off** (`POST /auth/2fa/disable`) needs the password and a current code.
 
-**Delete and reactivate.** `DELETE /auth/delete` (password) sets `Active = 0`; nothing is erased and every token stops working. Logging in then answers 403 and offers Reactivate (`POST /auth/reactivate`), which sets `Active = 1` without reviving old tokens. Admins can reactivate accounts too.
+**Delete and reactivate.** `DELETE /auth/delete` (password) sets `Active = 0`; nothing is erased and every token stops working. Logging in then answers 403 and offers Reactivate (`POST /auth/reactivate`), which sets `Active = 1` without reviving old tokens. Admins can reactivate accounts too. A member with a live Plus subscription gets 409 until they cancel it in Manage membership, because deactivating doesn't stop Stripe billing.
 
 Every security change (password, 2FA, reset) emails the member.
 
@@ -302,11 +303,11 @@ Every security change (password, 2FA, reset) emails the member.
 
 - Hashed with Argon2 (about 19 MiB per hash). Hashing runs in `spawn_blocking` so it doesn't stall other requests, and a semaphore caps how many run at once.
 - At least 10 characters (at most 128) with a symbol, and [zxcvbn](https://github.com/dropbox/zxcvbn) must score it 4/4, taking the member's name and email into account.
-- 10 wrong passwords in a row lock the account for 15 minutes.
+- 10 tries at one account from one IP, then 1 every 90 seconds. It's counted per IP, so someone guessing at a member's email can't lock the member out.
 
 **Not revealing who has an account**
 
-- An unknown email still runs a full Argon2 check against a dummy hash, and a locked account still checks the password, so timing reveals nothing.
+- An unknown email still runs a full Argon2 check against a dummy hash, and a login over the limit still checks the password, so timing reveals nothing.
 - Register and forgot password always answer 200. "Deactivated" is only reported after the right password.
 - Emails are sent in the background so response time doesn't depend on whether one was sent.
 
@@ -318,11 +319,12 @@ Every security change (password, 2FA, reset) emails the member.
 
 **Rate limits**
 
-| Limit     | Applies to                                                   | Rule                           |
-| --------- | ------------------------------------------------------------ | ------------------------------ |
-| Per IP    | `/auth/*` routes that check or hash a password, or send mail | Bursts of 30, then 1 every 2 s |
-| Per user  | 2FA codes at login                                           | 5, then 1 a minute             |
-| Per email | Emails anyone can trigger                                    | 3, then 1 every 20 minutes     |
+| Limit            | Applies to                                                   | Rule                           |
+| ---------------- | ------------------------------------------------------------ | ------------------------------ |
+| Per IP           | `/auth/*` routes that check or hash a password, or send mail | Bursts of 30, then 1 every 2 s |
+| Per account + IP | Passwords at login and reactivate                            | 10, then 1 every 90 s          |
+| Per user         | 2FA codes at login                                           | 5, then 1 a minute             |
+| Per email        | Emails anyone can trigger                                    | 3, then 1 every 20 minutes     |
 
 The client IP is the last `X-Forwarded-For` entry, which our proxy adds; earlier entries can be faked. IPv6 addresses are grouped by /64. Security notices are never rate-limited, so they can't be silenced.
 
@@ -345,16 +347,16 @@ erDiagram
     Exercises ||--o{ ExerciseMuscles : works
 ```
 
-| Table              | Holds                                                                                                  |
-| ------------------ | ------------------------------------------------------------------------------------------------------ |
-| `Users`            | Login details, names, `Active`, `IsAdmin`, `EmailVerified`, `SessionVersion`, 2FA state, lockout state |
-| `Workouts`         | One per finished workout: date, name, notes, duration, and `ClientId` (unique per member)              |
-| `WorkoutExercises` | An exercise within a workout, with its position                                                        |
-| `Sets`             | One per set: position, weight in kg, reps, optional RIR, and `Side` (`L`/`R` for one side, NULL for both) |
-| `Exercises`        | The shared library: name, category, equipment, and `SourceId` (NULL for exercises an admin added)      |
-| `ExerciseMuscles`  | The muscles an exercise works (17 names), each `primary` or `secondary`                                |
-| `Events`           | An activity log: `login`, `login_failed`, `workout`, and admin actions                                 |
-| `RecoveryCodes`    | Hashed 2FA recovery codes and when each was used                                                       |
+| Table              | Holds                                                                                                                              |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `Users`            | Login details, names, `Active`, `IsAdmin`, `EmailVerified`, `SessionVersion`, 2FA state, lockout state                             |
+| `Workouts`         | One per finished workout: date, name, notes, duration, and `ClientId` (unique per member)                                          |
+| `WorkoutExercises` | An exercise within a workout, with its position                                                                                    |
+| `Sets`             | One per set: position, weight in kg, reps, optional RIR, and `Side` (`L`/`R` for one side, NULL for both)                          |
+| `Exercises`        | The shared library: name, category, equipment, and `SourceId` (NULL for exercises an admin added)                                  |
+| `ExerciseMuscles`  | The muscles an exercise works (17 names), each `primary` or `secondary`                                                            |
+| `Events`           | An activity log: `login`, `login_failed`, `workout`, admin actions, and `admin_removed` (against the member who lost admin access) |
+| `RecoveryCodes`    | Hashed 2FA recovery codes and when each was used                                                                                   |
 
 - There's no route to delete a workout. If one is deleted in the database, its exercises and sets go with it (`ON DELETE CASCADE`).
 - An exercise used in a logged workout can't be deleted; the API answers 409.
@@ -377,7 +379,7 @@ Logging and finishing a workout work with no signal. Everything else needs a con
 - **Opening with no signal**: if the start-up refresh can't reach the server and this phone has a "Stay logged in" member (`user-id`), the app opens straight to the workout screen. Finished workouts go to the outbox and upload once the app signs in again, which it tries whenever the browser comes back online. Logging out removes `user-id`, so this needs "Stay logged in".
 - **Outbox** (`outbox.js`): finished workouts are stored in `localStorage` with the member's user id (read from the access token). They're sent right after Finish, after login or a token refresh, and when the browser comes back online. A sent workout is removed; a network or server error leaves it for next time; a workout the server refuses (400) is kept and marked with the reason, and the dashboard offers to discard it. The tick button only allows sets inside the API's limits (`setLimits.js`), so this should be rare. Only the signed-in member's workouts are sent, so a shared phone can't upload one member's workout to another's account.
 - **Waiting count**: the nav bar, dashboard and Account screen show how many workouts are waiting, through `useSyncExternalStore`. Logging out keeps them on the device.
-- **Service worker** (`public/sw.js`): on install it keeps the page and every file listed in `asset-manifest.json` (which `vite build` writes), so offline works from the first visit. Files under `/assets/` never change (their names carry a hash), so they're served from the cache first; the page is served from the cache too while a fresh copy downloads for the next open (so a new build shows one open late), and icons try the network first. Older builds' files are deleted when a new worker takes over. It never caches `/api/` requests, and it's only registered in production builds.
+- **Service worker** (`public/sw.js`): on install it keeps the page and every file listed in `asset-manifest.json` (which `vite build` writes), so offline works from the first visit. Files under `/assets/` never change (their names carry a hash), so they're served from the cache first; the page is served from the cache too while a fresh copy downloads for the next open (so a new build shows one open late), and icons try the network first. That fresh page only replaces the kept one once every file of its build is kept too, so the next open works with no signal; older builds' files are deleted at the same time. It never caches `/api/` requests, and it's only registered in production builds.
 - **Exercise library**: the picker keeps its copy of the full list in `localStorage` and uses it when the API can't be reached.
 
 ### Muscle map, plate calculator and admin
@@ -436,19 +438,19 @@ Routes are shown as the API sees them; the website calls them with an `/api` pre
 
 **Workouts and exercises**
 
-| Method | Route                      | Auth | Body / query                                                                                                       | Returns                                                           |
-| ------ | -------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
-| GET    | `/workouts`                | Auth |                                                                                                                    | Your newest 200 workouts, each with `sets` count                  |
+| Method | Route                      | Auth | Body / query                                                                                                             | Returns                                                           |
+| ------ | -------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| GET    | `/workouts`                | Auth |                                                                                                                          | Your newest 200 workouts, each with `sets` count                  |
 | POST   | `/workouts`                | Auth | `name`, `date`, `notes`, `clientId`, `durationSec`, `exercises: [{ exerciseId, sets: [{ weightKg, reps, rir, side }] }]` | 201 with the workout, or 200 if that `clientId` was already saved |
-| GET    | `/workouts/{id}`           | Auth |                                                                                                                    | `workout` and its `exercises` with sets                           |
-| GET    | `/exercises`               | Auth | `?q=` name search, `?muscle=`                                                                                      | `[{ id, name, equipment, primaryMuscles, secondaryMuscles }]`     |
-| GET    | `/exercises/{id}/last`     | Auth |                                                                                                                    | Your sets from the last time you did it                           |
-| GET    | `/me/muscles`              | Auth | `?days=` (default 30, max 30, or 365 with Plus)                                                                    | `[{ muscle, sets }]`                                              |
-| GET    | `/exercises/{id}/progress` | Plus |                                                                                                                    | `[{ day, est1rmKg }]`, the last 50 workouts with it, oldest first |
+| GET    | `/workouts/{id}`           | Auth |                                                                                                                          | `workout` and its `exercises` with sets                           |
+| GET    | `/exercises`               | Auth | `?q=` name search, `?muscle=`                                                                                            | `[{ id, name, equipment, primaryMuscles, secondaryMuscles }]`     |
+| GET    | `/exercises/{id}/last`     | Auth |                                                                                                                          | Your sets from the last time you did it                           |
+| GET    | `/me/muscles`              | Auth | `?days=` (default 30, max 30, or 365 with Plus)                                                                          | `[{ muscle, sets }]`                                              |
+| GET    | `/exercises/{id}/progress` | Plus |                                                                                                                          | `[{ day, est1rmKg }]`, the last 50 workouts with it, oldest first |
 
 **Calories and Plus**
 
-**Plus** means the member must have Gym App Plus (admins always do); others get 403.
+**Plus** means the member must have BarMetric Plus (admins always do); others get 403.
 
 | Method | Route                  | Auth                      | Body / query                                                 | Returns                                                                   |
 | ------ | ---------------------- | ------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------- |

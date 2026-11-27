@@ -68,6 +68,23 @@ test('two flushes at once send each workout once', async () => {
   assert.deepEqual(waiting(), []);
 });
 
+// Finishing a workout while an earlier flush still waits on bad signal must not leave it behind
+test('a workout queued during a flush is sent by that flush', async () => {
+  queue(token, workout('a'));
+  const sent = [];
+  let release;
+  const first = flush(token, async (_, w) => {
+    sent.push(w.clientId);
+    if (w.clientId === 'a') await new Promise((r) => (release = r));
+  });
+  queue(token, workout('b'));
+  await flush(token, async () => assert.fail('a second flush must not run alongside the first'));
+  release();
+  await first;
+  assert.deepEqual(sent, ['a', 'b']);
+  assert.deepEqual(waiting(), []);
+});
+
 test("another member's workouts stay on the phone", async () => {
   queue(tokenFor('8'), workout('a'));
   let sent = false;

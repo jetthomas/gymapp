@@ -13,6 +13,7 @@ import ResetPasswordForm from './ResetPasswordForm';
 import { getProfile, logout, refresh, setOnSessionExpired, verifyEmail } from './api';
 import { flush, userIdOf } from './outbox';
 import WorkoutScreen from './WorkoutScreen';
+import { ChevronLeft } from './icons';
 
 export default function App() {
   const [token, setToken] = useState(null);
@@ -31,7 +32,7 @@ export default function App() {
   const [page, setPage] = useState(resetToken ? 'reset' : membership ? 'account' : 'login');
   // Who is signed in: name, photo and membership, shared by the nav bar and the Account screen
   const [profile, setProfile] = useState(null);
-  // Gym App Plus: paid, or an admin. The server checks it again on every Plus request
+  // BarMetric Plus: paid, or an admin. The server checks it again on every Plus request
   const plus = profile?.plus ?? false;
   const [email, setEmail] = useState('');
   const [notice, setNotice] = useState('');
@@ -96,19 +97,22 @@ export default function App() {
     if (!token) return;
     let tries = membership === 'done' ? 5 : 1;
     let timer;
+    let plusNow = false;
     const check = () => {
       clearTimeout(timer);
       getProfile(token)
         .then((p) => {
           setProfile(p);
+          plusNow = p.plus;
           tries -= 1;
           if (!p.plus && tries > 0) timer = setTimeout(check, 2000);
         })
         .catch(() => {});
     };
     check();
-    // The home-screen app opens Stripe in a separate browser view, so check again when it's back on screen
-    const onShow = () => document.visibilityState === 'visible' && check();
+    // The home-screen app opens Stripe in a separate browser view, so check again when it's back on screen.
+    // Only until they have Plus: every app switch between sets would otherwise download the profile again
+    const onShow = () => document.visibilityState === 'visible' && !plusNow && check();
     document.addEventListener('visibilitychange', onShow);
     return () => {
       clearTimeout(timer);
@@ -246,7 +250,6 @@ export default function App() {
         profile={profile}
         // Signed in, the login and reset pages show the dashboard
         page={page === 'login' || page === 'reset' ? 'home' : page}
-        isAdmin={isAdmin}
         showCalories={showCalories}
         showWorkout={showWorkout}
         onNavigate={go}
@@ -282,8 +285,8 @@ export default function App() {
         />
       ) : page === 'progress' ? (
         <main className="admin-content">
-          <button className="outline-btn back-btn" type="button" onClick={() => go('account')}>
-            <span aria-hidden="true">‹</span> Account
+          <button className="ghost-btn back-btn" type="button" onClick={() => go('account')}>
+            <ChevronLeft size={18} /> Account
           </button>
           <div className="page-head">
             <h1 className="page-title">Progress</h1>

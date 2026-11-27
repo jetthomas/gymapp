@@ -11,11 +11,12 @@ use crate::extractors::AdminUser;
 use crate::models::{AdminFlag, DayCount, RangeQuery, ResetLink, UserSummary};
 use crate::nutrition::sane;
 use crate::state::{
-    ApiResult, AppState, all_rows, col, internal, one_row, record, send_security_notice,
+    ApiResult, AppState, all_rows, batch, col, internal, one_row, record, send_security_notice,
 };
 use crate::tokens::make_reset_token;
 
 pub async fn set_admin(
+    State(state): State<Arc<AppState>>,
     AdminUser(admin_id, mut db): AdminUser,
     Path(user_id): Path<i32>,
     Json(body): Json<AdminFlag>, // Json must be the last argument
@@ -27,21 +28,37 @@ pub async fn set_admin(
             "You can't remove your own admin access.".to_string(),
         ));
     }
+    // One transaction, so a removed admin is never saved without the event create_reset_link checks.
+    // An early return closes the connection, which undoes it
+    batch(&mut db, "BEGIN TRANSACTION").await?;
     // Active = 1: a deactivated account's role is frozen, here and not just on the Admin screen
-    let updated = db
-        .execute(
-            "UPDATE dbo.Users SET IsAdmin = @P2 WHERE Id = @P1 AND Active = 1",
-            &[&user_id, &body.is_admin],
-        )
-        .await
-        .map_err(internal)?;
-    if updated.total() == 0 {
-        return Err((
+    let row = one_row(
+        &mut db,
+        "UPDATE dbo.Users SET IsAdmin = @P2 OUTPUT INSERTED.Email, DELETED.IsAdmin AS WasAdmin
+         WHERE Id = @P1 AND Active = 1",
+        &[&user_id, &body.is_admin],
+    )
+    .await?
+    .ok_or_else(|| {
+        (
             StatusCode::NOT_FOUND,
             "User not found, or deactivated.".to_string(),
-        ));
+        )
+    })?;
+    let removed = col::<bool>(&row, "WasAdmin")? && !body.is_admin;
+    if removed {
+        // Against the member, not the admin: create_reset_link looks for it
+        record(&mut db, user_id, "admin_removed").await?;
     }
     record(&mut db, admin_id, "admin_changed").await?;
+    batch(&mut db, "COMMIT").await?;
+    if removed {
+        send_security_notice(
+            &state,
+            col(&row, "Email")?,
+            "An admin removed your admin access.",
+        );
+    }
     Ok(StatusCode::OK)
 }
 
@@ -52,16 +69,22 @@ pub async fn create_reset_link(
 ) -> ApiResult<Json<ResetLink>> {
     let row = one_row(
         &mut db,
-        "SELECT PasswordHash, Email, IsAdmin FROM dbo.Users WHERE Id = @P1",
+        "SELECT PasswordHash, Email, IsAdmin,
+                CAST(CASE WHEN EXISTS (SELECT 1 FROM dbo.Events
+                                       WHERE UserId = @P1 AND Kind = 'admin_removed')
+                     THEN 1 ELSE 0 END AS BIT) AS WasAdmin
+         FROM dbo.Users WHERE Id = @P1",
         &[&user_id],
     )
     .await?
     .ok_or_else(|| (StatusCode::NOT_FOUND, "User not found.".to_string()))?;
-    // The link turns off 2FA, so one stolen admin login must not open the other admins' accounts
-    if col::<bool>(&row, "IsAdmin")? {
+    // The link turns off 2FA, so one stolen admin login must not open the other admins' accounts,
+    // including by removing their admin access first
+    if col::<bool>(&row, "IsAdmin")? || col::<bool>(&row, "WasAdmin")? {
         return Err((
             StatusCode::FORBIDDEN,
-            "Admins can't get reset links. Use Forgot password on the login screen.".to_string(),
+            "Admins and former admins can't get reset links. Use Forgot password on the login screen."
+                .to_string(),
         ));
     }
     let stored: &str = col(&row, "PasswordHash")?;

@@ -20,8 +20,6 @@ IF OBJECT_ID('dbo.Users', 'U') IS NULL
         SessionVersion INT NOT NULL DEFAULT 0,
         LastTotpStep BIGINT NULL,
         TotpFailures INT NOT NULL DEFAULT 0,
-        LoginFailures INT NOT NULL DEFAULT 0,
-        LockedUntil DATETIME2 NULL,
         EmailVerified BIT NOT NULL DEFAULT 0
     );
 IF OBJECT_ID('dbo.Workouts', 'U') IS NULL
@@ -132,7 +130,7 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Events_At')
     CREATE INDEX IX_Events_At ON dbo.Events (At) INCLUDE (Kind);
 GO
 
--- Gym App Plus (Stripe). Added to Users rather than a new table: one membership per member
+-- BarMetric Plus (Stripe). Added to Users rather than a new table: one membership per member
 IF COL_LENGTH('dbo.Users', 'StripeCustomerId') IS NULL
     ALTER TABLE dbo.Users ADD
         StripeCustomerId NVARCHAR(255) NULL,  -- cus_..., made the first time they join
@@ -163,4 +161,27 @@ GO
 -- Unilateral sets: 'L' or 'R' for one side; NULL = both sides, as every set before this
 IF COL_LENGTH('dbo.Sets', 'Side') IS NULL
     ALTER TABLE dbo.Sets ADD Side CHAR(1) NULL CHECK (Side IN ('L', 'R'));
+GO
+
+-- Deleting an account (DELETE /auth/erase): everything the member owns, then the member, in one
+-- transaction. gym_app has no DELETE on Users or Events (security.sql); it may only run this, and
+-- it takes no id: it deletes the member the connection is tagged with (set_user), nobody else
+CREATE OR ALTER PROCEDURE dbo.DeleteMember
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SET XACT_ABORT ON;  -- any error undoes all of it
+    DECLARE @UserId INT = CAST(SESSION_CONTEXT(N'UserId') AS INT);
+    IF @UserId IS NULL
+        THROW 50000, 'DeleteMember: the connection has no member', 1;
+    BEGIN TRANSACTION;
+    DELETE FROM dbo.Workouts WHERE UserId = @UserId;  -- their exercises and sets cascade
+    DELETE FROM dbo.FoodEntries WHERE UserId = @UserId;
+    DELETE FROM dbo.BodyWeights WHERE UserId = @UserId;
+    DELETE FROM dbo.Profiles WHERE UserId = @UserId;
+    DELETE FROM dbo.RecoveryCodes WHERE UserId = @UserId;
+    DELETE FROM dbo.Events WHERE UserId = @UserId;
+    DELETE FROM dbo.Users WHERE Id = @UserId;
+    COMMIT;
+END
 GO

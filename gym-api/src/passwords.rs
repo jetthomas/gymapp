@@ -112,7 +112,7 @@ pub fn make_totp(secret: Vec<u8>, email: &str) -> Result<TOTP, String> {
         1,
         30,
         secret,
-        Some("GymApp".to_string()),
+        Some("BarMetric".to_string()),
         // ":" separates the app name from the account in the QR code's link, so the library rejects it
         email.replace(':', ""),
     )

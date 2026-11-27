@@ -9,7 +9,7 @@ export default function UpgradeDialog({ token, onClose }) {
   const { loading, message, run } = useSubmit();
   return (
     <dialog ref={ref} className="sheet" aria-labelledby="upgrade-title" onCancel={onClose}>
-      <h2 id="upgrade-title">Upgrade to Gym App Plus</h2>
+      <h2 id="upgrade-title">Upgrade to BarMetric Plus</h2>
       <ul>
         <li>Scan a barcode to fill in a food</li>
         <li>Progress charts for every exercise</li>

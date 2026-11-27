@@ -28,11 +28,12 @@ use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 
 use crate::admin::{admin_stats, create_reset_link, list_users, reactivate_user, set_admin};
 use crate::auth::{
-    change_password, delete_account, delete_avatar, forgot_password, get_profile, login, logout,
-    put_avatar, reactivate_account, refresh, register, reset_password, verify_email,
+    change_password, delete_account, delete_avatar, erase_account, forgot_password, get_profile,
+    login, logout, put_avatar, reactivate_account, refresh, register, reset_password, verify_email,
 };
 use crate::billing::{create_checkout, create_portal, webhook};
 use crate::exercises::{create_exercise, delete_exercise, list_exercises, update_exercise};
+use crate::extractors::login_limiter;
 use crate::nutrition::{
     add_food, barcode_food, delete_food, delete_health, get_health, list_food, put_health,
     recent_food, update_food,
@@ -40,7 +41,8 @@ use crate::nutrition::{
 use crate::state::{AppState, ProxyIpKeyExtractor, connect};
 use crate::two_factor::{totp_confirm, totp_disable, totp_setup, totp_verify};
 use crate::workouts::{
-    create_workout, exercise_progress, get_workout, last_sets, list_workouts, muscle_sets,
+    create_workout, exercise_progress, export_data, get_workout, last_sets, list_workouts,
+    muscle_sets,
 };
 
 fn env_or(key: &str, default: &str) -> String {
@@ -143,12 +145,13 @@ async fn main() {
     let mailer = mailer.build();
     let mail_from: Mailbox = env_required("MAIL_FROM")
         .parse()
-        .expect("MAIL_FROM must look like Gym App <no-reply@yourgym.com>");
+        .expect("MAIL_FROM must look like BarMetric <no-reply@yourgym.com>");
 
     let state = Arc::new(AppState {
         db_config,
         jwt_secret,
-        frontend_url: env_or("FRONTEND_URL", "http://localhost:5173"),
+        // Required: a forgotten one would quietly put localhost links in every email and Stripe redirect
+        frontend_url: env_required("FRONTEND_URL"),
         mailer,
         mail_from,
         http: reqwest::Client::builder()
@@ -165,6 +168,7 @@ async fn main() {
                 .unwrap()
                 .allow_burst(NonZeroU32::new(5).unwrap()),
         ),
+        login_attempts: login_limiter(),
         // 3 emails to one address, then one more every 20 minutes
         mail_attempts: DefaultKeyedRateLimiter::keyed(
             Quota::with_period(Duration::from_secs(20 * 60))
@@ -194,6 +198,7 @@ async fn main() {
             every_minute.tick().await;
             ip_limiter.retain_recent();
             cleanup_state.totp_attempts.retain_recent();
+            cleanup_state.login_attempts.retain_recent();
             cleanup_state.mail_attempts.retain_recent();
         }
     });
@@ -211,7 +216,9 @@ async fn main() {
         .route("/auth/2fa/disable", post(totp_disable))
         // checks a password, so it needs the same limit as login
         .route("/auth/reactivate", post(reactivate_account))
+        // /auth/delete only deactivates (an older name); /auth/erase deletes for good
         .route("/auth/delete", delete(delete_account))
+        .route("/auth/erase", delete(erase_account))
         .route("/auth/2fa/setup", post(totp_setup))
         .layer(GovernorLayer::new(limit));
 
@@ -230,6 +237,7 @@ async fn main() {
         .route("/admin/exercises", post(create_exercise))
         .route("/workouts", get(list_workouts).post(create_workout))
         .route("/me/muscles", get(muscle_sets))
+        .route("/me/export", get(export_data))
         .route("/workouts/{id}", get(get_workout))
         .route("/exercises/{id}/last", get(last_sets))
         .route(

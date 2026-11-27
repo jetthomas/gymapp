@@ -90,7 +90,7 @@ pub fn check_food(f: &NewFood) -> Result<&str, &'static str> {
 }
 
 // A food's name, calories and macros, from a FoodEntries row
-fn to_food(r: &Row) -> ApiResult<Food> {
+pub fn to_food(r: &Row) -> ApiResult<Food> {
     Ok(Food {
         name: col::<&str>(r, "Name")?.to_string(),
         kcal: col(r, "Kcal")?,
