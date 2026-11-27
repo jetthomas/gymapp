@@ -1,4 +1,4 @@
-# LoadLog
+# BarMetric
 
 A full-stack workout tracker for a gym's members. Members log workouts set by set (even with no signal), see which muscles they've trained, and work out which plates to load. Admins manage members and the shared exercise library.
 
@@ -147,6 +147,8 @@ npm run dev
 ```
 
 Open http://localhost:5173. Vite forwards `/api/*` to the API on port 5080, so keep both running.
+
+To run it as an iPhone app, in the Simulator or on your own phone, see [gym-web/IOS.md](gym-web/IOS.md).
 
 ### 8. Make yourself an admin
 

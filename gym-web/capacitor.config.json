@@ -1,0 +1,10 @@
+{
+  "appId": "com.yourname.barmetric",
+  "appName": "BarMetric",
+  "webDir": "dist",
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}
