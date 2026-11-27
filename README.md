@@ -34,7 +34,7 @@ A full-stack workout tracker for a gym's members. Members log workouts set by se
 - Sign up with email confirmation, log in, "Stay logged in" for 30 days
 - Two-factor authentication with an authenticator app, plus 10 one-time recovery codes
 - Forgot password by email; change password; delete (deactivate) and reactivate your account
-- Log a workout: search the exercise library, see last time's numbers for each exercise, tick sets as you go, optional RIR (reps in reserve)
+- Log a workout: search the exercise library, see last time's numbers for each exercise, tick sets as you go, optional RIR (reps in reserve), and left/right sets for one-sided (unilateral) exercises
 - Rest timer after each set, with a default you choose and −15s / +15s while resting
 - Works offline: a workout in progress survives a refresh, and a finished workout waits on the phone until there's signal
 - Workout history and a front/back muscle map of the last 30 days
@@ -290,7 +290,7 @@ sequenceDiagram
 
 **Change password.** `POST /auth/password` with the current and new passwords. Other devices are signed out; this one gets a new token (and refresh cookie) in the response.
 
-**Turn on 2FA.** `POST /auth/2fa/setup` (password) returns a QR code and saves a secret with 2FA still off. `POST /auth/2fa/confirm` (a code from the app) proves it was scanned, creates 10 recovery codes (stored only as hashes and shown once), turns 2FA on and signs every session out. **Turning it off** (`POST /auth/2fa/disable`) needs the password and a current code.
+**Turn on 2FA.** `POST /auth/2fa/setup` (password) returns a QR code and saves a secret with 2FA still off. `POST /auth/2fa/confirm` (a code from the app) proves it was scanned, creates 10 recovery codes (stored only as hashes and shown once), turns 2FA on and signs every session out. The answer carries a new access token, so the page that's showing the codes stays signed in until the member taps "I've saved them"; then it signs out and they log in again with a code. **Turning it off** (`POST /auth/2fa/disable`) needs the password and a current code.
 
 **Delete and reactivate.** `DELETE /auth/delete` (password) sets `Active = 0`; nothing is erased and every token stops working. Logging in then answers 403 and offers Reactivate (`POST /auth/reactivate`), which sets `Active = 1` without reviving old tokens. Admins can reactivate accounts too.
 
@@ -314,7 +314,7 @@ Every security change (password, 2FA, reset) emails the member.
 
 - Standard TOTP (SHA-1, 6 digits, 30 seconds), accepting the step either side for clock drift.
 - Each code works once: the last used step is saved with an `UPDATE ... WHERE LastTotpStep < @step`, so two requests racing with one code can't both pass.
-- Each attempt spends a try before it's checked; 10 wrong codes in a row need an admin reset link. At login there's also a per-user limit of 5 tries, then 1 a minute.
+- Each attempt spends a try before it's checked. After 10 wrong codes in a row, only a recovery code (or, for members, an admin reset link) gets in. At login there's also a per-user limit of 5 tries, then 1 a minute.
 
 **Rate limits**
 
@@ -350,23 +350,23 @@ erDiagram
 | `Users`            | Login details, names, `Active`, `IsAdmin`, `EmailVerified`, `SessionVersion`, 2FA state, lockout state |
 | `Workouts`         | One per finished workout: date, name, notes, duration, and `ClientId` (unique per member)              |
 | `WorkoutExercises` | An exercise within a workout, with its position                                                        |
-| `Sets`             | One per set: position, weight in kg, reps, optional RIR                                                |
+| `Sets`             | One per set: position, weight in kg, reps, optional RIR, and `Side` (`L`/`R` for one side, NULL for both) |
 | `Exercises`        | The shared library: name, category, equipment, and `SourceId` (NULL for exercises an admin added)      |
 | `ExerciseMuscles`  | The muscles an exercise works (17 names), each `primary` or `secondary`                                |
 | `Events`           | An activity log: `login`, `login_failed`, `workout`, and admin actions                                 |
 | `RecoveryCodes`    | Hashed 2FA recovery codes and when each was used                                                       |
 
-- Deleting a workout removes its exercises and sets (`ON DELETE CASCADE`).
+- There's no route to delete a workout. If one is deleted in the database, its exercises and sets go with it (`ON DELETE CASCADE`).
 - An exercise used in a logged workout can't be deleted; the API answers 409.
 - Deleting an account only sets `Active = 0`, which is why it can be reactivated.
 
 ### Logging a workout
 
 1. **Start** creates a draft with a random `clientId` (`crypto.randomUUID()`) and saves it to `localStorage` on every change, so a refresh or a flat battery doesn't lose it.
-2. **Add an exercise.** The picker searches `GET /exercises?q=&muscle=` (300 ms after typing stops). Picking one fetches `GET /exercises/{id}/last`, the sets from last time, which fill the grey "previous" column.
+2. **Add an exercise.** The picker loads the whole library once (`GET /exercises`) and searches it on the phone as you type. Picking one fetches `GET /exercises/{id}/last`, the sets from last time, which fill the grey "previous" column.
 3. **Tick a set.** Blank fields take last time's numbers. The rest timer starts from the member's default (set in Account).
 4. **Finish** puts the workout in the outbox (see below), clears the draft, and starts an upload.
-5. **`POST /workouts`** validates everything (name 1–200 characters, notes up to 2000, at most 50 exercises of 50 sets, weight 0–1000 kg, reps 1–1000, RIR 0–10), checks every exercise still exists, then writes the workout, its exercises and sets, and a `workout` event in one transaction.
+5. **`POST /workouts`** validates everything (name 1–200 characters, notes up to 2000, at most 50 exercises of 50 sets, weight 0–1000 kg, reps 1–1000, RIR 0–10, side `L` or `R`), checks every exercise still exists, then writes the workout, its exercises and sets, and a `workout` event in one transaction.
 
 Saving is **idempotent**: if a workout with the same `clientId` was already saved for this member, the API returns that one (200) instead of creating a duplicate (201). A phone that never heard the first answer can safely send again. The unique index on `(UserId, ClientId)` backs this up when two copies arrive at once.
 
@@ -378,11 +378,11 @@ Logging and finishing a workout work with no signal. Everything else needs a con
 - **Outbox** (`outbox.js`): finished workouts are stored in `localStorage` with the member's user id (read from the access token). They're sent right after Finish, after login or a token refresh, and when the browser comes back online. A sent workout is removed; a network or server error leaves it for next time; a workout the server refuses (400) is kept and marked with the reason, and the dashboard offers to discard it. The tick button only allows sets inside the API's limits (`setLimits.js`), so this should be rare. Only the signed-in member's workouts are sent, so a shared phone can't upload one member's workout to another's account.
 - **Waiting count**: the nav bar, dashboard and Account screen show how many workouts are waiting, through `useSyncExternalStore`. Logging out keeps them on the device.
 - **Service worker** (`public/sw.js`): on install it keeps the page and every file listed in `asset-manifest.json` (which `vite build` writes), so offline works from the first visit. Files under `/assets/` never change (their names carry a hash), so they're served from the cache first; the page is served from the cache too while a fresh copy downloads for the next open (so a new build shows one open late), and icons try the network first. Older builds' files are deleted when a new worker takes over. It never caches `/api/` requests, and it's only registered in production builds.
-- **Exercise library**: the full list is kept in `localStorage` and searched locally when the API can't be reached.
+- **Exercise library**: the picker keeps its copy of the full list in `localStorage` and uses it when the API can't be reached.
 
 ### Muscle map, plate calculator and admin
 
-**Muscle map.** `GET /me/muscles?days=30` adds up sets per muscle: 1 for a primary muscle, 0.5 for a secondary one. `musclemap.jsx` draws a front and back figure from polygons (each defined for one half and mirrored) and shades each muscle by its count. A list beside it gives the same numbers as text.
+**Muscle map.** `GET /me/muscles?days=30` adds up sets per muscle: 1 for a primary muscle, 0.5 for a secondary one. One side of a unilateral set counts half, so a left and a right count as one set. `musclemap.jsx` draws a front and back figure from polygons (each defined for one half and mirrored) and shades each muscle by its count. A list beside it gives the same numbers as text.
 
 **Plate calculator.** `plates.js` finds the fewest plates per side for a target weight, using dynamic programming over 1.25 kg steps so decimals add up exactly. Taking the heaviest plate first isn't always right (with only 25s and 20s, 40 kg per side needs two 20s). If the exact weight can't be made, it gives the nearest lower one. The bar weight and largest plate to use can be changed.
 
@@ -406,6 +406,7 @@ Logging and finishing a workout work with no signal. Everything else needs a con
 | `rest-seconds`       | Default rest time                                |
 | `top-plate`          | Largest plate to use in the calculator           |
 | `show-calories`      | Whether the Calories tab and card show           |
+| `show-workout`       | Whether the Workout tab and card show            |
 
 ## API reference
 
@@ -430,7 +431,7 @@ Routes are shown as the API sees them; the website calls them with an `/api` pre
 | DELETE | `/auth/delete`      | Auth, Limited | `password`                                   | 200; deactivates the account                                                                    |
 | POST   | `/auth/reactivate`  | Limited       | `email`, `password`                          | 200                                                                                             |
 | POST   | `/auth/2fa/setup`   | Auth, Limited | `password`                                   | `qr` (base64 PNG), `secret`                                                                     |
-| POST   | `/auth/2fa/confirm` | Auth          | `code`                                       | `codes` (10 recovery codes)                                                                     |
+| POST   | `/auth/2fa/confirm` | Auth          | `code`                                       | `codes` (10 recovery codes), `accessToken` (the old one stops working)                          |
 | POST   | `/auth/2fa/disable` | Auth, Limited | `password`, `code`                           | 200                                                                                             |
 
 **Workouts and exercises**
@@ -438,7 +439,7 @@ Routes are shown as the API sees them; the website calls them with an `/api` pre
 | Method | Route                      | Auth | Body / query                                                                                                       | Returns                                                           |
 | ------ | -------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
 | GET    | `/workouts`                | Auth |                                                                                                                    | Your newest 200 workouts, each with `sets` count                  |
-| POST   | `/workouts`                | Auth | `name`, `date`, `notes`, `clientId`, `durationSec`, `exercises: [{ exerciseId, sets: [{ weightKg, reps, rir }] }]` | 201 with the workout, or 200 if that `clientId` was already saved |
+| POST   | `/workouts`                | Auth | `name`, `date`, `notes`, `clientId`, `durationSec`, `exercises: [{ exerciseId, sets: [{ weightKg, reps, rir, side }] }]` | 201 with the workout, or 200 if that `clientId` was already saved |
 | GET    | `/workouts/{id}`           | Auth |                                                                                                                    | `workout` and its `exercises` with sets                           |
 | GET    | `/exercises`               | Auth | `?q=` name search, `?muscle=`                                                                                      | `[{ id, name, equipment, primaryMuscles, secondaryMuscles }]`     |
 | GET    | `/exercises/{id}/last`     | Auth |                                                                                                                    | Your sets from the last time you did it                           |

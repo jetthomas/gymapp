@@ -10,7 +10,7 @@ use crate::models::{
 };
 use crate::passwords::{hash_password, make_totp, recovery_code, totp_for, use_totp_code};
 use crate::state::{ApiResult, AppState, col, connect, internal, one_row, send_security_notice};
-use crate::tokens::{challenge_key, read_token};
+use crate::tokens::{challenge_key, make_token, read_token};
 
 pub async fn totp_setup(
     AuthUser(user_id, mut db): AuthUser,
@@ -89,15 +89,23 @@ pub async fn totp_confirm(
         .await
         .map_err(internal)?;
     }
-    // Signs out every session, including this one: they were made without a code
-    db.execute(
-        "UPDATE dbo.Users SET TotpEnabled = 1, SessionVersion = SessionVersion + 1 WHERE Id = @P1",
+    // Signs out every session, including this one: they were made without a code.
+    // This device just proved a code, so it gets a new token (no cookie: the page signs out
+    // once the codes are saved). Without it, any request before then would log it out and lose the codes
+    let new_version: i32 = one_row(
+        &mut db,
+        "UPDATE dbo.Users SET TotpEnabled = 1, SessionVersion = SessionVersion + 1 OUTPUT INSERTED.SessionVersion WHERE Id = @P1",
         &[&user_id],
     )
-    .await
-    .map_err(internal)?;
+    .await?
+    .and_then(|r| r.get(0))
+    .ok_or_else(|| internal("update returned no version"))?;
     send_security_notice(&state, email, "Two-factor was turned on.");
-    Ok(Json(RecoveryCodes { codes }))
+    let access_token = make_token(user_id, new_version, &state.jwt_secret).map_err(internal)?;
+    Ok(Json(RecoveryCodes {
+        codes,
+        access_token,
+    }))
 }
 
 pub async fn totp_verify(
