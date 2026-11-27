@@ -152,7 +152,7 @@ pub fn totp_for(secret: &str, email: &str) -> ApiResult<TOTP> {
     make_totp(decode_secret(secret).map_err(internal)?, email).map_err(internal)
 }
 
-// Wrong 2FA codes in a row before the account needs an admin reset link.
+// Wrong 2FA codes in a row before only a recovery code (or an admin reset link) gets in.
 // Each guess hits 3 in a million, so 10 tries give an attacker about a 1 in 33,000 chance
 pub const MAX_TOTP_FAILURES: i32 = 10;
 
@@ -167,12 +167,13 @@ pub async fn use_totp_code(db: &mut Db, id: i32, totp: &TOTP, code: &str) -> Api
         )
         .await
         .map_err(internal)?;
-    if reserved.total() == 0 {
-        return Err((
+    let capped = reserved.total() == 0;
+    let too_many = || {
+        (
             StatusCode::TOO_MANY_REQUESTS,
-            "Too many wrong codes. Ask an admin for a reset link.".into(),
-        ));
-    }
+            "Too many wrong codes. Use a recovery code, or ask an admin for a reset link.".to_string(),
+        )
+    };
     // 400, not 401: the frontend reads 401 as "challenge expired, start over"
     let wrong = || {
         (
@@ -180,7 +181,9 @@ pub async fn use_totp_code(db: &mut Db, id: i32, totp: &TOTP, code: &str) -> Api
             "That code didn't match. Try the newest one.".to_string(),
         )
     };
-    // A recovery code looks like K7MQX-3RHPA; a wrong one has already used up a try above
+    // A recovery code looks like K7MQX-3RHPA. It's checked even past the cap: the cap guards the
+    // 6-digit codes, and a recovery code is too long to guess. Without this an admin at the cap
+    // has no way back in, since admins can't get reset links
     if code.len() == 11 && code.as_bytes()[5] == b'-' {
         let rows = all_rows(
             db,
@@ -212,7 +215,10 @@ pub async fn use_totp_code(db: &mut Db, id: i32, totp: &TOTP, code: &str) -> Api
                 return Ok(());
             }
         }
-        return Err(wrong());
+        return Err(if capped { too_many() } else { wrong() });
+    }
+    if capped {
+        return Err(too_many());
     }
     let step = matched_step(totp, code, Utc::now().timestamp() as u64).ok_or_else(wrong)?;
     // Saves the step only if it's newer than the last one used, so each code works once.

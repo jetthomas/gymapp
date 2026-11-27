@@ -79,8 +79,11 @@ pub struct TokenRequest {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RecoveryCodes {
     pub codes: Vec<String>,
+    // Turning 2FA on ends every session, so this one gets a new token to keep the codes on screen
+    pub access_token: String,
 }
 
 #[derive(Deserialize)]

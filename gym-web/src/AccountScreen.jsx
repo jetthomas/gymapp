@@ -235,6 +235,7 @@ export default function AccountScreen({
                 ) : (
                   <TwoFactorSetup
                     token={token}
+                    onTokenChanged={onTokenChanged}
                     // Turning 2FA on signs out every session, this one included
                     onEnabled={() => onSignedOut('Two-factor is on. Log in again with your code.')}
                   />

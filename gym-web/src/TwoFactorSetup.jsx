@@ -5,7 +5,7 @@ import ErrorMsg from './ErrorMsg';
 import useSubmit from './useSubmit';
 import PasswordInput from './PasswordInput';
 
-export default function TwoFactorSetup({ token, onEnabled }) {
+export default function TwoFactorSetup({ token, onEnabled, onTokenChanged }) {
   const [setup, setSetup] = useState(null);
   const [code, setCode] = useState('');
   const [codes, setCodes] = useState(null); // recovery codes, shown once after turning 2FA on
@@ -27,6 +27,10 @@ export default function TwoFactorSetup({ token, onEnabled }) {
     event.preventDefault();
     run(async () => {
       const result = await confirm2fa(token, code);
+      // Turning 2FA on ended the old token; without the new one, the next request (e.g. on
+      // switching back from saving the codes) would sign the member out and lose the codes.
+      // Checked because an API older than this page doesn't send one
+      if (result.accessToken) onTokenChanged(result.accessToken);
       // Not onEnabled() yet: it signs the member out before they've saved the codes
       setCodes(result.codes);
     });
