@@ -2850,6 +2850,108 @@ html:has(.rest-bar) {
   padding: 10px 0;
 }
 
+/* A meal's + Add food, with Copy previous day or Save as meal beside it */
+.meal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.meal-actions > .add-btn {
+  flex: 1;
+  margin-top: 0;
+}
+
+/* The weigh-in box and its Log button on one line */
+.weigh-in {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.weigh-in .field {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+/* The weight trend (WeightCard.jsx): a readout, then the line between its top and bottom weights */
+.weight-trend {
+  margin: 16px 0 0;
+}
+
+.trend-readout {
+  margin: 0 0 12px;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+}
+
+.trend-readout strong {
+  color: var(--foreground);
+}
+
+.trend-plot {
+  position: relative;
+  height: 120px;
+  /* Room for the weights at the left, lined up with the dates in .bar-axis */
+  margin-left: 28px;
+  border-block: 1px solid var(--border);
+  /* A finger dragged sideways reads the line; up and down still scrolls the page */
+  touch-action: pan-y;
+}
+
+.trend-plot svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.trend-line {
+  fill: none;
+  stroke: var(--foreground);
+  stroke-width: 2px;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  /* 2px however far the plot is stretched */
+  vector-effect: non-scaling-stroke;
+}
+
+.trend-cursor {
+  stroke: var(--muted-foreground);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+.trend-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: var(--foreground);
+  border-radius: 50%;
+  /* A ring of the card's colour, so the dot stands off the line */
+  box-shadow: 0 0 0 2px var(--card);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.trend-label {
+  position: absolute;
+  right: calc(100% + 8px);
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+  transform: translateY(-50%);
+}
+
+.trend-label.top {
+  top: 0;
+}
+
+.trend-label.bottom {
+  top: 100%;
+}
+
 /* The target form's Cancel and Save, side by side and the same width */
 .form-buttons {
   display: flex;
@@ -3302,4 +3404,121 @@ html:has(.rest-bar) {
   object-fit: cover;
   border-radius: 12px;
   background: #000;
+}
+
+/* Between two exercises (cards in a workout, rows in a routine): links them as a superset.
+   Off, a quiet dashed pill; on, a solid one. A finished workout shows the solid one as text */
+.superset-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  min-height: 36px;
+  margin: 0 auto;
+  padding: 0 14px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  background: none;
+  border: 1px dashed var(--input);
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background-color 0.15s;
+}
+
+.superset-link.on {
+  color: var(--foreground);
+  background: var(--muted);
+  border-style: solid;
+  border-color: var(--border);
+}
+
+p.superset-link {
+  cursor: default;
+}
+
+@media (hover: hover) {
+  button.superset-link:hover {
+    color: var(--foreground);
+  }
+}
+
+/* History as a calendar (WorkoutCalendar.jsx): the month and its arrows, then the days */
+.calendar {
+  margin: 12px 0 8px;
+}
+
+.calendar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.calendar-title {
+  display: grid;
+  margin: 0;
+  font-weight: 600;
+  text-align: center;
+}
+
+.calendar-grid {
+  width: 100%;
+  margin-top: 12px;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.calendar-grid th {
+  padding-bottom: 8px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+.calendar-grid abbr {
+  text-decoration: none;
+}
+
+.calendar-grid td {
+  padding: 2px 0;
+  text-align: center;
+}
+
+/* One day: a circle, filled white on a day trained */
+.cal-day {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  background: none;
+  border: none;
+  border-radius: 50%;
+}
+
+.cal-day.today {
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.cal-day.trained {
+  font-weight: 600;
+  color: var(--primary-foreground);
+  background: var(--primary);
+  cursor: pointer;
+}
+
+/* The day picked: a ring around it, its workouts listed under the calendar */
+.cal-day.trained[aria-pressed='true'] {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Import workouts: the kg / lb choice for a file that doesn't say, above its exercises */
+.import-unit {
+  margin: 16px 0 0;
 }

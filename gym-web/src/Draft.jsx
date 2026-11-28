@@ -73,6 +73,7 @@ export const editDraft = (workout, unit) => ({
     equipment: e.equipment,
     previous: [],
     unilateral: e.sets.some((s) => s.side),
+    withNext: e.supersetWithNext,
     sets: e.sets.map((s) => ({
       ...weightField(s.weightKg, unit), // saved back unchanged unless the weight is edited
       reps: String(s.reps),
@@ -97,7 +98,8 @@ export async function lastAndBest(token, exerciseId) {
 }
 
 // A new workout laid out from a plan: a routine, or a past workout to do again.
-// plan: [{ id, name, equipment, reps, weightKg, rir (each to aim for, or null), sets: [{ type, side }] }]
+// plan: [{ id, name, equipment, reps, weightKg, rir (each to aim for, or null), sets: [{ type, side }],
+//   withNext (in a superset with the next one) }]
 export async function plannedDraft(token, name, plan) {
   const exercises = await Promise.all(
     plan.map(async (p) => ({
@@ -108,6 +110,7 @@ export async function plannedDraft(token, name, plan) {
       targetKg: p.weightKg ?? null,
       targetRir: p.rir ?? null,
       unilateral: p.sets.some((s) => s.side),
+      withNext: !!p.withNext,
       ...(await lastAndBest(token, p.id)),
       sets: p.sets.map((s) => ({ ...newSet(), type: s.type, side: s.side })),
     })),

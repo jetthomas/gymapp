@@ -133,6 +133,9 @@ pub struct NewSet {
 pub struct NewWorkoutExercise {
     pub exercise_id: i32,
     pub sets: Vec<NewSet>,
+    // Done as a superset with the exercise after it. Older apps leave it out: not in one
+    #[serde(default)]
+    pub superset_with_next: bool,
 }
 
 #[derive(Deserialize)]
@@ -179,6 +182,7 @@ pub struct LoggedExercise {
     // So a workout opened for editing gets its plate calculator and Unilateral box back
     pub equipment: Option<String>,
     pub sets: Vec<LoggedSet>,
+    pub superset_with_next: bool, // done as a superset with the exercise after it
 }
 
 // GET /workouts?offset=200: the next page of History, older than the first `offset` workouts
@@ -209,6 +213,9 @@ pub struct RoutineItem {
     pub reps: Option<i32>,      // the reps to aim for; None = no target
     pub weight_kg: Option<f64>, // the weight to aim for; None = no target
     pub rir: Option<i32>,       // the RIR to aim for; None = no target
+    // Done as a superset with the exercise after it. Older apps leave it out: not in one
+    #[serde(default)]
+    pub superset_with_next: bool,
 }
 
 #[derive(Serialize)]
@@ -228,6 +235,7 @@ pub struct RoutineExercise {
     pub reps: Option<i32>,
     pub weight_kg: Option<f64>,
     pub rir: Option<i32>,
+    pub superset_with_next: bool,
 }
 
 // One workout with everything logged in it
@@ -367,7 +375,8 @@ pub struct NewFood {
     pub fat_g: f64,
 }
 
-#[derive(Serialize)]
+// Deserialize too: the app sends foods back to log several at once (POST /me/food/many, saved meals)
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Food {
     pub name: String,
@@ -402,8 +411,31 @@ pub struct DatedFood {
     pub food: Food,
 }
 
-#[derive(Serialize)]
+// One weigh-in: read from GET /me/weights, sent to PUT /me/weights
+#[derive(Serialize, Deserialize)]
 pub struct BodyWeight {
     pub date: NaiveDate,
     pub kg: f64,
+}
+
+// POST /me/food/many: several foods into one meal at once (copying a day, logging a saved meal)
+#[derive(Deserialize)]
+pub struct NewFoods {
+    pub date: NaiveDate,
+    pub meal: String,
+    pub foods: Vec<Food>,
+}
+
+// A saved meal ("My foods"): a name and the foods it logs. One food in it is a custom food
+#[derive(Deserialize)]
+pub struct NewSavedMeal {
+    pub name: String,
+    pub foods: Vec<Food>,
+}
+
+#[derive(Serialize)]
+pub struct SavedMeal {
+    pub id: i32,
+    pub name: String,
+    pub foods: Vec<Food>,
 }

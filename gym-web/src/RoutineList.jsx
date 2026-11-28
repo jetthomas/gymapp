@@ -42,6 +42,7 @@ export default function RoutineList({ token, plus, onStart }) {
           weightKg: e.weightKg,
           rir: e.rir,
           sets: Array.from({ length: e.sets }, () => ({})),
+          withNext: e.supersetWithNext,
         })),
       ),
     );

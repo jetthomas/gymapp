@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { deleteFood, getFood, getHealth } from './api';
+import { addFoods, deleteFood, getFood, getHealth, saveMeal } from './api';
 import ErrorMsg from './ErrorMsg';
 import FoodSheet from './FoodSheet';
 import { ChevronLeft, ChevronRight, Sliders } from './icons';
 import ProfileForm from './ProfileForm';
 import targets from './targets';
-import { MACROS, MEALS, total } from './meals';
+import { MACROS, MEALS, mealName, total } from './meals';
+import useSubmit from './useSubmit';
+import WeightCard from './WeightCard';
 import { addDays, dateText, dayKey } from './week';
 
 const today = () => dayKey(new Date());
@@ -88,6 +90,9 @@ export default function CaloriesScreen({ token, plus }) {
   const [error, setError] = useState('');
   const [changes, setChanges] = useState(0); // goes up after each save, to load again
   const [removing, setRemoving] = useState(null); // the entry being deleted
+  const mealAction = useSubmit(); // Copy previous day, or Save as meal
+  const [actionFor, setActionFor] = useState(''); // date + meal of the card that ran it, for its message
+  const [notice, setNotice] = useState('');
 
   useEffect(() => {
     getHealth(token)
@@ -129,6 +134,28 @@ export default function CaloriesScreen({ token, plus }) {
     } finally {
       setRemoving(null);
     }
+  }
+
+  // A meal's foods from the day before, logged again: the same breakfast as yesterday in one tap
+  function copyPrevious(meal) {
+    setActionFor(date + meal);
+    setNotice('');
+    mealAction.run(async () => {
+      const before = (await getFood(token, addDays(date, -1))).filter((e) => e.meal === meal);
+      if (!before.length) throw new Error('Nothing was logged in this meal the day before.');
+      await addFoods(token, { date, meal, foods: before });
+      setChanges((c) => c + 1);
+    });
+  }
+
+  // Keeps a meal's foods as one saved meal, named after them, to log again from the food sheet
+  function saveAsMeal(meal, foods) {
+    setActionFor(date + meal);
+    setNotice('');
+    mealAction.run(async () => {
+      await saveMeal(token, { name: mealName(foods), foods });
+      setNotice('Saved to My foods. Log it again from + Add food.');
+    });
   }
 
   if (profile === undefined) {
@@ -263,12 +290,45 @@ export default function CaloriesScreen({ token, plus }) {
                   ))}
                 </ul>
               )}
-              <button className="add-btn" type="button" onClick={() => setAddingTo(meal)}>
-                + Add food
-              </button>
+              <div className="meal-actions">
+                <button className="add-btn" type="button" onClick={() => setAddingTo(meal)}>
+                  + Add food
+                </button>
+                <button
+                  className="outline-btn"
+                  type="button"
+                  disabled={mealAction.loading}
+                  onClick={() => (foods.length ? saveAsMeal(meal, foods) : copyPrevious(meal))}
+                >
+                  {mealAction.loading && actionFor === date + meal
+                    ? foods.length
+                      ? 'Saving…'
+                      : 'Copying…'
+                    : foods.length
+                      ? 'Save as meal'
+                      : 'Copy previous day'}
+                </button>
+              </div>
+              {actionFor === date + meal && (
+                <>
+                  <ErrorMsg>{mealAction.message}</ErrorMsg>
+                  {notice && (
+                    <p className="msg success" role="status">
+                      {notice}
+                    </p>
+                  )}
+                </>
+              )}
             </section>
           );
         })}
+
+      <WeightCard
+        token={token}
+        date={date}
+        isToday={isToday}
+        onLogged={() => setChanges((c) => c + 1)}
+      />
 
       {(addingTo || editingFood) && (
         <FoodSheet

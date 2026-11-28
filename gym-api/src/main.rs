@@ -39,8 +39,9 @@ use crate::exercises::{
 };
 use crate::extractors::login_limiter;
 use crate::nutrition::{
-    add_food, barcode_food, delete_food, delete_health, get_health, list_food, put_health,
-    recent_food, update_food,
+    add_food, add_foods, barcode_food, create_saved_meal, delete_food, delete_health,
+    delete_saved_meal, get_health, list_food, list_saved_meals, list_weights, put_health,
+    put_weight, recent_food, update_food,
 };
 use crate::routines::{create_routine, delete_routine, list_routines, update_routine};
 use crate::state::{AppState, ProxyIpKeyExtractor, connect};
@@ -267,6 +268,10 @@ async fn main() {
         )
         .route("/me/food", get(list_food).post(add_food))
         .route("/me/food/recent", get(recent_food))
+        .route("/me/food/many", post(add_foods))
+        .route("/me/meals", get(list_saved_meals).post(create_saved_meal))
+        .route("/me/meals/{id}", delete(delete_saved_meal))
+        .route("/me/weights", get(list_weights).put(put_weight))
         .route("/me/food/{id}", put(update_food).delete(delete_food))
         .route("/billing/checkout", post(create_checkout))
         .route("/billing/portal", post(create_portal))

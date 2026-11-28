@@ -182,7 +182,7 @@ export default function ProfileForm({ token, profile, today, onSaved, onCancel }
       {deleting && (
         <ConfirmDialog
           title="Delete your health data?"
-          body="Your answers, your weight log and every food entry are deleted for good."
+          body="Your answers, your weight log, your saved meals and every food entry are deleted for good."
           confirmLabel="Delete"
           danger
           onConfirm={() => {

@@ -47,7 +47,7 @@ pub async fn list_routines(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Jso
     let rows = all_rows(
         &mut db,
         "SELECT r.Id, r.Name, re.ExerciseId, e.Name AS ExerciseName, e.Equipment, re.Sets, re.Reps,
-                re.WeightKg, re.Rir
+                re.WeightKg, re.Rir, re.SupersetWithNext
          FROM dbo.Routines r
          LEFT JOIN dbo.RoutineExercises re ON re.RoutineId = r.Id
          LEFT JOIN dbo.Exercises e ON e.Id = re.ExerciseId
@@ -78,6 +78,7 @@ pub async fn list_routines(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Jso
                 reps: r.get("Reps"),
                 weight_kg: r.get("WeightKg"),
                 rir: r.get("Rir"),
+                superset_with_next: col(r, "SupersetWithNext")?,
             });
         }
     }
@@ -88,8 +89,9 @@ pub async fn list_routines(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Jso
 async fn insert_items(db: &mut Db, routine_id: i32, r: &NewRoutine) -> ApiResult<()> {
     for (i, e) in r.exercises.iter().enumerate() {
         db.execute(
-            "INSERT INTO dbo.RoutineExercises (RoutineId, ExerciseId, Position, Sets, Reps, WeightKg, Rir)
-             VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7)",
+            "INSERT INTO dbo.RoutineExercises
+                (RoutineId, ExerciseId, Position, Sets, Reps, WeightKg, Rir, SupersetWithNext)
+             VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7, @P8)",
             &[
                 &routine_id,
                 &e.exercise_id,
@@ -98,6 +100,7 @@ async fn insert_items(db: &mut Db, routine_id: i32, r: &NewRoutine) -> ApiResult
                 &e.reps,
                 &e.weight_kg,
                 &e.rir,
+                &e.superset_with_next,
             ],
         )
         .await
@@ -211,6 +214,7 @@ mod tests {
                 reps,
                 weight_kg: Some(80.0),
                 rir: Some(2),
+                superset_with_next: false,
             }],
         }
     }

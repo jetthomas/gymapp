@@ -1,15 +1,29 @@
-import { useEffect, useState } from 'react';
-import { addFood, getRecentFood, lookupBarcode, updateFood } from './api';
+import { useEffect, useRef, useState } from 'react';
+import {
+  addFood,
+  addFoods,
+  deleteSavedMeal,
+  getRecentFood,
+  getSavedMeals,
+  lookupBarcode,
+  saveMeal,
+  updateFood,
+} from './api';
 import BarcodeScanner from './BarcodeScanner';
 import ErrorMsg from './ErrorMsg';
+import { total } from './meals';
 import UpgradeDialog from './UpgradeDialog';
 import useModal from './useModal';
 import useSubmit from './useSubmit';
 
-// Adds one food to a meal (type it in, or tap one logged before), or edits `food`, one already logged
+// Adds one food to a meal (type it in, or tap a saved one or one logged before), or edits `food`,
+// one already logged
 export default function FoodSheet({ token, plus, date, meal, onAdded, onClose, food }) {
   const ref = useModal();
   const [recent, setRecent] = useState([]);
+  const [saved, setSaved] = useState([]); // My foods: saved meals, and single foods kept with the tick box
+  const [keep, setKeep] = useState(false); // "Save to My foods"
+  const kept = useRef(false); // already saved, so a retry after the add failed doesn't save it twice
   const [scanning, setScanning] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
   const { loading, message, run } = useSubmit();
@@ -33,10 +47,17 @@ export default function FoodSheet({ token, plus, date, meal, onAdded, onClose, f
     getRecentFood(token)
       .then(setRecent)
       .catch(() => {});
+    getSavedMeals(token)
+      .then(setSaved)
+      .catch(() => {});
   }, [token]);
 
-  function add(f) {
+  function add(f, keepIt = false) {
     run(async () => {
+      if (keepIt && !kept.current) {
+        await saveMeal(token, { name: f.name, foods: [f] });
+        kept.current = true;
+      }
       if (food) await updateFood(token, food.id, { date, meal, ...f });
       else await addFood(token, { date, meal, ...f });
       onAdded();
@@ -45,12 +66,30 @@ export default function FoodSheet({ token, plus, date, meal, onAdded, onClose, f
 
   function handleSubmit(event) {
     event.preventDefault();
-    add({
-      name,
-      kcal: Number(kcal),
-      proteinG: Number(protein),
-      carbsG: Number(carbs),
-      fatG: Number(fat),
+    add(
+      {
+        name,
+        kcal: Number(kcal),
+        proteinG: Number(protein),
+        carbsG: Number(carbs),
+        fatG: Number(fat),
+      },
+      keep,
+    );
+  }
+
+  // Every food in a saved meal, into this meal in one go
+  function addSaved(m) {
+    run(async () => {
+      await addFoods(token, { date, meal, foods: m.foods });
+      onAdded();
+    });
+  }
+
+  function removeSaved(id) {
+    run(async () => {
+      await deleteSavedMeal(token, id);
+      setSaved((list) => list.filter((m) => m.id !== id));
     });
   }
 
@@ -111,6 +150,12 @@ export default function FoodSheet({ token, plus, date, meal, onAdded, onClose, f
               </div>
             ))}
           </div>
+          {!food && (
+            <label className="check">
+              <input type="checkbox" checked={keep} onChange={(e) => setKeep(e.target.checked)} />
+              Save to My foods
+            </label>
+          )}
           {scanning && <BarcodeScanner onCode={scanned} />}
           <ErrorMsg>{message}</ErrorMsg>
           <div className="sheet-actions">
@@ -153,6 +198,43 @@ export default function FoodSheet({ token, plus, date, meal, onAdded, onClose, f
             </button>
           </div>
         </form>
+        {/* Not while editing: Add would log new foods instead of changing the one being edited */}
+        {!food && saved.length > 0 && (
+          <>
+            <h3 className="group-title">My foods</h3>
+            <div className="group">
+              {saved.map((m) => (
+                <div className="row static" key={m.id}>
+                  <span className="row-text">
+                    {m.name}
+                    <span className="row-sub">
+                      {total(m.foods, 'kcal')} kcal
+                      {m.foods.length > 1 && ` · ${m.foods.length} foods`}
+                    </span>
+                  </span>
+                  <button
+                    className="ghost-btn"
+                    type="button"
+                    aria-label={`Add ${m.name}`}
+                    disabled={loading}
+                    onClick={() => addSaved(m)}
+                  >
+                    Add
+                  </button>
+                  <button
+                    className="ghost-btn danger"
+                    type="button"
+                    aria-label={`Remove ${m.name} from My foods`}
+                    disabled={loading}
+                    onClick={() => removeSaved(m.id)}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
         {/* Not while editing: one tap would turn the food being edited into this one */}
         {!food && recent.length > 0 && (
           <>

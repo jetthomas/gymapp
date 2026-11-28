@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { createRoutine, updateRoutine } from './api';
 import ErrorMsg from './ErrorMsg';
 import ExercisePicker from './ExercisePicker';
 import { decimal } from './numberInput';
 import { rirShown } from './Draft';
+import SupersetLink from './SupersetLink';
+import { withoutExercise } from './supersets';
 import { setKg, weightField, weightUnit } from './units';
 import useSubmit from './useSubmit';
 
@@ -22,6 +24,7 @@ export default function RoutineEditor({ token, routine, onSaved, onDelete, onCan
       reps: e.reps == null ? '' : String(e.reps),
       ...weightField(e.weightKg, unit), // saved back unchanged unless the weight is edited
       rir: e.rir == null ? '' : String(e.rir),
+      withNext: e.supersetWithNext,
     })),
   );
   const [picking, setPicking] = useState(false);
@@ -38,12 +41,13 @@ export default function RoutineEditor({ token, routine, onSaved, onDelete, onCan
       if (items.length === 0) throw new Error('Add at least one exercise.');
       const body = {
         name,
-        exercises: items.map((it) => ({
+        exercises: items.map((it, i) => ({
           exerciseId: it.exerciseId,
           sets: Number(it.sets) || 1,
           reps: it.reps === '' ? null : Number(it.reps),
           weightKg: it.weight === '' ? null : setKg(it, unit),
           rir: it.rir === '' ? null : Number(it.rir),
+          supersetWithNext: !!it.withNext && i < items.length - 1,
         })),
       };
       if (routine) await updateRoutine(token, routine.id, body);
@@ -71,50 +75,60 @@ export default function RoutineEditor({ token, routine, onSaved, onDelete, onCan
         </div>
         {items.map((it, i) => (
           // The same exercise can be in a routine twice, so rows are keyed by position
-          <div className="row static routine-item" key={i}>
-            <span className="row-text">{it.name}</span>
-            <label className="routine-num">
-              Sets
-              <input inputMode="numeric" value={it.sets} onChange={digits(i, 'sets', 2)} />
-            </label>
-            <label className="routine-num">
-              Reps
-              <input
-                inputMode="numeric"
-                placeholder="any"
-                value={it.reps}
-                onChange={digits(i, 'reps', 4)}
-              />
-            </label>
-            <label className="routine-num">
-              {unit}
-              <input
-                inputMode="decimal"
-                placeholder="any"
-                value={it.weight}
-                onChange={decimal((v) => change(i, { weight: v }))}
-              />
-            </label>
-            {showRir && (
+          <Fragment key={i}>
+            <div className="row static routine-item">
+              <span className="row-text">{it.name}</span>
               <label className="routine-num">
-                RIR
+                Sets
+                <input inputMode="numeric" value={it.sets} onChange={digits(i, 'sets', 2)} />
+              </label>
+              <label className="routine-num">
+                Reps
                 <input
                   inputMode="numeric"
                   placeholder="any"
-                  value={it.rir}
-                  onChange={digits(i, 'rir', 2)}
+                  value={it.reps}
+                  onChange={digits(i, 'reps', 4)}
                 />
               </label>
+              <label className="routine-num">
+                {unit}
+                <input
+                  inputMode="decimal"
+                  placeholder="any"
+                  value={it.weight}
+                  onChange={decimal((v) => change(i, { weight: v }))}
+                />
+              </label>
+              {showRir && (
+                <label className="routine-num">
+                  RIR
+                  <input
+                    inputMode="numeric"
+                    placeholder="any"
+                    value={it.rir}
+                    onChange={digits(i, 'rir', 2)}
+                  />
+                </label>
+              )}
+              <button
+                className="remove-set"
+                type="button"
+                aria-label={`Remove ${it.name}`}
+                onClick={() => setItems(withoutExercise(items, i))}
+              >
+                ×
+              </button>
+            </div>
+            {i < items.length - 1 && (
+              <SupersetLink
+                on={!!it.withNext}
+                first={it.name}
+                second={items[i + 1].name}
+                onChange={(on) => change(i, { withNext: on })}
+              />
             )}
-            <button
-              className="remove-set"
-              type="button"
-              aria-label={`Remove ${it.name}`}
-              onClick={() => setItems(items.filter((_, k) => k !== i))}
-            >
-              ×
-            </button>
-          </div>
+          </Fragment>
         ))}
         <button className="add-btn" type="button" onClick={() => setPicking(true)}>
           + Add exercise

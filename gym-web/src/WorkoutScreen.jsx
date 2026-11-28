@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { updateWorkout } from './api';
 import { Ring } from './CaloriesScreen';
 import ConfirmDialog from './ConfirmDialog';
@@ -28,6 +28,8 @@ import { cancelRestEnd, restBuzz, scheduleRestEnd } from './restAlert';
 import RoutineList from './RoutineList';
 import { validSet } from './setLimits';
 import { nextType, setLabel, typeName } from './setTypes';
+import SupersetLink from './SupersetLink';
+import { supersetIds, withoutExercise } from './supersets';
 import { fromKg, setKg, weightField, weightUnit } from './units';
 import useSubmit from './useSubmit';
 
@@ -218,14 +220,15 @@ export default function WorkoutScreen({ token, plus, start, saved, onDone }) {
         at: Date.now(),
       });
     }
-    // A workout typed in afterwards has no rests to time
-    if (draft.past) return;
+    // A workout typed in afterwards has no rests to time. In a superset, the rest comes after its
+    // last exercise: straight on to the next one until then
+    if (draft.past || exercise.withNext) return;
     setRestFrom(Date.now());
     setRestEnds(Date.now() + restSeconds() * 1000);
   }
 
   function removeExercise(i) {
-    setDraft({ ...draft, exercises: draft.exercises.filter((_, k) => k !== i) });
+    setDraft({ ...draft, exercises: withoutExercise(draft.exercises, i) });
   }
 
   const unticked = draft.exercises
@@ -233,8 +236,10 @@ export default function WorkoutScreen({ token, plus, start, saved, onDone }) {
     .filter((s) => !s.done && (s.weight !== '' || s.reps !== '')).length;
 
   function finish(checked = false) {
+    const ids = supersetIds(draft.exercises);
     const exercises = draft.exercises
-      .map((e) => ({
+      .map((e, i) => ({
+        superset: ids[i],
         exerciseId: e.id,
         sets: e.sets
           .filter((s) => s.done)
@@ -246,7 +251,12 @@ export default function WorkoutScreen({ token, plus, start, saved, onDone }) {
             type: s.type ?? null,
           })),
       }))
-      .filter((e) => e.sets.length > 0);
+      .filter((e) => e.sets.length > 0)
+      // Worked out after dropping exercises with nothing ticked, which may have been in a superset
+      .map(({ superset, ...e }, k, kept) => ({
+        ...e,
+        supersetWithNext: kept[k + 1]?.superset === superset,
+      }));
     // Typed but not ticked sets would be lost, so ask first, whether or not others are ticked
     if (unticked > 0 && !checked) {
       setConfirmingFinish(true);
@@ -347,179 +357,189 @@ export default function WorkoutScreen({ token, plus, start, saved, onDone }) {
 
       {draft.exercises.map((e, i) => (
         // Exercises are only added at the end or removed, and the same one can be added twice
-        <section className="card" key={i} aria-label={e.name}>
-          <div className="exercise-head">
-            <h2 className="card-title">{e.name}</h2>
-            {e.equipment !== 'barbell' && (
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={!!e.unilateral}
-                  disabled={e.sets.some((s) => s.done)}
-                  onChange={(ev) => setUnilateral(i, ev.target.checked)}
-                />
-                Unilateral
-              </label>
-            )}
-            {e.equipment === 'barbell' && (
+        <Fragment key={i}>
+          <section className="card" aria-label={e.name}>
+            <div className="exercise-head">
+              <h2 className="card-title">{e.name}</h2>
+              {e.equipment !== 'barbell' && (
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={!!e.unilateral}
+                    disabled={e.sets.some((s) => s.done)}
+                    onChange={(ev) => setUnilateral(i, ev.target.checked)}
+                  />
+                  Unilateral
+                </label>
+              )}
+              {e.equipment === 'barbell' && (
+                <button
+                  className="ghost-btn"
+                  type="button"
+                  aria-label={`Plates for ${e.name}`}
+                  // The next set to do, or the last once all are ticked; the sheet takes any weight
+                  onClick={() => {
+                    const j = e.sets.findIndex((s) => !s.done);
+                    const k = j === -1 ? e.sets.length - 1 : j;
+                    setPlateWeight(k >= 0 ? filled(e, k).weight : '');
+                  }}
+                >
+                  Plates
+                </button>
+              )}
               <button
-                className="ghost-btn"
+                className="ghost-btn danger"
                 type="button"
-                aria-label={`Plates for ${e.name}`}
-                // The next set to do, or the last once all are ticked; the sheet takes any weight
-                onClick={() => {
-                  const j = e.sets.findIndex((s) => !s.done);
-                  const k = j === -1 ? e.sets.length - 1 : j;
-                  setPlateWeight(k >= 0 ? filled(e, k).weight : '');
-                }}
+                aria-label={`Remove ${e.name}`}
+                // Only asks when it would throw away ticked sets
+                onClick={() => (e.sets.some((s) => s.done) ? setRemoving(i) : removeExercise(i))}
               >
-                Plates
+                Remove
               </button>
-            )}
-            <button
-              className="ghost-btn danger"
-              type="button"
-              aria-label={`Remove ${e.name}`}
-              // Only asks when it would throw away ticked sets
-              onClick={() => (e.sets.some((s) => s.done) ? setRemoving(i) : removeExercise(i))}
-            >
-              Remove
-            </button>
-          </div>
-          {suggestionFor(e) && <p className="row-sub">{advice(suggestionFor(e))}</p>}
-          <table className="set-table">
-            <thead>
-              <tr>
-                <th scope="col">Set</th>
-                <th scope="col">Previous</th>
-                <th scope="col">{unit}</th>
-                <th scope="col">Reps</th>
-                {showRir && <th scope="col">RIR</th>}
-                <th scope="col">
-                  <span className="visually-hidden">Done</span>
-                </th>
-                <th scope="col">
-                  <span className="visually-hidden">Remove</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {e.sets.map((s, j) => {
-                const prev = e.previous[j];
-                const prevWeight = prev ? fromKg(prev.weightKg, unit) : '';
-                // The grey hint in the weight box: today's target for a working set, else last time's
-                const goal = target(e, s);
-                const ready = filled(e, j);
-                const label = setLabel(e.sets, j);
-                return (
-                  <tr
-                    key={j}
-                    className={[s.done && 'done', s.pr && 'pr'].filter(Boolean).join(' ')}
-                  >
-                    <th scope="row">
-                      {/* One tap steps the set through normal, warm-up, drop and failure */}
-                      <button
-                        className={`set-type ${s.type ?? ''}`}
-                        type="button"
-                        aria-label={`Set ${label}: ${typeName(s.type)}. Change set type`}
-                        onClick={() => changeSet(i, j, { type: nextType(s.type) })}
-                      >
-                        {label}
-                      </button>
-                    </th>
-                    <td className="prev">{prev ? `${prevWeight}\u00a0× ${prev.reps}` : '–'}</td>
-                    <td className="weight">
-                      <input
-                        inputMode="decimal"
-                        enterKeyHint="next"
-                        aria-label={`Set ${label} weight in ${unit}`}
-                        placeholder={goal.kg != null ? fromKg(goal.kg, unit) : prevWeight}
-                        value={s.weight}
-                        readOnly={s.done}
-                        onChange={decimal((v) => changeSet(i, j, { weight: v }))}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        inputMode="numeric"
-                        enterKeyHint="next"
-                        aria-label={`Set ${label} reps`}
-                        placeholder={prev?.reps ?? e.targetReps ?? ''}
-                        value={s.reps}
-                        readOnly={s.done}
-                        onChange={(ev) =>
-                          /^\d*$/.test(ev.target.value) &&
-                          changeSet(i, j, { reps: ev.target.value })
-                        }
-                      />
-                    </td>
-                    {showRir && (
+            </div>
+            {suggestionFor(e) && <p className="row-sub">{advice(suggestionFor(e))}</p>}
+            <table className="set-table">
+              <thead>
+                <tr>
+                  <th scope="col">Set</th>
+                  <th scope="col">Previous</th>
+                  <th scope="col">{unit}</th>
+                  <th scope="col">Reps</th>
+                  {showRir && <th scope="col">RIR</th>}
+                  <th scope="col">
+                    <span className="visually-hidden">Done</span>
+                  </th>
+                  <th scope="col">
+                    <span className="visually-hidden">Remove</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {e.sets.map((s, j) => {
+                  const prev = e.previous[j];
+                  const prevWeight = prev ? fromKg(prev.weightKg, unit) : '';
+                  // The grey hint in the weight box: today's target for a working set, else last time's
+                  const goal = target(e, s);
+                  const ready = filled(e, j);
+                  const label = setLabel(e.sets, j);
+                  return (
+                    <tr
+                      key={j}
+                      className={[s.done && 'done', s.pr && 'pr'].filter(Boolean).join(' ')}
+                    >
+                      <th scope="row">
+                        {/* One tap steps the set through normal, warm-up, drop and failure */}
+                        <button
+                          className={`set-type ${s.type ?? ''}`}
+                          type="button"
+                          aria-label={`Set ${label}: ${typeName(s.type)}. Change set type`}
+                          onClick={() => changeSet(i, j, { type: nextType(s.type) })}
+                        >
+                          {label}
+                        </button>
+                      </th>
+                      <td className="prev">{prev ? `${prevWeight}\u00a0× ${prev.reps}` : '–'}</td>
+                      <td className="weight">
+                        <input
+                          inputMode="decimal"
+                          enterKeyHint="next"
+                          aria-label={`Set ${label} weight in ${unit}`}
+                          placeholder={goal.kg != null ? fromKg(goal.kg, unit) : prevWeight}
+                          value={s.weight}
+                          readOnly={s.done}
+                          onChange={decimal((v) => changeSet(i, j, { weight: v }))}
+                        />
+                      </td>
                       <td>
                         <input
                           inputMode="numeric"
                           enterKeyHint="next"
-                          aria-label={`Set ${label} reps in reserve`}
-                          placeholder={goal.rir ?? ''}
-                          value={s.rir}
+                          aria-label={`Set ${label} reps`}
+                          placeholder={prev?.reps ?? e.targetReps ?? ''}
+                          value={s.reps}
                           readOnly={s.done}
                           onChange={(ev) =>
-                            /^(10|\d)?$/.test(ev.target.value) &&
-                            changeSet(i, j, { rir: ev.target.value })
+                            /^\d*$/.test(ev.target.value) &&
+                            changeSet(i, j, { reps: ev.target.value })
                           }
                         />
                       </td>
-                    )}
-                    <td>
-                      <button
-                        className="tick"
-                        type="button"
-                        aria-pressed={s.done}
-                        aria-label={`Set ${label} done`}
-                        // Nothing to log until there's a weight and at least 1 rep
-                        disabled={!s.done && !validSet(ready)}
-                        onClick={() => tick(i, j)}
-                      >
-                        <Check size={18} />
-                      </button>
-                    </td>
-                    <td>
-                      <button
-                        className="remove-set"
-                        type="button"
-                        aria-label={`Remove set ${label}`}
-                        // The card's Remove takes the whole exercise
-                        disabled={e.sets.length === 1}
-                        onClick={() => removeSet(i, j)}
-                      >
-                        ×
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          <button
-            className="add-btn"
-            type="button"
-            onClick={() =>
-              changeExercise(i, (x) => ({
-                ...x,
-                sets: [
-                  ...x.sets,
-                  ...(x.unilateral
-                    ? [
-                        { ...newSet(), side: 'L' },
-                        { ...newSet(), side: 'R' },
-                      ]
-                    : [newSet()]),
-                ],
-              }))
-            }
-          >
-            + Add set
-          </button>
-        </section>
+                      {showRir && (
+                        <td>
+                          <input
+                            inputMode="numeric"
+                            enterKeyHint="next"
+                            aria-label={`Set ${label} reps in reserve`}
+                            placeholder={goal.rir ?? ''}
+                            value={s.rir}
+                            readOnly={s.done}
+                            onChange={(ev) =>
+                              /^(10|\d)?$/.test(ev.target.value) &&
+                              changeSet(i, j, { rir: ev.target.value })
+                            }
+                          />
+                        </td>
+                      )}
+                      <td>
+                        <button
+                          className="tick"
+                          type="button"
+                          aria-pressed={s.done}
+                          aria-label={`Set ${label} done`}
+                          // Nothing to log until there's a weight and at least 1 rep
+                          disabled={!s.done && !validSet(ready)}
+                          onClick={() => tick(i, j)}
+                        >
+                          <Check size={18} />
+                        </button>
+                      </td>
+                      <td>
+                        <button
+                          className="remove-set"
+                          type="button"
+                          aria-label={`Remove set ${label}`}
+                          // The card's Remove takes the whole exercise
+                          disabled={e.sets.length === 1}
+                          onClick={() => removeSet(i, j)}
+                        >
+                          ×
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <button
+              className="add-btn"
+              type="button"
+              onClick={() =>
+                changeExercise(i, (x) => ({
+                  ...x,
+                  sets: [
+                    ...x.sets,
+                    ...(x.unilateral
+                      ? [
+                          { ...newSet(), side: 'L' },
+                          { ...newSet(), side: 'R' },
+                        ]
+                      : [newSet()]),
+                  ],
+                }))
+              }
+            >
+              + Add set
+            </button>
+          </section>
+          {i < draft.exercises.length - 1 && (
+            <SupersetLink
+              on={!!e.withNext}
+              first={e.name}
+              second={draft.exercises[i + 1].name}
+              onChange={(on) => changeExercise(i, (x) => ({ ...x, withNext: on }))}
+            />
+          )}
+        </Fragment>
       ))}
 
       <button className="outline-btn wide" type="button" onClick={() => setPicking(true)}>

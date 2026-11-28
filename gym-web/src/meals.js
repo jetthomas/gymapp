@@ -15,3 +15,14 @@ export const MACROS = [
   ['Carbs', 'carbsG'],
   ['Fat', 'fatG'],
 ];
+
+// "Oats, Banana, Milk": a saved meal's name from its foods, as many as fit in the API's 100 characters
+export function mealName(foods) {
+  let name = foods[0].name;
+  for (const f of foods.slice(1)) {
+    const next = `${name}, ${f.name}`;
+    if (next.length > 100) break;
+    name = next;
+  }
+  return name;
+}
