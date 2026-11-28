@@ -3,6 +3,12 @@ name = "gym-api"
 version = "0.1.0"
 edition = "2024"
 
+# Named here because Vercel's builder takes a binary's name from this table and otherwise
+# guesses it from the file name ("main"); it's the same name Cargo already gives it
+[[bin]]
+name = "gym-api"
+path = "src/main.rs"
+
 [dependencies]
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
