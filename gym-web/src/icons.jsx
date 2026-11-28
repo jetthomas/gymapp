@@ -90,6 +90,12 @@ export const Utensils = (p) => (
   </Icon>
 );
 
+export const Shield = (p) => (
+  <Icon {...p}>
+    <path d="M12 3 5 6v5c0 4.5 3 8.5 7 10 4-1.5 7-5.5 7-10V6l-7-3Z" />
+  </Icon>
+);
+
 export const Link = (p) => (
   <Icon {...p}>
     <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" />

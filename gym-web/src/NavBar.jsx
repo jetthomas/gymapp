@@ -1,17 +1,26 @@
-import { Dumbbell, Grid, Utensils } from './icons';
+import { Dumbbell, Grid, Shield, Utensils } from './icons';
 import { displayName, initials } from './names';
 import { useWaiting } from './outbox';
 import SegmentedNav from './SegmentedNav';
 
 // The bar across the top of every signed-in screen. Until the profile loads, or if it fails,
 // the account button just says Account. On a phone the tabs move to a bar at the bottom.
-// Admins reach the Admin screen from Account (Manage users), so everyone sees the same tabs
-export default function NavBar({ token, profile, page, showCalories, showWorkout, onNavigate }) {
+// Admins also get an Admin tab (the server checks again on every admin request)
+export default function NavBar({
+  token,
+  profile,
+  page,
+  isAdmin,
+  showCalories,
+  showWorkout,
+  onNavigate,
+}) {
   const waiting = useWaiting(token);
   const tabs = [
     { value: 'home', label: 'Dashboard', icon: <Grid /> },
     showWorkout && { value: 'workout', label: 'Workout', icon: <Dumbbell /> },
     showCalories && { value: 'calories', label: 'Calories', icon: <Utensils /> },
+    isAdmin && { value: 'admin', label: 'Admin', icon: <Shield /> },
   ].filter(Boolean);
 
   return (

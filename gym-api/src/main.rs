@@ -30,7 +30,7 @@ use crate::auth::{
     change_password, delete_account, delete_avatar, erase_account, forgot_password, get_profile,
     login, logout, put_avatar, reactivate_account, refresh, register, reset_password, verify_email,
 };
-use crate::billing::{create_checkout, create_portal, webhook};
+use crate::billing::{create_checkout, create_portal, sync_billing, webhook};
 use crate::exercises::{
     create_exercise, create_my_exercise, delete_exercise, delete_my_exercise, list_exercises,
     update_exercise, update_my_exercise,
@@ -257,6 +257,7 @@ async fn main() {
         .route("/me/food/{id}", put(update_food).delete(delete_food))
         .route("/billing/checkout", post(create_checkout))
         .route("/billing/portal", post(create_portal))
+        .route("/billing/sync", post(sync_billing))
         .route("/food/barcode/{code}", get(barcode_food))
         .route("/exercises/{id}/progress", get(exercise_progress))
         .route("/stripe/webhook", post(webhook))

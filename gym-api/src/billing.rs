@@ -144,6 +144,26 @@ pub async fn create_portal(
     }))
 }
 
+// Called when the member is back from paying: reads Stripe now instead of waiting on the webhook,
+// which can be late or fail (a wrong secret, or the API was down when Stripe sent it)
+pub async fn sync_billing(
+    State(state): State<Arc<AppState>>,
+    AuthUser(user_id, mut db): AuthUser,
+) -> ApiResult<StatusCode> {
+    let row = one_row(
+        &mut db,
+        "SELECT StripeCustomerId FROM dbo.Users WHERE Id = @P1",
+        &[&user_id],
+    )
+    .await?
+    .ok_or_else(|| internal("user missing"))?;
+    // No customer = never started a checkout, so Stripe has nothing for them
+    if let Some(customer) = row.get::<&str, _>("StripeCustomerId") {
+        sync_customer(&state, customer).await?;
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
 // Stripe calls this; no member token. Bytes, not Json: the signature covers the exact bytes sent
 pub async fn webhook(
     State(state): State<Arc<AppState>>,

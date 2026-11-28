@@ -10,7 +10,7 @@ import HomeScreen from './HomeScreen';
 import MuscleMap from './musclemap';
 import NavBar from './NavBar';
 import ResetPasswordForm from './ResetPasswordForm';
-import { getProfile, logout, refresh, setOnSessionExpired, verifyEmail } from './api';
+import { getProfile, logout, refresh, setOnSessionExpired, syncBilling, verifyEmail } from './api';
 import { flush, userIdOf } from './outbox';
 import WorkoutScreen from './WorkoutScreen';
 import { ChevronLeft } from './icons';
@@ -107,21 +107,24 @@ export default function App() {
     let tries = membership === 'done' ? 5 : 1;
     let timer;
     let plusNow = false;
-    const check = () => {
+    // sync: back from Stripe, so the API reads Stripe itself first in case the webhook failed.
+    // If that fails too, the profile still shows whatever the webhook saved
+    const check = (sync) => {
       clearTimeout(timer);
-      getProfile(token)
+      (sync ? syncBilling(token).catch(() => {}) : Promise.resolve())
+        .then(() => getProfile(token))
         .then((p) => {
           setProfile(p);
           plusNow = p.plus;
           tries -= 1;
-          if (!p.plus && tries > 0) timer = setTimeout(check, 2000);
+          if (!p.plus && tries > 0) timer = setTimeout(() => check(sync), 2000);
         })
         .catch(() => {});
     };
-    check();
+    check(membership === 'done');
     // The home-screen app opens Stripe in a separate browser view, so check again when it's back on screen.
     // Only until they have Plus: every app switch between sets would otherwise download the profile again
-    const onShow = () => document.visibilityState === 'visible' && !plusNow && check();
+    const onShow = () => document.visibilityState === 'visible' && !plusNow && check(true);
     document.addEventListener('visibilitychange', onShow);
     return () => {
       clearTimeout(timer);
@@ -259,6 +262,7 @@ export default function App() {
         profile={profile}
         // Signed in, the login and reset pages show the dashboard
         page={page === 'login' || page === 'reset' ? 'home' : page}
+        isAdmin={isAdmin}
         showCalories={showCalories}
         showWorkout={showWorkout}
         onNavigate={go}
