@@ -5,6 +5,7 @@
     "gym-api": {
       "root": "gym-api",
       "runtime": "rust",
+      "entrypoint": "src/main.rs",
       "routes": [
         {
           "src": "/api/(.*)",
