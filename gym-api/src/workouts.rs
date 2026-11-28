@@ -5,18 +5,18 @@ use axum::{
     extract::{Path, Query},
     http::StatusCode,
 };
-use chrono::{Datelike, NaiveDateTime};
+use chrono::{DateTime, Datelike, NaiveDateTime, Utc};
 use tiberius::Row;
 
 use crate::extractors::{AuthUser, Member, PlusUser};
 use crate::models::{
-    BodyWeight, DatedFood, DaysQuery, Export, LoggedExercise, LoggedSet, MuscleSets, NewWorkout,
-    ProgressPoint, Workout, WorkoutDetail,
+    BestLift, BodyWeight, DatedFood, DaysQuery, Export, LoggedExercise, LoggedSet, MuscleSets,
+    NewWorkout, PageQuery, ProgressPoint, Workout, WorkoutDetail,
 };
 use crate::nutrition::to_food;
 use crate::passwords::{fits, plain};
 use crate::state::{
-    ApiResult, Db, GYM_TZ, all_rows, batch, col, internal, one_row, record, set_user,
+    ApiResult, Db, GYM_TZ, all_rows, batch, col, count_rows, internal, one_row, record, set_user,
 };
 
 // The user ID comes from the token (AuthUser), never from the request body
@@ -26,6 +26,12 @@ const WORKOUT_COLS: &str = "w.Id, w.[Date], w.Name, w.Notes, w.DurationSec,
     (SELECT COUNT(*) FROM dbo.Sets s
      JOIN dbo.WorkoutExercises we ON we.Id = s.WorkoutExerciseId
      WHERE we.WorkoutId = w.Id) AS Sets";
+
+// A set's estimated one-rep max (Epley: weight × (1 + reps / 30)), for PR alerts and the progress
+// chart. 30e0 is a FLOAT literal, so Reps / 30e0 isn't integer division (8 / 30 would be 0)
+const EST_1RM: &str = "s.WeightKg * (1 + s.Reps / 30e0)";
+// A working set: warm-ups don't count toward one-rep maxes or the muscle map
+const WORKING_SET: &str = "(s.Type IS NULL OR s.Type <> 'warmup')";
 
 fn to_workout(r: &Row) -> Workout {
     Workout {
@@ -47,6 +53,7 @@ fn to_set(r: &Row) -> ApiResult<LoggedSet> {
         reps: col(r, "Reps")?,
         rir: r.get("Rir"),
         side: r.get::<&str, _>("Side").map(String::from),
+        set_type: r.get::<&str, _>("Type").map(String::from),
     })
 }
 
@@ -67,6 +74,10 @@ pub fn check_workout(w: &NewWorkout) -> Result<&str, String> {
     // Years outside 1..=9999 make the database driver panic
     if !(1..=9999).contains(&w.date.year()) {
         return Err("date is out of range".into());
+    }
+    // A future workout would stay at the top of History. An hour's leeway for a phone clock running fast
+    if w.date > Utc::now() + chrono::Duration::hours(1) {
+        return Err("a workout can't be in the future".into());
     }
     // crypto.randomUUID() in the browser: 36 characters of hex and dashes
     if w.client_id
@@ -99,22 +110,122 @@ pub fn check_workout(w: &NewWorkout) -> Result<&str, String> {
         if s.side.as_deref().is_some_and(|x| x != "L" && x != "R") {
             return Err("side must be L or R".into());
         }
+        if s.set_type
+            .as_deref()
+            .is_some_and(|t| !["warmup", "drop", "failure"].contains(&t))
+        {
+            return Err("set type must be warmup, drop or failure".into());
+        }
     }
     Ok(name)
 }
 
-pub async fn list_workouts(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Json<Vec<Workout>>> {
+// History, 200 at a time, newest first; ?offset=200 is the next page. Id breaks ties between
+// workouts saved with the same date, so a page never repeats or skips one
+pub async fn list_workouts(
+    AuthUser(user_id, mut db): AuthUser,
+    Query(q): Query<PageQuery>,
+) -> ApiResult<Json<Vec<Workout>>> {
     set_user(&mut db, user_id).await.map_err(internal)?;
+    let offset = q.offset.unwrap_or(0).max(0);
     let rows = all_rows(
         &mut db,
-        // shortcut: newest 200 only; add paging if members need older history
         &format!(
-            "SELECT TOP 200 {WORKOUT_COLS} FROM dbo.Workouts w WHERE w.UserId = @P1 ORDER BY w.[Date] DESC"
+            "SELECT {WORKOUT_COLS} FROM dbo.Workouts w WHERE w.UserId = @P1
+             ORDER BY w.[Date] DESC, w.Id DESC OFFSET @P2 ROWS FETCH NEXT 200 ROWS ONLY"
         ),
-        &[&user_id],
+        &[&user_id, &offset],
     )
     .await?;
     Ok(Json(rows.iter().map(to_workout).collect()))
+}
+
+// When every one of the member's workouts started, for the streak and the week strip: all of them,
+// not History's first page. At most 5000 (create_workout's cap)
+pub async fn workout_days(
+    AuthUser(user_id, mut db): AuthUser,
+) -> ApiResult<Json<Vec<DateTime<Utc>>>> {
+    set_user(&mut db, user_id).await.map_err(internal)?;
+    let rows = all_rows(
+        &mut db,
+        "SELECT [Date] FROM dbo.Workouts WHERE UserId = @P1",
+        &[&user_id],
+    )
+    .await?;
+    Ok(Json(
+        rows.iter()
+            .map(|r| col::<NaiveDateTime>(r, "Date").map(|d| d.and_utc()))
+            .collect::<ApiResult<_>>()?,
+    ))
+}
+
+// Every exercise in a workout or routine must be one this member can use: in the shared library or
+// their own. An admin may have deleted one since it was picked, and another member's own exercise
+// must not leak its name
+pub async fn check_exercises(
+    db: &mut Db,
+    user_id: i32,
+    exercise_ids: impl Iterator<Item = i32>,
+) -> ApiResult<()> {
+    let ids: HashSet<i32> = exercise_ids.collect();
+    let id_list = format!(
+        "[{}]",
+        ids.iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    let known = count_rows(
+        db,
+        "SELECT COUNT(*) FROM dbo.Exercises
+         WHERE Id IN (SELECT CAST(value AS INT) FROM OPENJSON(@P1))
+           AND (OwnerUserId IS NULL OR OwnerUserId = @P2)",
+        &[&id_list, &user_id],
+    )
+    .await?;
+    if known as usize != ids.len() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "An exercise here is no longer in the library.".into(),
+        ));
+    }
+    Ok(())
+}
+
+// Writes a workout's exercises and sets, in order; returns how many sets. The caller has the transaction open
+async fn insert_exercises(db: &mut Db, workout_id: i32, w: &NewWorkout) -> ApiResult<i32> {
+    let mut sets = 0;
+    // shortcut: one INSERT per set (about 30 for a normal workout); send them as one OPENJSON insert if saving gets slow
+    for (i, e) in w.exercises.iter().enumerate() {
+        let we_id: i32 = one_row(
+            db,
+            "INSERT INTO dbo.WorkoutExercises (WorkoutId, ExerciseId, Position)
+             OUTPUT INSERTED.Id VALUES (@P1, @P2, @P3)",
+            &[&workout_id, &e.exercise_id, &(i as i32)],
+        )
+        .await?
+        .and_then(|r| r.get(0))
+        .ok_or_else(|| internal("insert returned no Id"))?;
+        for (j, s) in e.sets.iter().enumerate() {
+            db.execute(
+                "INSERT INTO dbo.Sets (WorkoutExerciseId, Position, WeightKg, Reps, Rir, Side, Type)
+                 VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7)",
+                &[
+                    &we_id,
+                    &(j as i32),
+                    &s.weight_kg,
+                    &s.reps,
+                    &s.rir,
+                    &s.side,
+                    &s.set_type,
+                ],
+            )
+            .await
+            .map_err(internal)?;
+            sets += 1;
+        }
+    }
+    Ok(sets)
 }
 
 // The workout this member already saved under a client ID, if any
@@ -143,40 +254,16 @@ pub async fn create_workout(
     {
         return Ok((StatusCode::OK, Json(saved)));
     }
-    let count: i32 = one_row(
+    let count = count_rows(
         &mut db,
         "SELECT COUNT(*) FROM dbo.Workouts WHERE UserId = @P1",
         &[&user_id],
     )
-    .await?
-    .and_then(|r| r.get(0))
-    .unwrap_or(0);
+    .await?;
     if count >= 5000 {
         return Err((StatusCode::BAD_REQUEST, "workout limit reached".into()));
     }
-    // Every exercise must still be in the library; an admin may have deleted one since it was picked
-    let ids: HashSet<i32> = w.exercises.iter().map(|e| e.exercise_id).collect();
-    let id_list = format!(
-        "[{}]",
-        ids.iter()
-            .map(|i| i.to_string())
-            .collect::<Vec<_>>()
-            .join(",")
-    );
-    let known: i32 = one_row(
-        &mut db,
-        "SELECT COUNT(*) FROM dbo.Exercises WHERE Id IN (SELECT CAST(value AS INT) FROM OPENJSON(@P1))",
-        &[&id_list],
-    )
-    .await?
-    .and_then(|r| r.get(0))
-    .unwrap_or(0);
-    if known as usize != ids.len() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "An exercise in this workout is no longer in the library.".into(),
-        ));
-    }
+    check_exercises(&mut db, user_id, w.exercises.iter().map(|e| e.exercise_id)).await?;
 
     // If anything fails before COMMIT, the connection closes and SQL Server undoes it all
     batch(&mut db, "BEGIN TRANSACTION").await?;
@@ -198,29 +285,7 @@ pub async fn create_workout(
     .await?
     .and_then(|r| r.get(0))
     .ok_or_else(|| internal("insert returned no Id"))?;
-    let mut sets = 0;
-    // shortcut: one INSERT per set (about 30 for a normal workout); send them as one OPENJSON insert if saving gets slow
-    for (i, e) in w.exercises.iter().enumerate() {
-        let we_id: i32 = one_row(
-            &mut db,
-            "INSERT INTO dbo.WorkoutExercises (WorkoutId, ExerciseId, Position)
-             OUTPUT INSERTED.Id VALUES (@P1, @P2, @P3)",
-            &[&id, &e.exercise_id, &(i as i32)],
-        )
-        .await?
-        .and_then(|r| r.get(0))
-        .ok_or_else(|| internal("insert returned no Id"))?;
-        for (j, s) in e.sets.iter().enumerate() {
-            db.execute(
-                "INSERT INTO dbo.Sets (WorkoutExerciseId, Position, WeightKg, Reps, Rir, Side)
-                 VALUES (@P1, @P2, @P3, @P4, @P5, @P6)",
-                &[&we_id, &(j as i32), &s.weight_kg, &s.reps, &s.rir, &s.side],
-            )
-            .await
-            .map_err(internal)?;
-            sets += 1;
-        }
-    }
+    let sets = insert_exercises(&mut db, id, &w).await?;
     record(&mut db, user_id, "workout").await?;
     batch(&mut db, "COMMIT").await?;
     let saved = Workout {
@@ -232,6 +297,74 @@ pub async fn create_workout(
         sets,
     };
     Ok((StatusCode::CREATED, Json(saved)))
+}
+
+// Replaces a saved workout's name, date, length, exercises and sets: fixing a typo, or a set
+// logged against the wrong exercise. Its ClientId stays, so a resent first save still finds it
+pub async fn update_workout(
+    AuthUser(user_id, mut db): AuthUser,
+    Path(id): Path<i32>,
+    Json(w): Json<NewWorkout>, // Json must be the last argument
+) -> ApiResult<Json<Workout>> {
+    let name = check_workout(&w).map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
+    set_user(&mut db, user_id).await.map_err(internal)?;
+    check_exercises(&mut db, user_id, w.exercises.iter().map(|e| e.exercise_id)).await?;
+    // Same as create: an early return closes the connection, which undoes the transaction
+    batch(&mut db, "BEGIN TRANSACTION").await?;
+    let updated = db
+        .execute(
+            "UPDATE dbo.Workouts SET [Date] = @P3, Name = @P4, Notes = @P5, DurationSec = @P6
+             WHERE Id = @P1 AND UserId = @P2",
+            &[
+                &id,
+                &user_id,
+                &w.date.naive_utc(),
+                &name,
+                &w.notes,
+                &w.duration_sec,
+            ],
+        )
+        .await
+        .map_err(internal)?;
+    if updated.total() == 0 {
+        return Err((StatusCode::NOT_FOUND, "Workout not found.".into()));
+    }
+    // The old sets go with their exercises (ON DELETE CASCADE)
+    db.execute(
+        "DELETE FROM dbo.WorkoutExercises WHERE WorkoutId = @P1",
+        &[&id],
+    )
+    .await
+    .map_err(internal)?;
+    let sets = insert_exercises(&mut db, id, &w).await?;
+    batch(&mut db, "COMMIT").await?;
+    Ok(Json(Workout {
+        id,
+        name: name.to_string(),
+        date: w.date,
+        notes: w.notes,
+        duration_sec: w.duration_sec,
+        sets,
+    }))
+}
+
+pub async fn delete_workout(
+    AuthUser(user_id, mut db): AuthUser,
+    Path(id): Path<i32>,
+) -> ApiResult<StatusCode> {
+    set_user(&mut db, user_id).await.map_err(internal)?;
+    // Its exercises and sets cascade
+    let done = db
+        .execute(
+            "DELETE FROM dbo.Workouts WHERE Id = @P1 AND UserId = @P2",
+            &[&id, &user_id],
+        )
+        .await
+        .map_err(internal)?;
+    if done.total() == 0 {
+        return Err((StatusCode::NOT_FOUND, "Workout not found.".into()));
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn get_workout(
@@ -256,7 +389,7 @@ async fn workout_detail(db: &mut Db, user_id: i32, id: i32) -> ApiResult<Workout
     // WorkoutExercises and Sets have no UserId of their own: the workout above was already checked as this member's
     let rows = all_rows(
         db,
-        "SELECT we.Id AS WeId, we.ExerciseId, e.Name, s.WeightKg, s.Reps, s.Rir, s.Side
+        "SELECT we.Id AS WeId, we.ExerciseId, e.Name, e.Equipment, s.WeightKg, s.Reps, s.Rir, s.Side, s.Type
          FROM dbo.WorkoutExercises we
          JOIN dbo.Exercises e ON e.Id = we.ExerciseId
          JOIN dbo.Sets s ON s.WorkoutExerciseId = we.Id
@@ -275,6 +408,7 @@ async fn workout_detail(db: &mut Db, user_id: i32, id: i32) -> ApiResult<Workout
             exercises.push(LoggedExercise {
                 exercise_id: col(r, "ExerciseId")?,
                 name: col::<&str>(r, "Name")?.to_string(),
+                equipment: r.get::<&str, _>("Equipment").map(String::from),
                 sets: vec![],
             });
         }
@@ -349,7 +483,7 @@ pub async fn last_sets(
     set_user(&mut db, user_id).await.map_err(internal)?;
     let rows = all_rows(
         &mut db,
-        "SELECT s.WeightKg, s.Reps, s.Rir, s.Side FROM dbo.Sets s
+        "SELECT s.WeightKg, s.Reps, s.Rir, s.Side, s.Type FROM dbo.Sets s
          WHERE s.WorkoutExerciseId = (
             SELECT TOP 1 we.Id FROM dbo.WorkoutExercises we
             JOIN dbo.Workouts w ON w.Id = we.WorkoutId
@@ -360,6 +494,30 @@ pub async fn last_sets(
     )
     .await?;
     Ok(Json(rows.iter().map(to_set).collect::<ApiResult<_>>()?))
+}
+
+// The member's best estimated one-rep max on an exercise so far (EST_1RM),
+// from working sets only. The workout screen calls a set that beats it a PR
+pub async fn best_lift(
+    AuthUser(user_id, mut db): AuthUser,
+    Path(exercise_id): Path<i32>,
+) -> ApiResult<Json<BestLift>> {
+    set_user(&mut db, user_id).await.map_err(internal)?;
+    let row = one_row(
+        &mut db,
+        &format!(
+            "SELECT MAX({EST_1RM}) AS Best
+         FROM dbo.Workouts w
+         JOIN dbo.WorkoutExercises we ON we.WorkoutId = w.Id
+         JOIN dbo.Sets s ON s.WorkoutExerciseId = we.Id
+         WHERE w.UserId = @P1 AND we.ExerciseId = @P2 AND {WORKING_SET}"
+        ),
+        &[&user_id, &exercise_id],
+    )
+    .await?;
+    Ok(Json(BestLift {
+        e1rm_kg: row.and_then(|r| r.get("Best")),
+    }))
 }
 
 // How many sets hit each muscle lately, for the muscle map. Muscles with none are left out
@@ -374,14 +532,17 @@ pub async fn muscle_sets(
         &mut db,
         // 1e0 and 5e-1 are FLOAT literals, so the sum comes back as a float, not a DECIMAL.
         // One side of a unilateral set is half a set, so L + R counts once
-        "SELECT m.Muscle, SUM(CASE WHEN m.Role = 'primary' THEN 1e0 ELSE 5e-1 END
+        &format!(
+            "SELECT m.Muscle, SUM(CASE WHEN m.Role = 'primary' THEN 1e0 ELSE 5e-1 END
                 * CASE WHEN s.Side IS NULL THEN 1e0 ELSE 5e-1 END) AS Sets
          FROM dbo.Workouts w
          JOIN dbo.WorkoutExercises we ON we.WorkoutId = w.Id
          JOIN dbo.Sets s ON s.WorkoutExerciseId = we.Id
          JOIN dbo.ExerciseMuscles m ON m.ExerciseId = we.ExerciseId
          WHERE w.UserId = @P1 AND w.[Date] >= DATEADD(day, -@P2, SYSUTCDATETIME())
-         GROUP BY m.Muscle",
+           AND {WORKING_SET}
+         GROUP BY m.Muscle"
+        ),
         &[&user_id, &days],
     )
     .await?;
@@ -395,8 +556,7 @@ pub async fn muscle_sets(
     Ok(Json(out))
 }
 
-// Plus: the best estimated one-rep max for an exercise in each of the last 50 workouts that had it.
-// Epley formula: weight × (1 + reps / 30)
+// Plus: the best estimated one-rep max (EST_1RM) for an exercise in each of the last 50 workouts that had it
 pub async fn exercise_progress(
     PlusUser(user_id, mut db): PlusUser,
     Path(exercise_id): Path<i32>,
@@ -404,15 +564,14 @@ pub async fn exercise_progress(
     set_user(&mut db, user_id).await.map_err(internal)?;
     let rows = all_rows(
         &mut db,
-        // 30e0 is a FLOAT literal, so Reps / 30e0 isn't integer division (8 / 30 would be 0)
         // Days in the gym's time zone like admin_stats: [Date] is UTC, so a 7 am workout in Sydney would land on the day before
         &format!(
             "SELECT TOP 50 CONVERT(char(10), CAST(w.[Date] AT TIME ZONE 'UTC' AT TIME ZONE '{GYM_TZ}' AS date), 23) AS Day,
-                MAX(s.WeightKg * (1 + s.Reps / 30e0)) AS Est1rm
+                MAX({EST_1RM}) AS Est1rm
          FROM dbo.Workouts w
          JOIN dbo.WorkoutExercises we ON we.WorkoutId = w.Id
          JOIN dbo.Sets s ON s.WorkoutExerciseId = we.Id
-         WHERE w.UserId = @P1 AND we.ExerciseId = @P2
+         WHERE w.UserId = @P1 AND we.ExerciseId = @P2 AND {WORKING_SET}
          GROUP BY CONVERT(char(10), CAST(w.[Date] AT TIME ZONE 'UTC' AT TIME ZONE '{GYM_TZ}' AS date), 23)
          ORDER BY Day DESC"
         ),
@@ -449,6 +608,7 @@ mod tests {
                     reps,
                     rir: Some(2),
                     side: None,
+                    set_type: None,
                 }],
             }],
         }
@@ -493,5 +653,15 @@ mod tests {
         assert!(check_workout(&one_side).is_ok(), "left side");
         one_side.exercises[0].sets[0].side = Some("X".into());
         assert!(check_workout(&one_side).is_err(), "unknown side");
+        let mut typed = workout(40.0, 10, None);
+        typed.exercises[0].sets[0].set_type = Some("warmup".into());
+        assert!(check_workout(&typed).is_ok(), "a warm-up set");
+        typed.exercises[0].sets[0].set_type = Some("cooldown".into());
+        assert!(check_workout(&typed).is_err(), "unknown set type");
+        let mut later = workout(40.0, 10, None);
+        later.date = chrono::Utc::now() + chrono::Duration::minutes(30);
+        assert!(check_workout(&later).is_ok(), "a phone clock a little fast");
+        later.date = chrono::Utc::now() + chrono::Duration::days(2);
+        assert!(check_workout(&later).is_err(), "in the future");
     }
 }

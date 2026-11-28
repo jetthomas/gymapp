@@ -79,3 +79,16 @@ GO
 -- chaining), and only for the member the connection is tagged with
 GRANT EXECUTE ON dbo.DeleteMember TO gym_app;
 GO
+
+
+-- Routines. Already set up? Run just this part, after schema.sql has made the tables.
+-- The member's own, so the same owner check as workouts; their exercises are reached through a
+-- routine already checked as the member's, like a workout's exercises and sets
+GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.Routines TO gym_app;
+GRANT SELECT, INSERT, DELETE ON dbo.RoutineExercises TO gym_app;
+GO
+ALTER SECURITY POLICY Security.WorkoutPolicy
+    ADD FILTER PREDICATE Security.fn_workout_owner(UserId) ON dbo.Routines,
+    ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.Routines AFTER INSERT,
+    ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.Routines AFTER UPDATE;
+GO

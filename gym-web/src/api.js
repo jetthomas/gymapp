@@ -86,6 +86,18 @@ export const getExercises = (token) => request('/exercises', { token });
 export const getLastSets = (token, exerciseId) =>
   request(`/exercises/${exerciseId}/last`, { token });
 
+// { e1rmKg }: the member's best estimated one-rep max on it so far, null if never done; for PRs
+export const getBest = (token, exerciseId) => request(`/exercises/${exerciseId}/best`, { token });
+
+// The member's routines: [{ id, name, exercises: [{ exerciseId, name, equipment, sets, reps, weightKg, rir }] }]
+export const getRoutines = (token) => request('/routines', { token });
+// { name, exercises: [{ exerciseId, sets, reps, weightKg, rir }] }, targets null = none; free members can keep 3
+export const createRoutine = (token, routine) =>
+  request('/routines', { method: 'POST', token, body: routine });
+export const updateRoutine = (token, id, routine) =>
+  request(`/routines/${id}`, { method: 'PUT', token, body: routine });
+export const deleteRoutine = (token, id) => request(`/routines/${id}`, { method: 'DELETE', token });
+
 // [{ muscle, sets }] for the muscles trained in the last `days` days
 export const getMuscles = (token, days = 30) => request(`/me/muscles?days=${days}`, { token });
 
@@ -99,7 +111,26 @@ export const getUsers = (token) => request('/admin/users', { token });
 
 export const getWorkout = (token, id) => request(`/workouts/${id}`, { token });
 
-export const getWorkouts = (token) => request('/workouts', { token });
+// History, 200 at a time, newest first; `offset` skips that many to get older ones
+export const getWorkouts = (token, offset = 0) =>
+  request(offset ? `/workouts?offset=${offset}` : '/workouts', { token });
+
+// When every one of the member's workouts started, for the streak
+export const getWorkoutDays = (token) => request('/me/workout-days', { token });
+
+// Replaces a saved workout (same body as createWorkout, without clientId)
+export const updateWorkout = (token, id, workout) =>
+  request(`/workouts/${id}`, { method: 'PUT', token, body: workout });
+
+export const deleteWorkout = (token, id) => request(`/workouts/${id}`, { method: 'DELETE', token });
+
+// The member's own exercises, which only they see (Settings → My exercises)
+export const createMyExercise = (token, exercise) =>
+  request('/me/exercises', { method: 'POST', token, body: exercise });
+export const updateMyExercise = (token, id, exercise) =>
+  request(`/me/exercises/${id}`, { method: 'PUT', token, body: exercise });
+export const deleteMyExercise = (token, id) =>
+  request(`/me/exercises/${id}`, { method: 'DELETE', token });
 
 export const login = (email, password, remember) =>
   request('/auth/login', { method: 'POST', body: { email, password, remember } });

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getProgress } from './api';
 import BarChart from './BarChart';
 import ErrorMsg from './ErrorMsg';
+import { fromKg, weightUnit } from './units';
 
 // Plus: an exercise's best estimated one-rep max in each workout that had it, oldest first
 export default function ProgressChart({ token, exerciseId }) {
@@ -20,15 +21,19 @@ export default function ProgressChart({ token, exerciseId }) {
   if (points.length < 3) {
     return <p className="hint">Log this exercise in 3 workouts to see your trend.</p>;
   }
+  const unit = weightUnit();
   // "2026-11-20" -> "11-20"
-  const data = points.map((p) => ({ label: p.day.slice(5), value: Math.round(p.est1rmKg) }));
+  const data = points.map((p) => ({
+    label: p.day.slice(5),
+    value: Math.round(fromKg(p.est1rmKg, unit)),
+  }));
   const best = Math.max(...data.map((d) => d.value));
   return (
     <BarChart
-      title="Estimated one-rep max (kg)"
+      title={`Estimated one-rep max (${unit})`}
       summary={`Your best set in each of the last ${points.length} workouts`}
       total={best}
-      totalLabel="kg best"
+      totalLabel={`${unit} best`}
       data={data}
       // At least 10: bodyweight exercises logged at 0 kg would otherwise divide by 0
       max={Math.max(10, Math.ceil(best / 10) * 10)}

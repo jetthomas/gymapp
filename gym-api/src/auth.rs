@@ -545,8 +545,8 @@ mod tests {
     }
 
     // A table that points at a member and isn't in DeleteMember makes deleting an account fail
-    // with a foreign-key error. CI has no database, so this reads schema.sql as text.
-    // shortcut: only sees tables made with CREATE TABLE; check by hand if one ever gets an ALTER ... REFERENCES
+    // with a foreign-key error. CI has no database, so this reads schema.sql as text: every
+    // CREATE TABLE, and every ALTER TABLE that adds a column pointing at a member
     #[test]
     fn delete_member_clears_every_table_that_points_at_a_member() {
         let schema = include_str!("../sql/schema.sql");
@@ -554,19 +554,26 @@ mod tests {
             .split_once("CREATE OR ALTER PROCEDURE dbo.DeleteMember")
             .expect("schema.sql makes dbo.DeleteMember");
         let mut checked = 0;
-        for block in schema.split("CREATE TABLE ").skip(1) {
-            let (table, columns) = block.split_once(" (").expect("a table's name, then (");
-            // The columns end at the first ");"
-            let columns = columns.split(");").next().unwrap_or(columns);
-            if columns.contains("REFERENCES dbo.Users") {
-                assert!(
-                    procedure.contains(&format!("DELETE FROM {table} ")),
-                    "DeleteMember doesn't delete from {table}"
-                );
-                checked += 1;
+        for (keyword, end) in [("CREATE TABLE ", ");"), ("ALTER TABLE ", ";")] {
+            for block in schema.split(keyword).skip(1) {
+                let (table, rest) = block.split_once(' ').expect("a table's name");
+                // The statement ends at the first `end`
+                if rest
+                    .split(end)
+                    .next()
+                    .unwrap_or(rest)
+                    .contains("REFERENCES dbo.Users")
+                {
+                    assert!(
+                        procedure.contains(&format!("DELETE FROM {table} ")),
+                        "DeleteMember doesn't delete from {table}"
+                    );
+                    checked += 1;
+                }
             }
         }
-        // Workouts, Events, RecoveryCodes, Profiles, BodyWeights, FoodEntries: proves the parsing found them
-        assert!(checked >= 6, "found only {checked} tables");
+        // Workouts, Events, RecoveryCodes, Profiles, BodyWeights, FoodEntries and Exercises:
+        // proves the parsing found them
+        assert!(checked >= 7, "found only {checked} tables");
     }
 }

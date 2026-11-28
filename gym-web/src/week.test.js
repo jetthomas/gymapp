@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addDays, duration, streak, weekDays, workoutDays } from './week.js';
+import { addDays, duration, shortDate, streak, weekDays, workoutDays } from './week.js';
 
 test('a workout under half a minute says so instead of "0 min"', () => {
   assert.equal(duration(20), 'under 1 min');
@@ -8,8 +8,8 @@ test('a workout under half a minute says so instead of "0 min"', () => {
   assert.equal(duration(3720), '62 min');
 });
 
-// A workout at 6 pm on day `d` of November 2026, sent as the API sends it
-const at = (d) => ({ date: new Date(2026, 10, d, 18).toISOString() });
+// When a workout at 6 pm on day `d` of November 2026 started, as /me/workout-days sends it
+const at = (d) => new Date(2026, 10, d, 18).toISOString();
 const today = new Date(2026, 10, 18, 9); // Wednesday 18 November, 9 am
 
 test('the week runs Monday to Sunday', () => {
@@ -43,4 +43,10 @@ test('days move across months and daylight saving', () => {
   assert.equal(addDays('2026-11-19', -29), '2026-10-21');
   // Sydney's clocks went forward on 4 October 2026
   assert.equal(addDays('2026-10-03', 2), '2026-10-05');
+});
+
+test('a date from another year shows its year; this year it goes without', () => {
+  const year = String(new Date().getFullYear());
+  assert.match(shortDate('2020-03-01T12:00:00'), /2020/);
+  assert.doesNotMatch(shortDate(new Date().toISOString()), new RegExp(year));
 });

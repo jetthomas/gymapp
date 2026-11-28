@@ -1250,6 +1250,11 @@ button.row:focus-visible {
   gap: 12px;
 }
 
+/* The text on the left and its one button at the right edge, like the .card.split cards */
+.section-head.split-head {
+  justify-content: space-between;
+}
+
 .section-head .link-btn {
   margin: 0 0 0 auto;
 }
@@ -1988,7 +1993,8 @@ span.role-select {
   margin: 0;
 }
 
-.exercise-head .ghost-btn {
+/* The last button's text lines up with the card's edge; Plates keeps its gap before Remove */
+.exercise-head .ghost-btn:last-child {
   margin-right: -10px;
 }
 
@@ -2016,6 +2022,36 @@ span.role-select {
   font-weight: 700;
 }
 
+/* The set's number is a button: one tap steps its type (W warm-up, D drop set, F to failure) */
+.set-type {
+  min-width: 32px;
+  min-height: 36px;
+  padding: 0 4px;
+  font: inherit;
+  font-weight: 700;
+  color: var(--foreground);
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+/* A past workout's date and time need more room than its minutes */
+.field-pair .field.past-when {
+  flex: 2;
+}
+
+/* A warm-up reads as lighter work than the sets that count */
+.set-type.warmup {
+  color: var(--muted-foreground);
+}
+
+@media (hover: hover) {
+  .set-type:hover {
+    background: var(--accent);
+  }
+}
+
 .set-table .prev {
   font-size: 0.875rem;
   white-space: nowrap;
@@ -2039,6 +2075,92 @@ span.role-select {
 .set-table tr.done input {
   background: none;
   border-color: transparent;
+}
+
+/* A personal record: the row glows in the same orange as the rest ring */
+.set-table tr.pr > * {
+  background: color-mix(in oklab, var(--rest) 22%, transparent);
+}
+
+/* "New PR · Bench press 100 kg × 5" for a few seconds, floating above the rest bar */
+.pr-toast {
+  position: fixed;
+  bottom: calc(80px + env(safe-area-inset-bottom));
+  left: 50%;
+  z-index: 6;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  margin: 0;
+  padding: 10px 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  color: var(--primary-foreground);
+  background: var(--rest);
+  border-radius: 999px;
+  box-shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.7);
+}
+
+@media (max-width: 859px) {
+  .admin-page:has(> .nav) .pr-toast {
+    bottom: calc(152px + env(safe-area-inset-bottom));
+  }
+}
+
+/* A routine's exercises: the name, then its sets and targets in small boxes */
+.routine-item {
+  padding-inline: 0;
+}
+
+/* Phones: the name gets a line of its own, so four boxes don't squeeze it to a letter a line */
+@media (max-width: 480px) {
+  .routine-item {
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: 12px;
+  }
+
+  .routine-item .row-text {
+    flex-basis: 100%;
+  }
+
+  .routine-item .remove-set {
+    margin-left: auto;
+  }
+}
+
+.routine-num {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+.routine-num input {
+  width: 56px;
+  min-height: 44px;
+  padding: 6px;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  text-align: center;
+  color: var(--foreground);
+  background: var(--surface);
+  border: 1px solid var(--input);
+  border-radius: 8px;
+  outline: none;
+}
+
+.routine-num input:focus-visible {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 1px var(--ring);
+}
+
+.routine-name {
+  margin-top: 20px;
 }
 
 /* Done: a square that turns solid white with a dark tick */
@@ -2172,7 +2294,7 @@ html:has(.rest-bar) {
   scroll-padding-bottom: 160px;
 }
 
-/* A phone needs every pixel for the sets: tighter cards, cells and headings, so eight columns fit */
+/* A phone needs every pixel for the sets: tighter cards, cells and headings, so every column fits */
 @media (max-width: 480px) {
   .workout .card:not(.empty-state) {
     padding: 16px;
@@ -2185,6 +2307,17 @@ html:has(.rest-bar) {
 
   .set-table input {
     min-width: 36px;
+    padding-inline: 2px;
+  }
+
+  /* "176.4 × 8" over two lines, so a weight in lb has room in its box */
+  .set-table .prev {
+    white-space: normal;
+  }
+
+  /* The weight box gets the room left over: reps and RIR only ever hold a digit or two */
+  .set-table td.weight {
+    width: 100%;
   }
 
   .tick {
@@ -2398,20 +2531,6 @@ html:has(.rest-bar) {
   color: var(--primary-foreground);
   background: var(--primary);
   border-color: transparent;
-}
-
-/* The Plates button is a .tick square holding a barbell drawing */
-.plate-btn svg {
-  width: 22px;
-  height: 22px;
-  fill: currentColor;
-}
-
-@media (hover: hover) {
-  .plate-btn:not(:disabled):hover {
-    color: var(--foreground);
-    border-color: var(--muted-foreground);
-  }
 }
 
 /* The × that removes one set: quiet until hovered */

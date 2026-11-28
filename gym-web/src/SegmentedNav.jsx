@@ -39,8 +39,10 @@ export default function SegmentedNav({ label, items, value, onChange, className 
   // A new bar size or the web font arriving moves the buttons: follow them without sliding
   useEffect(() => {
     const el = nav.current;
+    // Kept like el: when the bar goes away React clears pill.current, and a last resize still arrives
+    const p = pill.current;
     const jump = () => {
-      shown.current = place(el, pill.current, false);
+      shown.current = place(el, p, false);
     };
     const observer = new ResizeObserver(jump);
     observer.observe(el);

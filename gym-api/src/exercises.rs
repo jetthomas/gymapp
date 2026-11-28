@@ -7,7 +7,7 @@ use axum::{
 use crate::extractors::{AdminUser, AuthUser};
 use crate::models::{Exercise, ExerciseQuery, NewExercise};
 use crate::passwords::{fits, plain};
-use crate::state::{ApiResult, Db, all_rows, batch, col, internal, one_row};
+use crate::state::{ApiResult, Db, all_rows, batch, col, count_rows, internal, one_row};
 
 // The 17 muscle names free-exercise-db uses; admin-added exercises pick from the same list
 pub const MUSCLES: [&str; 17] = [
@@ -61,9 +61,10 @@ pub fn check_exercise(e: &NewExercise) -> Result<&str, String> {
     Ok(name)
 }
 
-// Every member can read the shared list; only admins change it (the routes below)
+// Every member reads the shared list plus their own exercises; admins change the shared list,
+// and each member changes only their own (the routes below)
 pub async fn list_exercises(
-    AuthUser(_, mut db): AuthUser,
+    AuthUser(user_id, mut db): AuthUser,
     Query(f): Query<ExerciseQuery>,
 ) -> ApiResult<Json<Vec<Exercise>>> {
     let q = f.q.unwrap_or_default();
@@ -77,14 +78,15 @@ pub async fn list_exercises(
     }
     let rows = all_rows(
         &mut db,
-        "SELECT e.Id, e.Name, e.Equipment, m.Muscle, m.Role
+        "SELECT e.Id, e.Name, e.Equipment, e.OwnerUserId, m.Muscle, m.Role
          FROM dbo.Exercises e
          LEFT JOIN dbo.ExerciseMuscles m ON m.ExerciseId = e.Id
-         WHERE (@P1 = N'' OR e.Name LIKE N'%' + @P1 + N'%')
+         WHERE (e.OwnerUserId IS NULL OR e.OwnerUserId = @P3)
+           AND (@P1 = N'' OR e.Name LIKE N'%' + @P1 + N'%')
            AND (@P2 = N'' OR EXISTS (SELECT 1 FROM dbo.ExerciseMuscles x
                                      WHERE x.ExerciseId = e.Id AND x.Muscle = @P2))
          ORDER BY e.Name, e.Id",
-        &[&q.as_str(), &muscle.as_str()],
+        &[&q.as_str(), &muscle.as_str(), &user_id],
     )
     .await?;
     // One row per muscle; rows for the same exercise arrive together
@@ -98,6 +100,7 @@ pub async fn list_exercises(
                 equipment: r.get::<&str, _>("Equipment").map(str::to_string),
                 primary_muscles: vec![],
                 secondary_muscles: vec![],
+                mine: r.get::<i32, _>("OwnerUserId") == Some(user_id),
             });
         }
         if let (Some(e), Some(m), Some(role)) = (
@@ -133,38 +136,64 @@ async fn save_muscles(db: &mut Db, id: i32, e: &NewExercise) -> ApiResult<()> {
     Ok(())
 }
 
-pub async fn create_exercise(
-    AdminUser(_, mut db): AdminUser,
-    Json(e): Json<NewExercise>,
-) -> ApiResult<StatusCode> {
-    let name = check_exercise(&e).map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
+// Whose exercise the queries below may touch: SHARED = the shared library (no member has Id 0),
+// otherwise a member's id. Admins pass SHARED and members their own id, so neither reaches the other's
+const SHARED: i32 = 0;
+
+// No two exercises one person sees may share a name, or the picker shows two identical rows:
+// the shared library for admins, the shared library plus their own for a member.
+// `id` is the exercise being renamed (0 for a new one), which may keep its own name
+async fn check_name_free(db: &mut Db, owner: i32, id: i32, name: &str) -> ApiResult<()> {
+    let taken = count_rows(
+        db,
+        "SELECT COUNT(*) FROM dbo.Exercises
+         WHERE Name = @P1 AND Id <> @P2 AND (OwnerUserId IS NULL OR OwnerUserId = NULLIF(@P3, 0))",
+        &[&name, &id, &owner],
+    )
+    .await?;
+    if taken > 0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "There's already an exercise with that name.".into(),
+        ));
+    }
+    Ok(())
+}
+
+async fn save_exercise(db: &mut Db, owner: i32, e: &NewExercise) -> ApiResult<StatusCode> {
+    let name = check_exercise(e).map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
+    check_name_free(db, owner, 0, name).await?;
     // If anything fails before COMMIT, the connection closes and SQL Server undoes it all
-    batch(&mut db, "BEGIN TRANSACTION").await?;
+    batch(db, "BEGIN TRANSACTION").await?;
     let id: i32 = one_row(
-        &mut db,
-        "INSERT INTO dbo.Exercises (Name, Equipment) OUTPUT INSERTED.Id VALUES (@P1, @P2)",
-        &[&name, &e.equipment],
+        db,
+        "INSERT INTO dbo.Exercises (Name, Equipment, OwnerUserId) OUTPUT INSERTED.Id
+         VALUES (@P1, @P2, NULLIF(@P3, 0))",
+        &[&name, &e.equipment, &owner],
     )
     .await?
     .and_then(|r| r.get(0))
     .ok_or_else(|| internal("insert returned no Id"))?;
-    save_muscles(&mut db, id, &e).await?;
-    batch(&mut db, "COMMIT").await?;
+    save_muscles(db, id, e).await?;
+    batch(db, "COMMIT").await?;
     Ok(StatusCode::CREATED)
 }
 
-pub async fn update_exercise(
-    AdminUser(_, mut db): AdminUser,
-    Path(id): Path<i32>,
-    Json(e): Json<NewExercise>, // Json must be the last argument
+async fn replace_exercise(
+    db: &mut Db,
+    owner: i32,
+    id: i32,
+    e: &NewExercise,
 ) -> ApiResult<StatusCode> {
-    let name = check_exercise(&e).map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
-    // Same as create: an early return closes the connection, which undoes the transaction
-    batch(&mut db, "BEGIN TRANSACTION").await?;
+    let name = check_exercise(e).map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
+    check_name_free(db, owner, id, name).await?;
+    // Same as save: an early return closes the connection, which undoes the transaction
+    batch(db, "BEGIN TRANSACTION").await?;
     let updated = db
         .execute(
-            "UPDATE dbo.Exercises SET Name = @P2, Equipment = @P3 WHERE Id = @P1",
-            &[&id, &name, &e.equipment],
+            "UPDATE dbo.Exercises SET Name = @P2, Equipment = @P3
+             WHERE Id = @P1 AND ISNULL(OwnerUserId, 0) = @P4",
+            &[&id, &name, &e.equipment, &owner],
         )
         .await
         .map_err(internal)?;
@@ -177,17 +206,17 @@ pub async fn update_exercise(
     )
     .await
     .map_err(internal)?;
-    save_muscles(&mut db, id, &e).await?;
-    batch(&mut db, "COMMIT").await?;
+    save_muscles(db, id, e).await?;
+    batch(db, "COMMIT").await?;
     Ok(StatusCode::OK)
 }
 
-pub async fn delete_exercise(
-    AdminUser(_, mut db): AdminUser,
-    Path(id): Path<i32>,
-) -> ApiResult<StatusCode> {
+async fn remove_exercise(db: &mut Db, owner: i32, id: i32) -> ApiResult<StatusCode> {
     let done = db
-        .execute("DELETE FROM dbo.Exercises WHERE Id = @P1", &[&id])
+        .execute(
+            "DELETE FROM dbo.Exercises WHERE Id = @P1 AND ISNULL(OwnerUserId, 0) = @P2",
+            &[&id, &owner],
+        )
         .await
         .map(|r| r.total());
     match done {
@@ -200,6 +229,64 @@ pub async fn delete_exercise(
         )),
         Err(e) => Err(internal(e)),
     }
+}
+
+pub async fn create_exercise(
+    AdminUser(_, mut db): AdminUser,
+    Json(e): Json<NewExercise>,
+) -> ApiResult<StatusCode> {
+    save_exercise(&mut db, SHARED, &e).await
+}
+
+pub async fn update_exercise(
+    AdminUser(_, mut db): AdminUser,
+    Path(id): Path<i32>,
+    Json(e): Json<NewExercise>, // Json must be the last argument
+) -> ApiResult<StatusCode> {
+    replace_exercise(&mut db, SHARED, id, &e).await
+}
+
+pub async fn delete_exercise(
+    AdminUser(_, mut db): AdminUser,
+    Path(id): Path<i32>,
+) -> ApiResult<StatusCode> {
+    remove_exercise(&mut db, SHARED, id).await
+}
+
+// Settings → My exercises: a member's own, which only they see and use
+pub async fn create_my_exercise(
+    AuthUser(user_id, mut db): AuthUser,
+    Json(e): Json<NewExercise>,
+) -> ApiResult<StatusCode> {
+    // A cap, so one account can't fill the database's disk
+    let count = count_rows(
+        &mut db,
+        "SELECT COUNT(*) FROM dbo.Exercises WHERE OwnerUserId = @P1",
+        &[&user_id],
+    )
+    .await?;
+    if count >= 200 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "You can add up to 200 exercises of your own.".into(),
+        ));
+    }
+    save_exercise(&mut db, user_id, &e).await
+}
+
+pub async fn update_my_exercise(
+    AuthUser(user_id, mut db): AuthUser,
+    Path(id): Path<i32>,
+    Json(e): Json<NewExercise>, // Json must be the last argument
+) -> ApiResult<StatusCode> {
+    replace_exercise(&mut db, user_id, id, &e).await
+}
+
+pub async fn delete_my_exercise(
+    AuthUser(user_id, mut db): AuthUser,
+    Path(id): Path<i32>,
+) -> ApiResult<StatusCode> {
+    remove_exercise(&mut db, user_id, id).await
 }
 
 #[cfg(test)]

@@ -163,6 +163,49 @@ IF COL_LENGTH('dbo.Sets', 'Side') IS NULL
     ALTER TABLE dbo.Sets ADD Side CHAR(1) NULL CHECK (Side IN ('L', 'R'));
 GO
 
+-- Set types: 'warmup', 'drop' or 'failure'; NULL = a normal working set, as every set before this.
+-- Warm-ups don't count toward volume, muscle sets or one-rep maxes
+IF COL_LENGTH('dbo.Sets', 'Type') IS NULL
+    ALTER TABLE dbo.Sets ADD Type VARCHAR(7) NULL CHECK (Type IN ('warmup', 'drop', 'failure'));
+GO
+
+-- A member's own exercises, seen only by them: OwnerUserId is who made it; NULL = the shared library
+IF COL_LENGTH('dbo.Exercises', 'OwnerUserId') IS NULL
+    ALTER TABLE dbo.Exercises ADD OwnerUserId INT NULL REFERENCES dbo.Users(Id);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Exercises_OwnerUserId')
+    CREATE INDEX IX_Exercises_OwnerUserId ON dbo.Exercises (OwnerUserId);
+GO
+
+-- Routines: a member's own workout plans, started in one tap from the Workout tab
+IF OBJECT_ID('dbo.Routines', 'U') IS NULL
+    CREATE TABLE dbo.Routines (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        UserId INT NOT NULL REFERENCES dbo.Users(Id),
+        Name NVARCHAR(200) NOT NULL,
+        CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+-- What's in one, in order: how many sets of each exercise, and the reps to aim for (NULL = none).
+-- Deleting the routine or the exercise removes the row, so a library change never blocks either
+IF OBJECT_ID('dbo.RoutineExercises', 'U') IS NULL
+    CREATE TABLE dbo.RoutineExercises (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        RoutineId INT NOT NULL REFERENCES dbo.Routines(Id) ON DELETE CASCADE,
+        ExerciseId INT NOT NULL REFERENCES dbo.Exercises(Id) ON DELETE CASCADE,
+        Position INT NOT NULL,
+        Sets INT NOT NULL,
+        Reps INT NULL,
+        INDEX IX_RoutineExercises_RoutineId (RoutineId)
+    );
+GO
+-- The weight (kg) and RIR to aim for on each of a routine's exercises; NULL = no target
+IF COL_LENGTH('dbo.RoutineExercises', 'WeightKg') IS NULL
+    ALTER TABLE dbo.RoutineExercises ADD WeightKg FLOAT NULL, Rir INT NULL;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Routines_UserId')
+    CREATE INDEX IX_Routines_UserId ON dbo.Routines (UserId);
+GO
+
 -- Deleting an account (DELETE /auth/erase): everything the member owns, then the member, in one
 -- transaction. gym_app has no DELETE on Users or Events (security.sql); it may only run this, and
 -- it takes no id: it deletes the member the connection is tagged with (set_user), nobody else
@@ -176,6 +219,9 @@ BEGIN
         THROW 50000, 'DeleteMember: the connection has no member', 1;
     BEGIN TRANSACTION;
     DELETE FROM dbo.Workouts WHERE UserId = @UserId;  -- their exercises and sets cascade
+    DELETE FROM dbo.Routines WHERE UserId = @UserId;  -- and the exercises in them
+    -- After the workouts, which were the only ones using them; their muscle rows cascade
+    DELETE FROM dbo.Exercises WHERE OwnerUserId = @UserId;
     DELETE FROM dbo.FoodEntries WHERE UserId = @UserId;
     DELETE FROM dbo.BodyWeights WHERE UserId = @UserId;
     DELETE FROM dbo.Profiles WHERE UserId = @UserId;

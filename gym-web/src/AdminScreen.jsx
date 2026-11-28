@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from 'react';
 import { getUsers, getStats, createResetLink, reactivateUser, setAdmin } from './api';
-import AdminExercises from './AdminExercises';
+import ExerciseLibrary from './ExerciseLibrary';
 import BarChart from './BarChart';
 import ConfirmDialog from './ConfirmDialog';
 import ErrorMsg from './ErrorMsg';
@@ -462,7 +462,7 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
             )}
           </section>
 
-          <AdminExercises token={token} />
+          <ExerciseLibrary token={token} />
         </>
       )}
 

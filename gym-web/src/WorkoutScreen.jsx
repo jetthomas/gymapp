@@ -1,21 +1,48 @@
-import { useEffect, useState } from 'react';
-import { getLastSets } from './api';
+import { useEffect, useRef, useState } from 'react';
+import { updateWorkout } from './api';
 import { Ring } from './CaloriesScreen';
 import ConfirmDialog from './ConfirmDialog';
-import { clearDraft, clock, loadDraft, newDraft, newSet, restSeconds, saveDraft } from './Draft';
+import {
+  clearDraft,
+  clock,
+  editDraft,
+  lastAndBest,
+  loadDraft,
+  newDraft,
+  newPastDraft,
+  newSet,
+  restSeconds,
+  rirShown,
+  saveDraft,
+  toLocalInput,
+  workoutName,
+} from './Draft';
 import ErrorMsg from './ErrorMsg';
 import ExercisePicker from './ExercisePicker';
 import { Check, Dumbbell, Play, Timer } from './icons';
 import { decimal } from './numberInput';
 import PlateSheet from './PlateSheet';
 import { flush, queue, userIdOf } from './outbox';
+import { e1rm, stepKg, suggest } from './progression';
+import { cancelRestEnd, restBuzz, scheduleRestEnd } from './restAlert';
+import RoutineList from './RoutineList';
 import { validSet } from './setLimits';
+import { nextType, setLabel, typeName } from './setTypes';
+import { fromKg, setKg, weightField, weightUnit } from './units';
+import useSubmit from './useSubmit';
 
 // The workout in progress: one card per exercise, one row per set.
-// With no draft it waits for Start, unless `start` (the dashboard's Start button) says begin now
-export default function WorkoutScreen({ token, start, onDone }) {
+// With no draft it waits for Start, or starts one from a routine. `start` begins at once: true for
+// an empty workout (the dashboard's Start), or a draft already laid out ("Do this again").
+// `saved` opens a finished workout for editing instead; saving replaces it on the server
+export default function WorkoutScreen({ token, plus, start, saved, onDone }) {
   const userId = userIdOf(token);
-  const [draft, setDraft] = useState(() => loadDraft(userId) ?? (start ? newDraft() : null));
+  const [draft, setDraft] = useState(() =>
+    saved
+      ? editDraft(saved, weightUnit())
+      : (loadDraft(userId) ?? (start === true ? newDraft() : (start ?? null))),
+  );
+  const saving = useSubmit();
   const [now, setNow] = useState(() => Date.now());
   const [restEnds, setRestEnds] = useState(0); // a time in ms; 0 = not resting
   const [restFrom, setRestFrom] = useState(0); // when this rest began: the ring is full there
@@ -24,11 +51,13 @@ export default function WorkoutScreen({ token, start, onDone }) {
   const [message, setMessage] = useState('');
   const [plateWeight, setPlateWeight] = useState(null);
   const [confirmingFinish, setConfirmingFinish] = useState(false);
-  const showRir = localStorage.getItem('show-rir') === '1';
+  const showRir = rirShown();
   const [removing, setRemoving] = useState(null); // the exercise waiting to be removed
+  const [prNote, setPrNote] = useState(null); // { text, at }: the last PR, shown for a few seconds
 
   useEffect(() => {
-    if (draft) saveDraft(userId, draft);
+    // An edit lives only on this screen, so it never replaces a workout in progress
+    if (draft && !draft.editingId) saveDraft(userId, draft);
   }, [userId, draft]);
 
   // One tick a second drives both the workout clock and the rest countdown
@@ -36,6 +65,20 @@ export default function WorkoutScreen({ token, start, onDone }) {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // The phone locked in a pocket: the iPhone app's notification says when the rest is over
+  useEffect(() => {
+    if (restEnds > Date.now()) scheduleRestEnd(restEnds);
+    else cancelRestEnd();
+  }, [restEnds]);
+
+  // The app open: a buzz as the rest runs out (not when it's skipped, which sets restEnds to 0)
+  const resting = restEnds > now;
+  const wasResting = useRef(false);
+  useEffect(() => {
+    if (wasResting.current && !resting && restEnds) restBuzz();
+    wasResting.current = resting;
+  }, [resting, restEnds]);
 
   if (!draft) {
     return (
@@ -49,10 +92,28 @@ export default function WorkoutScreen({ token, start, onDone }) {
             <Play size={18} />
             Start workout
           </button>
+          <button className="link-btn" type="button" onClick={() => setDraft(newPastDraft())}>
+            Log a past workout
+          </button>
         </section>
+        <RoutineList token={token} plus={plus} onStart={setDraft} />
       </main>
     );
   }
+
+  const unit = draft.unit;
+
+  // Plus: today's weight from last time's sets (progression.js). None while typing in a past workout
+  const suggestionFor = (e) =>
+    plus && !draft.past ? suggest(e.previous, e.targetReps, stepKg(e.equipment, unit)) : null;
+  // The line under an exercise's name that says why
+  const advice = (s) =>
+    s.up
+      ? `Try ${fromKg(s.kg, unit)} ${unit} today: you hit every rep last time.`
+      : `Stay at ${fromKg(s.kg, unit)} ${unit} today, and aim to hit every rep.`;
+  // What a working set aims for today: the weight Plus suggests, else the routine's; the routine's RIR
+  const target = (e, s) =>
+    s.type === 'warmup' ? {} : { kg: suggestionFor(e)?.kg ?? e.targetKg, rir: e.targetRir };
 
   function changeExercise(i, change) {
     setDraft((d) => ({ ...d, exercises: d.exercises.map((e, k) => (k === i ? change(e) : e)) }));
@@ -92,8 +153,8 @@ export default function WorkoutScreen({ token, start, onDone }) {
 
   async function addExercise(exercise) {
     setPicking(false);
-    // No history (or no signal) just means an empty "previous" column
-    const previous = await getLastSets(token, exercise.id).catch(() => []);
+    // No history (or no signal) just means an empty "previous" column and no PRs
+    const { previous, best } = await lastAndBest(token, exercise.id);
     setDraft((d) => ({
       ...d,
       exercises: [
@@ -103,33 +164,62 @@ export default function WorkoutScreen({ token, start, onDone }) {
           name: exercise.name,
           equipment: exercise.equipment,
           previous,
+          best,
           // Unilateral last time opens as L/R rows again
           unilateral: previous.some((p) => p.side),
-          // Start with as many rows as last time
-          sets: previous.length ? previous.map((p) => ({ ...newSet(), side: p.side })) : [newSet()],
+          // Start with as many rows as last time, warm-ups where they were
+          sets: previous.length
+            ? previous.map((p) => ({ ...newSet(), side: p.side, type: p.type }))
+            : [newSet()],
         },
       ],
     }));
   }
 
-  // What ticking a set would log: what was typed, or last time's numbers when left blank
+  // What ticking a set would log: what was typed, else today's target weight (above), else last
+  // time's numbers; reps fall back to last time's, then the routine's target; RIR to the routine's,
+  // only while RIR is shown. A weight from the server keeps its exact kg, so it's logged unchanged
+  // whatever unit shows it
   function filled(exercise, j) {
     const set = exercise.sets[j];
     const prev = exercise.previous[j];
-    return {
-      weightKg: set.weightKg !== '' ? set.weightKg : String(prev?.weightKg ?? ''),
-      reps: set.reps !== '' ? set.reps : String(prev?.reps ?? ''),
-    };
+    const goal = target(exercise, set);
+    const kg = goal.kg ?? prev?.weightKg;
+    const weight = set.weight !== '' ? { weight: set.weight } : weightField(kg, unit);
+    const reps = set.reps !== '' ? set.reps : String(prev?.reps ?? exercise.targetReps ?? '');
+    const rir = set.rir !== '' || !showRir ? set.rir : String(goal.rir ?? '');
+    return { ...weight, reps, rir };
   }
+
+  // A set's estimated one-rep max, the measure PRs are judged on
+  const lift = (s) => e1rm(setKg(s, unit), Number(s.reps));
 
   function tick(i, j) {
     const exercise = draft.exercises[i];
     if (exercise.sets[j].done) {
-      changeSet(i, j, { done: false });
+      changeSet(i, j, { done: false, pr: false });
       return;
     }
+    const set = filled(exercise, j);
+    // A PR beats the best set before this workout and every set ticked in it so far.
+    // A warm-up never counts, and an exercise never done before has nothing to beat
+    const others = exercise.sets
+      .filter((s, k) => k !== j && s.done && s.type !== 'warmup')
+      .map(lift);
+    const pr =
+      exercise.best != null &&
+      exercise.sets[j].type !== 'warmup' &&
+      lift(set) > Math.max(exercise.best, ...others);
     // doneAt: the workout's length runs to its last ticked set, not to when Finish is tapped
-    changeSet(i, j, { ...filled(exercise, j), done: true, doneAt: Date.now() });
+    changeSet(i, j, { ...set, done: true, doneAt: Date.now(), pr });
+    if (pr) {
+      setPrNote({
+        text: `New PR · ${exercise.name} ${set.weight} ${unit} × ${set.reps}`,
+        at: Date.now(),
+      });
+    }
+    // A workout typed in afterwards has no rests to time
+    if (draft.past) return;
     setRestFrom(Date.now());
     setRestEnds(Date.now() + restSeconds() * 1000);
   }
@@ -140,7 +230,7 @@ export default function WorkoutScreen({ token, start, onDone }) {
 
   const unticked = draft.exercises
     .flatMap((e) => e.sets)
-    .filter((s) => !s.done && (s.weightKg !== '' || s.reps !== '')).length;
+    .filter((s) => !s.done && (s.weight !== '' || s.reps !== '')).length;
 
   function finish(checked = false) {
     const exercises = draft.exercises
@@ -149,10 +239,11 @@ export default function WorkoutScreen({ token, start, onDone }) {
         sets: e.sets
           .filter((s) => s.done)
           .map((s) => ({
-            weightKg: Number(s.weightKg),
+            weightKg: setKg(s, unit),
             reps: Number(s.reps),
             rir: s.rir === '' ? null : Number(s.rir),
             side: s.side ?? null,
+            type: s.type ?? null,
           })),
       }))
       .filter((e) => e.sets.length > 0);
@@ -171,14 +262,27 @@ export default function WorkoutScreen({ token, start, onDone }) {
         e.sets.filter((s) => s.done).map((s) => s.doneAt ?? Date.now()),
       ),
     );
-    queue(token, {
-      clientId: draft.clientId,
+    // Typed in afterwards: the minutes given, or unknown when blank. Live: up to the last ticked set
+    const seconds = draft.past
+      ? draft.minutes && Number(draft.minutes) * 60
+      : Math.round((lastTick - draft.startedAt) / 1000);
+    const workout = {
       name: draft.name.trim() || 'Workout',
       date: new Date(draft.startedAt).toISOString(),
       // The API allows up to a day
-      durationSec: Math.min(86400, Math.round((lastTick - draft.startedAt) / 1000)),
+      durationSec: seconds ? Math.min(86400, seconds) : null,
       exercises,
-    });
+    };
+    if (draft.editingId) {
+      // Straight to the server, not the outbox: it changes a saved workout, so it needs signal
+      saving.run(async () => {
+        await updateWorkout(token, draft.editingId, workout);
+        onDone();
+      });
+      return;
+    }
+    queue(token, { clientId: draft.clientId, ...workout });
+    cancelRestEnd();
     clearDraft(userId);
     flush(token);
     onDone();
@@ -198,10 +302,46 @@ export default function WorkoutScreen({ token, start, onDone }) {
             onChange={(e) => setDraft({ ...draft, name: e.target.value })}
           />
         </div>
-        <div className="page-title workout-clock" role="timer" aria-label="Workout time">
-          {clock(now - draft.startedAt)}
-        </div>
+        {!draft.past && (
+          <div className="page-title workout-clock" role="timer" aria-label="Workout time">
+            {clock(now - draft.startedAt)}
+          </div>
+        )}
       </div>
+      {/* Typed in afterwards, or a saved one being edited: when it was and how long, not a clock */}
+      {draft.past && (
+        <div className="field-pair">
+          <div className="field past-when">
+            <label htmlFor="past-date">When</label>
+            <input
+              id="past-date"
+              type="datetime-local"
+              max={toLocalInput(now)}
+              value={toLocalInput(draft.startedAt)}
+              onChange={(e) => {
+                if (!e.target.value) return;
+                // max only limits the picker; a typed future date becomes now
+                const startedAt = Math.min(new Date(e.target.value).getTime(), Date.now());
+                // A name still the default follows the date: "Thursday workout" for a Thursday
+                const name =
+                  draft.name === workoutName(draft.startedAt) ? workoutName(startedAt) : draft.name;
+                setDraft({ ...draft, startedAt, name });
+              }}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="past-minutes">Minutes</label>
+            <input
+              id="past-minutes"
+              inputMode="numeric"
+              value={draft.minutes}
+              onChange={(e) =>
+                /^\d{0,4}$/.test(e.target.value) && setDraft({ ...draft, minutes: e.target.value })
+              }
+            />
+          </div>
+        </div>
+      )}
 
       {draft.exercises.map((e, i) => (
         // Exercises are only added at the end or removed, and the same one can be added twice
@@ -219,6 +359,21 @@ export default function WorkoutScreen({ token, start, onDone }) {
                 Unilateral
               </label>
             )}
+            {e.equipment === 'barbell' && (
+              <button
+                className="ghost-btn"
+                type="button"
+                aria-label={`Plates for ${e.name}`}
+                // The next set to do, or the last once all are ticked; the sheet takes any weight
+                onClick={() => {
+                  const j = e.sets.findIndex((s) => !s.done);
+                  const k = j === -1 ? e.sets.length - 1 : j;
+                  setPlateWeight(k >= 0 ? filled(e, k).weight : '');
+                }}
+              >
+                Plates
+              </button>
+            )}
             <button
               className="ghost-btn danger"
               type="button"
@@ -229,19 +384,15 @@ export default function WorkoutScreen({ token, start, onDone }) {
               Remove
             </button>
           </div>
+          {suggestionFor(e) && <p className="row-sub">{advice(suggestionFor(e))}</p>}
           <table className="set-table">
             <thead>
               <tr>
                 <th scope="col">Set</th>
                 <th scope="col">Previous</th>
-                <th scope="col">kg</th>
+                <th scope="col">{unit}</th>
                 <th scope="col">Reps</th>
                 {showRir && <th scope="col">RIR</th>}
-                {e.equipment === 'barbell' && (
-                  <th scope="col">
-                    <span className="visually-hidden">Plates</span>
-                  </th>
-                )}
                 <th scope="col">
                   <span className="visually-hidden">Done</span>
                 </th>
@@ -253,24 +404,37 @@ export default function WorkoutScreen({ token, start, onDone }) {
             <tbody>
               {e.sets.map((s, j) => {
                 const prev = e.previous[j];
+                const prevWeight = prev ? fromKg(prev.weightKg, unit) : '';
+                // The grey hint in the weight box: today's target for a working set, else last time's
+                const goal = target(e, s);
                 const ready = filled(e, j);
-                // "2L", counted so removing one side doesn't renumber the rest
-                const label = s.side
-                  ? `${e.sets.slice(0, j + 1).filter((x) => x.side !== 'R').length}${s.side}`
-                  : j + 1;
+                const label = setLabel(e.sets, j);
                 return (
-                  <tr key={j} className={s.done ? 'done' : ''}>
-                    <th scope="row">{label}</th>
-                    <td className="prev">{prev ? `${prev.weightKg} × ${prev.reps}` : '–'}</td>
-                    <td>
+                  <tr
+                    key={j}
+                    className={[s.done && 'done', s.pr && 'pr'].filter(Boolean).join(' ')}
+                  >
+                    <th scope="row">
+                      {/* One tap steps the set through normal, warm-up, drop and failure */}
+                      <button
+                        className={`set-type ${s.type ?? ''}`}
+                        type="button"
+                        aria-label={`Set ${label}: ${typeName(s.type)}. Change set type`}
+                        onClick={() => changeSet(i, j, { type: nextType(s.type) })}
+                      >
+                        {label}
+                      </button>
+                    </th>
+                    <td className="prev">{prev ? `${prevWeight}\u00a0× ${prev.reps}` : '–'}</td>
+                    <td className="weight">
                       <input
                         inputMode="decimal"
                         enterKeyHint="next"
-                        aria-label={`Set ${label} weight in kg`}
-                        placeholder={prev?.weightKg ?? ''}
-                        value={s.weightKg}
+                        aria-label={`Set ${label} weight in ${unit}`}
+                        placeholder={goal.kg != null ? fromKg(goal.kg, unit) : prevWeight}
+                        value={s.weight}
                         readOnly={s.done}
-                        onChange={decimal((v) => changeSet(i, j, { weightKg: v }))}
+                        onChange={decimal((v) => changeSet(i, j, { weight: v }))}
                       />
                     </td>
                     <td>
@@ -278,7 +442,7 @@ export default function WorkoutScreen({ token, start, onDone }) {
                         inputMode="numeric"
                         enterKeyHint="next"
                         aria-label={`Set ${label} reps`}
-                        placeholder={prev?.reps ?? ''}
+                        placeholder={prev?.reps ?? e.targetReps ?? ''}
                         value={s.reps}
                         readOnly={s.done}
                         onChange={(ev) =>
@@ -293,6 +457,7 @@ export default function WorkoutScreen({ token, start, onDone }) {
                           inputMode="numeric"
                           enterKeyHint="next"
                           aria-label={`Set ${label} reps in reserve`}
+                          placeholder={goal.rir ?? ''}
                           value={s.rir}
                           readOnly={s.done}
                           onChange={(ev) =>
@@ -300,31 +465,6 @@ export default function WorkoutScreen({ token, start, onDone }) {
                             changeSet(i, j, { rir: ev.target.value })
                           }
                         />
-                      </td>
-                    )}
-                    {e.equipment === 'barbell' && (
-                      <td>
-                        <button
-                          className="tick plate-btn"
-                          type="button"
-                          aria-label={`Plates for set ${label}`}
-                          disabled={ready.weightKg === '' || isNaN(ready.weightKg)}
-                          onClick={() => setPlateWeight(ready.weightKg)}
-                        >
-                          {/* A bar with two plates each side */}
-                          <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <path
-                              d="M2 12h20"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                            />
-                            <rect x="5" y="6" width="3" height="12" rx="1" />
-                            <rect x="9" y="8" width="2.5" height="8" rx="1" />
-                            <rect x="12.5" y="8" width="2.5" height="8" rx="1" />
-                            <rect x="16" y="6" width="3" height="12" rx="1" />
-                          </svg>
-                        </button>
                       </td>
                     )}
                     <td>
@@ -383,16 +523,39 @@ export default function WorkoutScreen({ token, start, onDone }) {
       <button className="outline-btn wide" type="button" onClick={() => setPicking(true)}>
         Add exercise
       </button>
-      <ErrorMsg>{message}</ErrorMsg>
-      <div className="finish-row">
-        <button className="login-btn" type="button" onClick={() => finish()}>
-          Finish
-        </button>
-        <button className="outline-btn danger" type="button" onClick={() => setDiscarding(true)}>
-          Discard workout
-        </button>
-      </div>
+      <ErrorMsg>{message || saving.message}</ErrorMsg>
+      {draft.editingId ? (
+        <div className="finish-row">
+          <button
+            className="login-btn"
+            type="button"
+            disabled={saving.loading}
+            onClick={() => finish()}
+          >
+            {saving.loading ? 'Saving…' : 'Save changes'}
+          </button>
+          <button className="outline-btn" type="button" onClick={onDone}>
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <div className="finish-row">
+          <button className="login-btn" type="button" onClick={() => finish()}>
+            Finish
+          </button>
+          <button className="outline-btn danger" type="button" onClick={() => setDiscarding(true)}>
+            Discard workout
+          </button>
+        </div>
+      )}
 
+      {/* Everyone sees a new PR for a few seconds; a screen reader hears it */}
+      <p
+        className={prNote && now - prNote.at < 4000 ? 'pr-toast' : 'visually-hidden'}
+        role="status"
+      >
+        {prNote?.text}
+      </p>
       {rest > 0 && (
         <div className="rest-bar">
           <Timer size={18} />
@@ -429,7 +592,7 @@ export default function WorkoutScreen({ token, start, onDone }) {
         <ExercisePicker token={token} onPick={addExercise} onClose={() => setPicking(false)} />
       )}
       {plateWeight !== null && (
-        <PlateSheet weightKg={plateWeight} onClose={() => setPlateWeight(null)} />
+        <PlateSheet weight={plateWeight} unit={unit} onClose={() => setPlateWeight(null)} />
       )}
       {confirmingFinish && (
         <ConfirmDialog
@@ -463,6 +626,7 @@ export default function WorkoutScreen({ token, start, onDone }) {
           confirmLabel="Discard"
           danger
           onConfirm={() => {
+            cancelRestEnd();
             clearDraft(userId);
             onDone();
           }}

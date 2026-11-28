@@ -165,6 +165,14 @@ pub async fn one_row(db: &mut Db, sql: &str, params: &[&dyn ToSql]) -> ApiResult
         .map_err(internal)
 }
 
+// Runs a query that returns one number, such as SELECT COUNT(*); 0 when it returns no row
+pub async fn count_rows(db: &mut Db, sql: &str, params: &[&dyn ToSql]) -> ApiResult<i32> {
+    Ok(one_row(db, sql, params)
+        .await?
+        .and_then(|r| r.get(0))
+        .unwrap_or(0))
+}
+
 // Runs a query and returns every row
 pub async fn all_rows(db: &mut Db, sql: &str, params: &[&dyn ToSql]) -> ApiResult<Vec<Row>> {
     db.query(sql, params)

@@ -4,6 +4,7 @@ import ConfirmDialog from './ConfirmDialog';
 import ErrorMsg from './ErrorMsg';
 import { decimal } from './numberInput';
 import targets from './targets';
+import { fromKg, toKg, weightUnit } from './units';
 import useSubmit from './useSubmit';
 
 // '' -> null, '80' -> 80
@@ -22,7 +23,11 @@ export default function ProfileForm({ token, profile, today, onSaved, onCancel }
   const [birthDate, setBirthDate] = useState(profile?.birthDate ?? '');
   const [sex, setSex] = useState(profile?.sex ?? '');
   const [height, setHeight] = useState(String(profile?.heightCm ?? ''));
-  const [weight, setWeight] = useState(String(profile?.weightKg ?? ''));
+  // Typed in the unit picked in Settings; the API and the calorie maths take kg
+  const unit = weightUnit();
+  const [weight, setWeight] = useState(
+    profile?.weightKg == null ? '' : String(fromKg(profile.weightKg, unit)),
+  );
   const [activity, setActivity] = useState(String(profile?.activity ?? ''));
   const [own, setOwn] = useState(String(profile?.kcalTarget ?? ''));
   const [deleting, setDeleting] = useState(false);
@@ -33,7 +38,7 @@ export default function ProfileForm({ token, profile, today, onSaved, onCancel }
     birthDate: birthDate || null,
     sex: sex || null,
     heightCm: number(height),
-    weightKg: number(weight),
+    weightKg: weight === '' ? null : toKg(Number(weight), unit),
     activity: number(activity),
     kcalTarget: number(own),
   };
@@ -75,7 +80,7 @@ export default function ProfileForm({ token, profile, today, onSaved, onCancel }
           </div>
         </fieldset>
         <div className="field">
-          <label htmlFor="weight">Weight (kg)</label>
+          <label htmlFor="weight">Weight ({unit})</label>
           <input id="weight" inputMode="decimal" value={weight} onChange={decimal(setWeight)} />
         </div>
         <div className="field">

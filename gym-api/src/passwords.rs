@@ -181,6 +181,12 @@ pub async fn use_totp_code(db: &mut Db, id: i32, totp: &TOTP, code: &str) -> Api
             "That code didn't match. Try the newest one.".to_string(),
         )
     };
+    let wrong_recovery = || {
+        (
+            StatusCode::BAD_REQUEST,
+            "That recovery code didn't work. Each one works only once.".to_string(),
+        )
+    };
     // A recovery code looks like K7MQX-3RHPA. It's checked even past the cap: the cap guards the
     // 6-digit codes, and a recovery code is too long to guess. Without this an admin at the cap
     // has no way back in, since admins can't get reset links
@@ -204,7 +210,7 @@ pub async fn use_totp_code(db: &mut Db, id: i32, totp: &TOTP, code: &str) -> Api
                     .await
                     .map_err(internal)?;
                 if used.total() == 0 {
-                    return Err(wrong());
+                    return Err(wrong_recovery());
                 }
                 db.execute(
                     "UPDATE dbo.Users SET TotpFailures = 0 WHERE Id = @P1",
@@ -215,7 +221,7 @@ pub async fn use_totp_code(db: &mut Db, id: i32, totp: &TOTP, code: &str) -> Api
                 return Ok(());
             }
         }
-        return Err(if capped { too_many() } else { wrong() });
+        return Err(if capped { too_many() } else { wrong_recovery() });
     }
     if capped {
         return Err(too_many());

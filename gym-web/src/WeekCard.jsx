@@ -3,9 +3,10 @@ import { dayKey, streak, weekDays, workoutDays } from './week';
 
 const short = { day: 'numeric', month: 'short' };
 
-// This week with a tick on each day trained, and how many days in a row beside it
-export default function WeekCard({ workouts }) {
-  const trained = workoutDays(workouts);
+// This week with a tick on each day trained, and how many days in a row beside it.
+// `dates` is when each workout started, every one the member has logged
+export default function WeekCard({ dates }) {
+  const trained = workoutDays(dates);
   const week = weekDays();
   const today = dayKey(new Date());
   const inARow = streak(trained);

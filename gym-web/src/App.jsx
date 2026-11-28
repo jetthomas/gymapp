@@ -63,6 +63,15 @@ export default function App() {
     localStorage.setItem('user-id', userIdOf(r.accessToken));
   }
 
+  // An email link pasted into a tab already on BarMetric only changes the part after #, which
+  // doesn't reload the page, so the link above is never read. Reload to read it
+  useEffect(() => {
+    const onHash = () =>
+      /[#&](reset|verify)=/.test(window.location.hash) && window.location.reload();
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
   useEffect(() => {
     // Drop #reset=... / #verify=... right away so the token doesn't stay in the address bar or history
     if (resetToken || verifyToken || membership)
@@ -296,7 +305,7 @@ export default function App() {
       ) : page === 'calories' && showCalories ? (
         <CaloriesScreen token={token} plus={plus} />
       ) : page === 'workout' && showWorkout ? (
-        <WorkoutScreen token={token} onDone={() => go('home')} />
+        <WorkoutScreen token={token} plus={plus} onDone={() => go('home')} />
       ) : (
         <HomeScreen
           key={visit}
