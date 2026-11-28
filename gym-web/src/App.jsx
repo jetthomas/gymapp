@@ -296,7 +296,7 @@ export default function App() {
       ) : page === 'calories' && showCalories ? (
         <CaloriesScreen token={token} plus={plus} />
       ) : page === 'workout' && showWorkout ? (
-        <WorkoutScreen token={token} onDone={() => go('home')} />
+        <WorkoutScreen token={token} plus={plus} onDone={() => go('home')} />
       ) : (
         <HomeScreen
           key={visit}

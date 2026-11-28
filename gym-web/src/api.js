@@ -86,6 +86,18 @@ export const getExercises = (token) => request('/exercises', { token });
 export const getLastSets = (token, exerciseId) =>
   request(`/exercises/${exerciseId}/last`, { token });
 
+// { e1rmKg }: the member's best estimated one-rep max on it so far, null if never done; for PRs
+export const getBest = (token, exerciseId) => request(`/exercises/${exerciseId}/best`, { token });
+
+// The member's routines: [{ id, name, exercises: [{ exerciseId, name, equipment, sets, reps }] }]
+export const getRoutines = (token) => request('/routines', { token });
+// { name, exercises: [{ exerciseId, sets, reps }] }; free members can keep 3
+export const createRoutine = (token, routine) =>
+  request('/routines', { method: 'POST', token, body: routine });
+export const updateRoutine = (token, id, routine) =>
+  request(`/routines/${id}`, { method: 'PUT', token, body: routine });
+export const deleteRoutine = (token, id) => request(`/routines/${id}`, { method: 'DELETE', token });
+
 // [{ muscle, sets }] for the muscles trained in the last `days` days
 export const getMuscles = (token, days = 30) => request(`/me/muscles?days=${days}`, { token });
 

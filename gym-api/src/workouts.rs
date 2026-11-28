@@ -10,8 +10,8 @@ use tiberius::Row;
 
 use crate::extractors::{AuthUser, Member, PlusUser};
 use crate::models::{
-    BodyWeight, DatedFood, DaysQuery, Export, LoggedExercise, LoggedSet, MuscleSets, NewWorkout,
-    PageQuery, ProgressPoint, Workout, WorkoutDetail,
+    BestLift, BodyWeight, DatedFood, DaysQuery, Export, LoggedExercise, LoggedSet, MuscleSets,
+    NewWorkout, PageQuery, ProgressPoint, Workout, WorkoutDetail,
 };
 use crate::nutrition::to_food;
 use crate::passwords::{fits, plain};
@@ -149,10 +149,15 @@ pub async fn workout_days(
     ))
 }
 
-// Every exercise must be one this member can use: in the shared library or their own. An admin may
-// have deleted one since it was picked, and another member's own exercise must not leak its name
-async fn check_exercises(db: &mut Db, user_id: i32, w: &NewWorkout) -> ApiResult<()> {
-    let ids: HashSet<i32> = w.exercises.iter().map(|e| e.exercise_id).collect();
+// Every exercise in a workout or routine must be one this member can use: in the shared library or
+// their own. An admin may have deleted one since it was picked, and another member's own exercise
+// must not leak its name
+pub async fn check_exercises(
+    db: &mut Db,
+    user_id: i32,
+    exercise_ids: impl Iterator<Item = i32>,
+) -> ApiResult<()> {
+    let ids: HashSet<i32> = exercise_ids.collect();
     let id_list = format!(
         "[{}]",
         ids.iter()
@@ -173,7 +178,7 @@ async fn check_exercises(db: &mut Db, user_id: i32, w: &NewWorkout) -> ApiResult
     if known as usize != ids.len() {
         return Err((
             StatusCode::BAD_REQUEST,
-            "An exercise in this workout is no longer in the library.".into(),
+            "An exercise here is no longer in the library.".into(),
         ));
     }
     Ok(())
@@ -252,7 +257,7 @@ pub async fn create_workout(
     if count >= 5000 {
         return Err((StatusCode::BAD_REQUEST, "workout limit reached".into()));
     }
-    check_exercises(&mut db, user_id, &w).await?;
+    check_exercises(&mut db, user_id, w.exercises.iter().map(|e| e.exercise_id)).await?;
 
     // If anything fails before COMMIT, the connection closes and SQL Server undoes it all
     batch(&mut db, "BEGIN TRANSACTION").await?;
@@ -297,7 +302,7 @@ pub async fn update_workout(
 ) -> ApiResult<Json<Workout>> {
     let name = check_workout(&w).map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
     set_user(&mut db, user_id).await.map_err(internal)?;
-    check_exercises(&mut db, user_id, &w).await?;
+    check_exercises(&mut db, user_id, w.exercises.iter().map(|e| e.exercise_id)).await?;
     // Same as create: an early return closes the connection, which undoes the transaction
     batch(&mut db, "BEGIN TRANSACTION").await?;
     let updated = db
@@ -483,6 +488,28 @@ pub async fn last_sets(
     )
     .await?;
     Ok(Json(rows.iter().map(to_set).collect::<ApiResult<_>>()?))
+}
+
+// The member's best estimated one-rep max on an exercise so far (Epley, as in exercise_progress),
+// from working sets only. The workout screen calls a set that beats it a PR
+pub async fn best_lift(
+    AuthUser(user_id, mut db): AuthUser,
+    Path(exercise_id): Path<i32>,
+) -> ApiResult<Json<BestLift>> {
+    set_user(&mut db, user_id).await.map_err(internal)?;
+    let row = one_row(
+        &mut db,
+        "SELECT MAX(s.WeightKg * (1 + s.Reps / 30e0)) AS Best
+         FROM dbo.Workouts w
+         JOIN dbo.WorkoutExercises we ON we.WorkoutId = w.Id
+         JOIN dbo.Sets s ON s.WorkoutExerciseId = we.Id
+         WHERE w.UserId = @P1 AND we.ExerciseId = @P2 AND (s.Type IS NULL OR s.Type <> 'warmup')",
+        &[&user_id, &exercise_id],
+    )
+    .await?;
+    Ok(Json(BestLift {
+        e1rm_kg: row.and_then(|r| r.get("Best")),
+    }))
 }
 
 // How many sets hit each muscle lately, for the muscle map. Muscles with none are left out

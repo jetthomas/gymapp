@@ -18,6 +18,7 @@ export default function HomeScreen({ token, showCalories, showWorkout, onOpenCal
   const [more, setMore] = useState(false); // there may be older workouts than History shows
   const [days, setDays] = useState(null); // when every workout started, for the streak
   const [editing, setEditing] = useState(null); // a saved workout open for editing
+  const [repeat, setRepeat] = useState(null); // a new workout laid out by "Do this again"
   const [error, setError] = useState('');
   const waiting = useWaiting(token);
   const refused = useRefused(token);
@@ -51,10 +52,23 @@ export default function HomeScreen({ token, showCalories, showWorkout, onOpenCal
   }
 
   if (editing) {
-    return <WorkoutScreen token={token} saved={editing} onDone={() => setEditing(null)} />;
+    return (
+      <WorkoutScreen token={token} plus={plus} saved={editing} onDone={() => setEditing(null)} />
+    );
   }
-  if (view === 'active')
-    return <WorkoutScreen token={token} start onDone={() => setView('home')} />;
+  if (view === 'active') {
+    return (
+      <WorkoutScreen
+        token={token}
+        plus={plus}
+        start={repeat ?? true}
+        onDone={() => {
+          setRepeat(null);
+          setView('home');
+        }}
+      />
+    );
+  }
   if (view !== 'home') {
     return (
       <WorkoutDetail
@@ -63,6 +77,10 @@ export default function HomeScreen({ token, showCalories, showWorkout, onOpenCal
         id={view}
         onBack={() => setView('home')}
         onEdit={setEditing}
+        onRepeat={(draft) => {
+          setRepeat(draft);
+          setView('active');
+        }}
       />
     );
   }

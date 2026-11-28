@@ -6,6 +6,7 @@ mod extractors;
 mod models;
 mod nutrition;
 mod passwords;
+mod routines;
 mod state;
 mod stripe;
 mod tokens;
@@ -41,11 +42,12 @@ use crate::nutrition::{
     add_food, barcode_food, delete_food, delete_health, get_health, list_food, put_health,
     recent_food, update_food,
 };
+use crate::routines::{create_routine, delete_routine, list_routines, update_routine};
 use crate::state::{AppState, ProxyIpKeyExtractor, connect};
 use crate::two_factor::{totp_confirm, totp_disable, totp_setup, totp_verify};
 use crate::workouts::{
-    create_workout, delete_workout, exercise_progress, export_data, get_workout, last_sets,
-    list_workouts, muscle_sets, update_workout, workout_days,
+    best_lift, create_workout, delete_workout, exercise_progress, export_data, get_workout,
+    last_sets, list_workouts, muscle_sets, update_workout, workout_days,
 };
 
 fn env_or(key: &str, default: &str) -> String {
@@ -252,6 +254,9 @@ async fn main() {
             get(get_workout).put(update_workout).delete(delete_workout),
         )
         .route("/exercises/{id}/last", get(last_sets))
+        .route("/exercises/{id}/best", get(best_lift))
+        .route("/routines", get(list_routines).post(create_routine))
+        .route("/routines/{id}", put(update_routine).delete(delete_routine))
         .route(
             "/admin/exercises/{id}",
             put(update_exercise).delete(delete_exercise),

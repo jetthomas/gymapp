@@ -455,6 +455,11 @@ Routes are shown as the API sees them; the website calls them with an `/api` pre
 | GET    | `/exercises/{id}/last`     | Auth |                                                                                                                          | Your sets from the last time you did it                           |
 | GET    | `/me/muscles`              | Auth | `?days=` (default 30, max 30, or 365 with Plus)                                                                          | `[{ muscle, sets }]`                                              |
 | GET    | `/exercises/{id}/progress` | Plus |                                                                                                                          | `[{ day, est1rmKg }]`, the last 50 workouts with it, oldest first |
+| GET    | `/exercises/{id}/best`     | Auth |                                                                                                                          | `{ e1rmKg }`, your best working set so far (null if never done), for PR alerts |
+| GET    | `/routines`                | Auth |                                                                                                                          | `[{ id, name, exercises: [{ exerciseId, name, equipment, sets, reps }] }]` |
+| POST   | `/routines`                | Auth | `name`, `exercises: [{ exerciseId, sets (1–20), reps (1–1000 or null) }]`                                                | 201, or 403 past 3 routines without Plus (100 with it)            |
+| PUT    | `/routines/{id}`           | Auth | Same as POST                                                                                                             | 200                                                               |
+| DELETE | `/routines/{id}`           | Auth |                                                                                                                          | 204                                                               |
 
 **Calories and Plus**
 

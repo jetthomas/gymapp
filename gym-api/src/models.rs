@@ -186,6 +186,45 @@ pub struct PageQuery {
     pub offset: Option<i32>,
 }
 
+// GET /exercises/{id}/best: the member's best working set on it so far, for PR alerts
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BestLift {
+    pub e1rm_kg: Option<f64>, // estimated one-rep max (Epley); None = never done it
+}
+
+// A routine as the app sends it: what's in it, in order
+#[derive(Deserialize)]
+pub struct NewRoutine {
+    pub name: String,
+    pub exercises: Vec<RoutineItem>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoutineItem {
+    pub exercise_id: i32,
+    pub sets: i32,         // how many sets to do
+    pub reps: Option<i32>, // the reps to aim for; None = no target
+}
+
+#[derive(Serialize)]
+pub struct Routine {
+    pub id: i32,
+    pub name: String,
+    pub exercises: Vec<RoutineExercise>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoutineExercise {
+    pub exercise_id: i32,
+    pub name: String,
+    pub equipment: Option<String>,
+    pub sets: i32,
+    pub reps: Option<i32>,
+}
+
 // One workout with everything logged in it
 #[derive(Serialize)]
 pub struct WorkoutDetail {

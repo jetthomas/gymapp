@@ -1,3 +1,4 @@
+import { getBest, getLastSets } from './api';
 import { fromKg, weightUnit } from './units';
 
 // The workout in progress, kept in the browser so a refresh or a dead battery doesn't lose it.
@@ -78,6 +79,35 @@ export const editDraft = (workout, unit) => ({
     })),
   })),
 });
+
+// What an exercise added to a workout needs from the server: last time's sets (the grey
+// "previous" column) and the best set so far (for PRs). No signal just means neither
+export async function lastAndBest(token, exerciseId) {
+  const [previous, best] = await Promise.all([
+    getLastSets(token, exerciseId).catch(() => []),
+    getBest(token, exerciseId)
+      .then((b) => b.e1rmKg)
+      .catch(() => null),
+  ]);
+  return { previous, best };
+}
+
+// A new workout laid out from a plan: a routine, or a past workout to do again.
+// plan: [{ id, name, equipment, reps (to aim for, or null), sets: [{ type, side }] }]
+export async function plannedDraft(token, name, plan) {
+  const exercises = await Promise.all(
+    plan.map(async (p) => ({
+      id: p.id,
+      name: p.name,
+      equipment: p.equipment,
+      targetReps: p.reps ?? null,
+      unilateral: p.sets.some((s) => s.side),
+      ...(await lastAndBest(token, p.id)),
+      sets: p.sets.map((s) => ({ ...newSet(), type: s.type, side: s.side })),
+    })),
+  );
+  return { ...newDraft(), name, exercises };
+}
 
 // Fields are strings while typing; '' = not filled in yet. `weight` is in the draft's unit
 export const newSet = () => ({ weight: '', reps: '', rir: '', done: false });

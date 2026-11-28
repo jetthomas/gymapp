@@ -2076,6 +2076,75 @@ span.role-select {
   border-color: transparent;
 }
 
+/* A personal record: the row glows in the same orange as the rest ring */
+.set-table tr.pr > * {
+  background: color-mix(in oklab, var(--rest) 22%, transparent);
+}
+
+/* "New PR · Bench press 100 kg × 5" for a few seconds, floating above the rest bar */
+.pr-toast {
+  position: fixed;
+  bottom: calc(80px + env(safe-area-inset-bottom));
+  left: 50%;
+  z-index: 6;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  margin: 0;
+  padding: 10px 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  color: var(--primary-foreground);
+  background: var(--rest);
+  border-radius: 999px;
+  box-shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.7);
+}
+
+@media (max-width: 859px) {
+  .admin-page:has(> .nav) .pr-toast {
+    bottom: calc(152px + env(safe-area-inset-bottom));
+  }
+}
+
+/* A routine's exercises: the name, then its sets and target reps in two small boxes */
+.routine-item {
+  padding-inline: 0;
+}
+
+.routine-num {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+.routine-num input {
+  width: 56px;
+  min-height: 44px;
+  padding: 6px;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  text-align: center;
+  color: var(--foreground);
+  background: var(--surface);
+  border: 1px solid var(--input);
+  border-radius: 8px;
+  outline: none;
+}
+
+.routine-num input:focus-visible {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 1px var(--ring);
+}
+
+.routine-name {
+  margin-top: 20px;
+}
+
 /* Done: a square that turns solid white with a dark tick */
 .tick {
   display: inline-grid;
