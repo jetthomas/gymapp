@@ -1,5 +1,5 @@
 import { getBest, getLastSets } from './api';
-import { fromKg, weightUnit } from './units';
+import { weightField, weightUnit } from './units';
 
 // The workout in progress, kept in the browser so a refresh or a dead battery doesn't lose it.
 // One per member, so on a shared phone nobody else sees it or saves it as theirs
@@ -69,8 +69,7 @@ export const editDraft = (workout, unit) => ({
     previous: [],
     unilateral: e.sets.some((s) => s.side),
     sets: e.sets.map((s) => ({
-      weight: String(fromKg(s.weightKg, unit)),
-      kg: s.weightKg, // saved back unchanged unless the weight is edited (setKg)
+      ...weightField(s.weightKg, unit), // saved back unchanged unless the weight is edited
       reps: String(s.reps),
       rir: s.rir == null ? '' : String(s.rir),
       side: s.side,
@@ -93,7 +92,7 @@ export async function lastAndBest(token, exerciseId) {
 }
 
 // A new workout laid out from a plan: a routine, or a past workout to do again.
-// plan: [{ id, name, equipment, reps (to aim for, or null), sets: [{ type, side }] }]
+// plan: [{ id, name, equipment, reps, weightKg, rir (each to aim for, or null), sets: [{ type, side }] }]
 export async function plannedDraft(token, name, plan) {
   const exercises = await Promise.all(
     plan.map(async (p) => ({
@@ -101,6 +100,8 @@ export async function plannedDraft(token, name, plan) {
       name: p.name,
       equipment: p.equipment,
       targetReps: p.reps ?? null,
+      targetKg: p.weightKg ?? null,
+      targetRir: p.rir ?? null,
       unilateral: p.sets.some((s) => s.side),
       ...(await lastAndBest(token, p.id)),
       sets: p.sets.map((s) => ({ ...newSet(), type: s.type, side: s.side })),
@@ -118,6 +119,9 @@ export function toLocalInput(ms) {
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
   return d.toISOString().slice(0, 16);
 }
+
+// "Show RIR on sets" on the Account screen; off until the member turns it on
+export const rirShown = () => localStorage.getItem('show-rir') === '1';
 
 // The rest timer's length in seconds, set on the Account screen; 90 until the member picks another
 export const restSeconds = () => Number(localStorage.getItem('rest-seconds')) || 90;

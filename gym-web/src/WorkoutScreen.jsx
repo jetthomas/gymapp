@@ -12,6 +12,7 @@ import {
   newPastDraft,
   newSet,
   restSeconds,
+  rirShown,
   saveDraft,
   toLocalInput,
 } from './Draft';
@@ -26,7 +27,7 @@ import { cancelRestEnd, restBuzz, scheduleRestEnd } from './restAlert';
 import RoutineList from './RoutineList';
 import { validSet } from './setLimits';
 import { nextType, setLabel, typeName } from './setTypes';
-import { fromKg, setKg, weightUnit } from './units';
+import { fromKg, setKg, weightField, weightUnit } from './units';
 import useSubmit from './useSubmit';
 
 // The workout in progress: one card per exercise, one row per set.
@@ -49,7 +50,7 @@ export default function WorkoutScreen({ token, plus, start, saved, onDone }) {
   const [message, setMessage] = useState('');
   const [plateWeight, setPlateWeight] = useState(null);
   const [confirmingFinish, setConfirmingFinish] = useState(false);
-  const showRir = localStorage.getItem('show-rir') === '1';
+  const showRir = rirShown();
   const [removing, setRemoving] = useState(null); // the exercise waiting to be removed
   const [prNote, setPrNote] = useState(null); // { text, at }: the last PR, shown for a few seconds
 
@@ -109,6 +110,9 @@ export default function WorkoutScreen({ token, plus, start, saved, onDone }) {
     s.up
       ? `Try ${fromKg(s.kg, unit)} ${unit} today: you hit every rep last time.`
       : `Stay at ${fromKg(s.kg, unit)} ${unit} today, and aim to hit every rep.`;
+  // What a working set aims for today: the weight Plus suggests, else the routine's; the routine's RIR
+  const target = (e, s) =>
+    s.type === 'warmup' ? {} : { kg: suggestionFor(e)?.kg ?? e.targetKg, rir: e.targetRir };
 
   function changeExercise(i, change) {
     setDraft((d) => ({ ...d, exercises: d.exercises.map((e, k) => (k === i ? change(e) : e)) }));
@@ -171,23 +175,19 @@ export default function WorkoutScreen({ token, plus, start, saved, onDone }) {
     }));
   }
 
-  // What ticking a set would log: what was typed, else today's suggested weight (Plus, working
-  // sets), else last time's numbers; reps fall back to last time's, then the routine's target.
-  // A weight from the server keeps its exact kg, so it's logged unchanged whatever unit shows it
+  // What ticking a set would log: what was typed, else today's target weight (above), else last
+  // time's numbers; reps fall back to last time's, then the routine's target; RIR to the routine's,
+  // only while RIR is shown. A weight from the server keeps its exact kg, so it's logged unchanged
+  // whatever unit shows it
   function filled(exercise, j) {
     const set = exercise.sets[j];
     const prev = exercise.previous[j];
-    const suggested = set.type !== 'warmup' && suggestionFor(exercise);
-    const weight =
-      set.weight !== ''
-        ? { weight: set.weight }
-        : suggested
-          ? { weight: String(fromKg(suggested.kg, unit)), kg: suggested.kg }
-          : prev
-            ? { weight: String(fromKg(prev.weightKg, unit)), kg: prev.weightKg }
-            : { weight: '' };
+    const goal = target(exercise, set);
+    const kg = goal.kg ?? prev?.weightKg;
+    const weight = set.weight !== '' ? { weight: set.weight } : weightField(kg, unit);
     const reps = set.reps !== '' ? set.reps : String(prev?.reps ?? exercise.targetReps ?? '');
-    return { ...weight, reps };
+    const rir = set.rir !== '' || !showRir ? set.rir : String(goal.rir ?? '');
+    return { ...weight, reps, rir };
   }
 
   // A set's estimated one-rep max, the measure PRs are judged on
@@ -389,8 +389,8 @@ export default function WorkoutScreen({ token, plus, start, saved, onDone }) {
               {e.sets.map((s, j) => {
                 const prev = e.previous[j];
                 const prevWeight = prev ? fromKg(prev.weightKg, unit) : '';
-                // The grey hint in the weight box: today's suggestion for a working set, else last time's
-                const suggested = s.type !== 'warmup' && suggestionFor(e);
+                // The grey hint in the weight box: today's target for a working set, else last time's
+                const goal = target(e, s);
                 const ready = filled(e, j);
                 const label = setLabel(e.sets, j);
                 return (
@@ -415,7 +415,7 @@ export default function WorkoutScreen({ token, plus, start, saved, onDone }) {
                         inputMode="decimal"
                         enterKeyHint="next"
                         aria-label={`Set ${label} weight in ${unit}`}
-                        placeholder={suggested ? fromKg(suggested.kg, unit) : prevWeight}
+                        placeholder={goal.kg != null ? fromKg(goal.kg, unit) : prevWeight}
                         value={s.weight}
                         readOnly={s.done}
                         onChange={decimal((v) => changeSet(i, j, { weight: v }))}
@@ -441,6 +441,7 @@ export default function WorkoutScreen({ token, plus, start, saved, onDone }) {
                           inputMode="numeric"
                           enterKeyHint="next"
                           aria-label={`Set ${label} reps in reserve`}
+                          placeholder={goal.rir ?? ''}
                           value={s.rir}
                           readOnly={s.done}
                           onChange={(ev) =>

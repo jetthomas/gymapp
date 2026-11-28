@@ -37,12 +37,6 @@ export const Timer = (p) => (
   </Icon>
 );
 
-export const Trash = (p) => (
-  <Icon {...p}>
-    <path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v5.5M14 11v5.5" />
-  </Icon>
-);
-
 export const Check = (p) => (
   <Icon {...p}>
     <path d="M5 12.5l4.5 4.5L19 7.5" />
@@ -64,12 +58,6 @@ export const ChevronLeft = (p) => (
 export const ChevronRight = (p) => (
   <Icon {...p}>
     <path d="M9 5l7 7-7 7" />
-  </Icon>
-);
-
-export const ArrowRight = (p) => (
-  <Icon {...p}>
-    <path d="M5 12h14M13 6l6 6-6 6" />
   </Icon>
 );
 
@@ -99,11 +87,5 @@ export const Grid = (p) => (
 export const Utensils = (p) => (
   <Icon {...p}>
     <path d="M7 3v18M4.5 3v5a2.5 2.5 0 0 0 5 0V3M17 21V3c-2 0-3.5 2.5-3.5 6.5S15 14 17 14" />
-  </Icon>
-);
-
-export const Shield = (p) => (
-  <Icon {...p}>
-    <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" />
   </Icon>
 );

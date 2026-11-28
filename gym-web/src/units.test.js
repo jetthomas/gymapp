@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fromKg, setKg, toKg } from './units.js';
+import { fromKg, setKg, toKg, weightField } from './units.js';
 
 test('a weight typed in lb comes back as the same lb', () => {
   for (const lb of [45, 135, 137.5, 225, 2.5]) assert.equal(fromKg(toKg(lb, 'lb'), 'lb'), lb);
@@ -18,4 +18,11 @@ test('an untouched weight keeps its exact kg, a changed one is converted', () =>
   assert.equal(setKg({ weight: '61.24', kg: 61.235 }, 'kg'), 61.235, 'lb set viewed in kg');
   assert.equal(setKg({ weight: '180', kg: 80 }, 'lb'), 81.647, 'changed');
   assert.equal(setKg({ weight: '82.5' }, 'kg'), 82.5, 'typed, no kg');
+});
+
+test('a weight from the API goes back exactly while it is left alone', () => {
+  assert.deepEqual(weightField(80, 'lb'), { weight: '176.4', kg: 80 });
+  assert.equal(setKg(weightField(80, 'lb'), 'lb'), 80);
+  assert.equal(setKg({ ...weightField(80, 'lb'), weight: '180' }, 'lb'), 81.647);
+  assert.deepEqual(weightField(null, 'kg'), { weight: '', kg: null });
 });

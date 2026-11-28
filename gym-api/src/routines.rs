@@ -1,11 +1,11 @@
 // Routines: a member's own workout plans. Each lists exercises in order, with how many sets of
-// each and the reps to aim for; the Workout tab starts a workout from one in a tap
+// each and the reps, weight and RIR to aim for; the Workout tab starts a workout from one in a tap
 use axum::{Json, extract::Path, http::StatusCode};
 
 use crate::extractors::{AuthUser, Member};
 use crate::models::{NewRoutine, Routine, RoutineExercise};
 use crate::passwords::{fits, plain};
-use crate::state::{ApiResult, Db, all_rows, batch, col, internal, one_row, set_user};
+use crate::state::{ApiResult, Db, all_rows, batch, col, count_rows, internal, one_row, set_user};
 use crate::workouts::check_exercises;
 
 // Free members keep this many; Plus members up to MAX_ROUTINES, a cap so one account can't fill the disk
@@ -31,6 +31,13 @@ pub fn check_routine(r: &NewRoutine) -> Result<&str, String> {
         if e.reps.is_some_and(|n| !(1..=1000).contains(&n)) {
             return Err("Reps must be 1 to 1000.".into());
         }
+        // NaN fails every comparison, so this rejects it too
+        if e.weight_kg.is_some_and(|w| !(0.0..=1000.0).contains(&w)) {
+            return Err("Weight must be 0 to 1000 kg.".into());
+        }
+        if e.rir.is_some_and(|n| !(0..=10).contains(&n)) {
+            return Err("RIR must be 0 to 10.".into());
+        }
     }
     Ok(name)
 }
@@ -39,7 +46,8 @@ pub async fn list_routines(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Jso
     set_user(&mut db, user_id).await.map_err(internal)?;
     let rows = all_rows(
         &mut db,
-        "SELECT r.Id, r.Name, re.ExerciseId, e.Name AS ExerciseName, e.Equipment, re.Sets, re.Reps
+        "SELECT r.Id, r.Name, re.ExerciseId, e.Name AS ExerciseName, e.Equipment, re.Sets, re.Reps,
+                re.WeightKg, re.Rir
          FROM dbo.Routines r
          LEFT JOIN dbo.RoutineExercises re ON re.RoutineId = r.Id
          LEFT JOIN dbo.Exercises e ON e.Id = re.ExerciseId
@@ -68,6 +76,8 @@ pub async fn list_routines(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Jso
                 equipment: r.get::<&str, _>("Equipment").map(String::from),
                 sets: col(r, "Sets")?,
                 reps: r.get("Reps"),
+                weight_kg: r.get("WeightKg"),
+                rir: r.get("Rir"),
             });
         }
     }
@@ -78,9 +88,17 @@ pub async fn list_routines(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Jso
 async fn insert_items(db: &mut Db, routine_id: i32, r: &NewRoutine) -> ApiResult<()> {
     for (i, e) in r.exercises.iter().enumerate() {
         db.execute(
-            "INSERT INTO dbo.RoutineExercises (RoutineId, ExerciseId, Position, Sets, Reps)
-             VALUES (@P1, @P2, @P3, @P4, @P5)",
-            &[&routine_id, &e.exercise_id, &(i as i32), &e.sets, &e.reps],
+            "INSERT INTO dbo.RoutineExercises (RoutineId, ExerciseId, Position, Sets, Reps, WeightKg, Rir)
+             VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7)",
+            &[
+                &routine_id,
+                &e.exercise_id,
+                &(i as i32),
+                &e.sets,
+                &e.reps,
+                &e.weight_kg,
+                &e.rir,
+            ],
         )
         .await
         .map_err(internal)?;
@@ -94,14 +112,12 @@ pub async fn create_routine(
 ) -> ApiResult<StatusCode> {
     let name = check_routine(&r).map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
     set_user(&mut db, user_id).await.map_err(internal)?;
-    let count: i32 = one_row(
+    let count = count_rows(
         &mut db,
         "SELECT COUNT(*) FROM dbo.Routines WHERE UserId = @P1",
         &[&user_id],
     )
-    .await?
-    .and_then(|r| r.get(0))
-    .unwrap_or(0);
+    .await?;
     if !plus && count >= FREE_ROUTINES {
         return Err((
             StatusCode::FORBIDDEN,
@@ -193,6 +209,8 @@ mod tests {
                 exercise_id: 1,
                 sets,
                 reps,
+                weight_kg: Some(80.0),
+                rir: Some(2),
             }],
         }
     }
@@ -221,6 +239,16 @@ mod tests {
             check_routine(&routine("Legs\u{202E}", 3, None)).is_err(),
             "bidi override in name"
         );
+        let mut heavy = routine("Legs", 3, None);
+        heavy.exercises[0].weight_kg = Some(1000.5);
+        assert!(check_routine(&heavy).is_err(), "too heavy");
+        heavy.exercises[0].weight_kg = Some(f64::NAN);
+        assert!(check_routine(&heavy).is_err(), "NaN weight");
+        heavy.exercises[0].weight_kg = None;
+        heavy.exercises[0].rir = Some(11);
+        assert!(check_routine(&heavy).is_err(), "RIR past 10");
+        heavy.exercises[0].rir = None;
+        assert!(check_routine(&heavy).is_ok(), "no weight or RIR target");
         let mut empty = routine("Legs", 3, None);
         empty.exercises.clear();
         assert!(check_routine(&empty).is_err(), "no exercises");

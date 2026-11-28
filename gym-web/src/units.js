@@ -11,6 +11,13 @@ export const fromKg = (kg, unit) =>
 export const toKg = (weight, unit) =>
   unit === 'lb' ? Math.round(weight * KG_PER_LB * 1000) / 1000 : weight;
 
+// A weight from the API as a weight box holds it: the number shown, and the exact kg behind it for
+// setKg below. Built only here, so the shown number always matches what setKg compares it with
+export const weightField = (kg, unit) => ({
+  weight: kg == null ? '' : String(fromKg(kg, unit)),
+  kg,
+});
+
 // A set's weight for the API. `kg` is the exact weight it came from (last time's, or a saved
 // workout's); while the number shown is still that one, it's sent unchanged, so 80 kg viewed as
 // 176.4 lb stays 80 kg instead of becoming 80.014

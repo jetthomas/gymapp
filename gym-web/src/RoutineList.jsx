@@ -39,6 +39,8 @@ export default function RoutineList({ token, plus, onStart }) {
           name: e.name,
           equipment: e.equipment,
           reps: e.reps,
+          weightKg: e.weightKg,
+          rir: e.rir,
           sets: Array.from({ length: e.sets }, () => ({})),
         })),
       ),

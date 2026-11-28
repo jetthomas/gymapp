@@ -204,8 +204,10 @@ pub struct NewRoutine {
 #[serde(rename_all = "camelCase")]
 pub struct RoutineItem {
     pub exercise_id: i32,
-    pub sets: i32,         // how many sets to do
-    pub reps: Option<i32>, // the reps to aim for; None = no target
+    pub sets: i32,              // how many sets to do
+    pub reps: Option<i32>,      // the reps to aim for; None = no target
+    pub weight_kg: Option<f64>, // the weight to aim for; None = no target
+    pub rir: Option<i32>,       // the RIR to aim for; None = no target
 }
 
 #[derive(Serialize)]
@@ -223,6 +225,8 @@ pub struct RoutineExercise {
     pub equipment: Option<String>,
     pub sets: i32,
     pub reps: Option<i32>,
+    pub weight_kg: Option<f64>,
+    pub rir: Option<i32>,
 }
 
 // One workout with everything logged in it

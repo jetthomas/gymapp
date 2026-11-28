@@ -46,7 +46,7 @@ export default function WorkoutDetail({ token, plus, id, onBack, onEdit, onRepea
   }
 
   // A routine of its exercises: as many sets as its working sets (a left-right pair counts once),
-  // aiming for the reps of the first one
+  // aiming for the reps, weight and RIR of the first one
   function saveAsRoutine() {
     setNotice('');
     saving.run(async () => {
@@ -58,6 +58,8 @@ export default function WorkoutDetail({ token, plus, id, onBack, onEdit, onRepea
             exerciseId: e.exerciseId,
             sets: Math.min(20, Math.max(1, working.length)),
             reps: working[0]?.reps ?? null,
+            weightKg: working[0]?.weightKg ?? null,
+            rir: working[0]?.rir ?? null,
           };
         }),
       });

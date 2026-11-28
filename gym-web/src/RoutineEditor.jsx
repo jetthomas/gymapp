@@ -2,11 +2,17 @@ import { useState } from 'react';
 import { createRoutine, updateRoutine } from './api';
 import ErrorMsg from './ErrorMsg';
 import ExercisePicker from './ExercisePicker';
+import { decimal } from './numberInput';
+import { rirShown } from './Draft';
+import { setKg, weightField, weightUnit } from './units';
 import useSubmit from './useSubmit';
 
 // Makes a routine, or changes `routine`: a name, and exercises in order, each with how many sets
-// and the reps to aim for (blank = no target)
+// and the reps, weight and RIR to aim for (blank = no target). RIR shows only with "Show RIR" on;
+// a hidden RIR is kept as it was
 export default function RoutineEditor({ token, routine, onSaved, onDelete, onCancel }) {
+  const unit = weightUnit();
+  const showRir = rirShown();
   const [name, setName] = useState(routine?.name ?? '');
   const [items, setItems] = useState(() =>
     (routine?.exercises ?? []).map((e) => ({
@@ -14,6 +20,8 @@ export default function RoutineEditor({ token, routine, onSaved, onDelete, onCan
       name: e.name,
       sets: String(e.sets),
       reps: e.reps == null ? '' : String(e.reps),
+      ...weightField(e.weightKg, unit), // saved back unchanged unless the weight is edited
+      rir: e.rir == null ? '' : String(e.rir),
     })),
   );
   const [picking, setPicking] = useState(false);
@@ -34,6 +42,8 @@ export default function RoutineEditor({ token, routine, onSaved, onDelete, onCan
           exerciseId: it.exerciseId,
           sets: Number(it.sets) || 1,
           reps: it.reps === '' ? null : Number(it.reps),
+          weightKg: it.weight === '' ? null : setKg(it, unit),
+          rir: it.rir === '' ? null : Number(it.rir),
         })),
       };
       if (routine) await updateRoutine(token, routine.id, body);
@@ -76,6 +86,26 @@ export default function RoutineEditor({ token, routine, onSaved, onDelete, onCan
                 onChange={digits(i, 'reps', 4)}
               />
             </label>
+            <label className="routine-num">
+              {unit}
+              <input
+                inputMode="decimal"
+                placeholder="any"
+                value={it.weight}
+                onChange={decimal((v) => change(i, { weight: v }))}
+              />
+            </label>
+            {showRir && (
+              <label className="routine-num">
+                RIR
+                <input
+                  inputMode="numeric"
+                  placeholder="any"
+                  value={it.rir}
+                  onChange={digits(i, 'rir', 2)}
+                />
+              </label>
+            )}
             <button
               className="remove-set"
               type="button"
@@ -106,7 +136,10 @@ export default function RoutineEditor({ token, routine, onSaved, onDelete, onCan
         <ExercisePicker
           token={token}
           onPick={(e) => {
-            setItems([...items, { exerciseId: e.id, name: e.name, sets: '3', reps: '' }]);
+            setItems([
+              ...items,
+              { exerciseId: e.id, name: e.name, sets: '3', reps: '', weight: '', rir: '' },
+            ]);
             setPicking(false);
           }}
           onClose={() => setPicking(false)}

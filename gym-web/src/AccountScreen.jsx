@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { deleteAccount, deleteAvatar, eraseAccount, getExport, openPortal, putAvatar } from './api';
 import { toAvatar } from './avatar';
 import ChangePasswordForm from './ChangePasswordForm';
-import { clock, restSeconds as savedRestSeconds } from './Draft';
+import { clock, restSeconds as savedRestSeconds, rirShown } from './Draft';
 import ErrorMsg from './ErrorMsg';
 import ExerciseLibrary from './ExerciseLibrary';
 import toCsv from './exportCsv';
@@ -43,7 +43,7 @@ export default function AccountScreen({
   const [deletePassword, setDeletePassword] = useState('');
   const [confirming, setConfirming] = useState(null); // 'deactivate', 'delete' or null: the danger zone's open form
   const exporting = useSubmit();
-  const [showRir, setShowRir] = useState(() => localStorage.getItem('show-rir') === '1');
+  const [showRir, setShowRir] = useState(rirShown);
   // The same reading and default the workout timer uses
   const [restSeconds, setRestSeconds] = useState(() => String(savedRestSeconds()));
   const [unit, setUnit] = useState(weightUnit);

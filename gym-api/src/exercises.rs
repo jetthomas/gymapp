@@ -7,7 +7,7 @@ use axum::{
 use crate::extractors::{AdminUser, AuthUser};
 use crate::models::{Exercise, ExerciseQuery, NewExercise};
 use crate::passwords::{fits, plain};
-use crate::state::{ApiResult, Db, all_rows, batch, col, internal, one_row};
+use crate::state::{ApiResult, Db, all_rows, batch, col, count_rows, internal, one_row};
 
 // The 17 muscle names free-exercise-db uses; admin-added exercises pick from the same list
 pub const MUSCLES: [&str; 17] = [
@@ -237,14 +237,12 @@ pub async fn create_my_exercise(
     Json(e): Json<NewExercise>,
 ) -> ApiResult<StatusCode> {
     // A cap, so one account can't fill the database's disk
-    let count: i32 = one_row(
+    let count = count_rows(
         &mut db,
         "SELECT COUNT(*) FROM dbo.Exercises WHERE OwnerUserId = @P1",
         &[&user_id],
     )
-    .await?
-    .and_then(|r| r.get(0))
-    .unwrap_or(0);
+    .await?;
     if count >= 200 {
         return Err((
             StatusCode::BAD_REQUEST,

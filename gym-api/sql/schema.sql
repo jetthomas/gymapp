@@ -198,6 +198,10 @@ IF OBJECT_ID('dbo.RoutineExercises', 'U') IS NULL
         INDEX IX_RoutineExercises_RoutineId (RoutineId)
     );
 GO
+-- The weight (kg) and RIR to aim for on each of a routine's exercises; NULL = no target
+IF COL_LENGTH('dbo.RoutineExercises', 'WeightKg') IS NULL
+    ALTER TABLE dbo.RoutineExercises ADD WeightKg FLOAT NULL, Rir INT NULL;
+GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Routines_UserId')
     CREATE INDEX IX_Routines_UserId ON dbo.Routines (UserId);
 GO

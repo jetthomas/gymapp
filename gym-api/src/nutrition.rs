@@ -11,7 +11,7 @@ use serde_json::Value;
 use crate::extractors::{AuthUser, PlusUser};
 use crate::models::{DayQuery, Food, FoodEntry, HealthProfile, NewFood};
 use crate::passwords::{fits, plain};
-use crate::state::{ApiResult, AppState, all_rows, col, internal, one_row, set_user};
+use crate::state::{ApiResult, AppState, all_rows, col, count_rows, internal, one_row, set_user};
 use tiberius::Row;
 
 // Everything here is health information: every query is tied to the member's own id from the token,
@@ -234,14 +234,12 @@ pub async fn add_food(
     let name = check_food(&f).map_err(bad)?;
     set_user(&mut db, user_id).await.map_err(internal)?;
     // A cap per day, so one account can't fill the database's disk
-    let count: i32 = one_row(
+    let count = count_rows(
         &mut db,
         "SELECT COUNT(*) FROM dbo.FoodEntries WHERE UserId = @P1 AND [Date] = @P2",
         &[&user_id, &f.date],
     )
-    .await?
-    .and_then(|r| r.get(0))
-    .unwrap_or(0);
+    .await?;
     if count >= 100 {
         return Err(bad("That day is full: 100 entries is the limit."));
     }

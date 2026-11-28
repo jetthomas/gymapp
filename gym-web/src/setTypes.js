@@ -1,6 +1,6 @@
 // Set types, as the API stores them; a set with no type is a normal working set.
 // Tapping a set's number steps through them in this order
-export const SET_TYPES = [
+const SET_TYPES = [
   [null, 'Normal'],
   ['warmup', 'Warm-up'],
   ['drop', 'Drop set'],

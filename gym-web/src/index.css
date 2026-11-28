@@ -2107,9 +2107,26 @@ span.role-select {
   }
 }
 
-/* A routine's exercises: the name, then its sets and target reps in two small boxes */
+/* A routine's exercises: the name, then its sets and targets in small boxes */
 .routine-item {
   padding-inline: 0;
+}
+
+/* Phones: the name gets a line of its own, so four boxes don't squeeze it to a letter a line */
+@media (max-width: 480px) {
+  .routine-item {
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: 12px;
+  }
+
+  .routine-item .row-text {
+    flex-basis: 100%;
+  }
+
+  .routine-item .remove-set {
+    margin-left: auto;
+  }
 }
 
 .routine-num {

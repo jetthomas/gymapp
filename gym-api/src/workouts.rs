@@ -16,7 +16,7 @@ use crate::models::{
 use crate::nutrition::to_food;
 use crate::passwords::{fits, plain};
 use crate::state::{
-    ApiResult, Db, GYM_TZ, all_rows, batch, col, internal, one_row, record, set_user,
+    ApiResult, Db, GYM_TZ, all_rows, batch, col, count_rows, internal, one_row, record, set_user,
 };
 
 // The user ID comes from the token (AuthUser), never from the request body
@@ -26,6 +26,12 @@ const WORKOUT_COLS: &str = "w.Id, w.[Date], w.Name, w.Notes, w.DurationSec,
     (SELECT COUNT(*) FROM dbo.Sets s
      JOIN dbo.WorkoutExercises we ON we.Id = s.WorkoutExerciseId
      WHERE we.WorkoutId = w.Id) AS Sets";
+
+// A set's estimated one-rep max (Epley: weight × (1 + reps / 30)), for PR alerts and the progress
+// chart. 30e0 is a FLOAT literal, so Reps / 30e0 isn't integer division (8 / 30 would be 0)
+const EST_1RM: &str = "s.WeightKg * (1 + s.Reps / 30e0)";
+// A working set: warm-ups don't count toward one-rep maxes or the muscle map
+const WORKING_SET: &str = "(s.Type IS NULL OR s.Type <> 'warmup')";
 
 fn to_workout(r: &Row) -> Workout {
     Workout {
@@ -165,16 +171,14 @@ pub async fn check_exercises(
             .collect::<Vec<_>>()
             .join(",")
     );
-    let known: i32 = one_row(
+    let known = count_rows(
         db,
         "SELECT COUNT(*) FROM dbo.Exercises
          WHERE Id IN (SELECT CAST(value AS INT) FROM OPENJSON(@P1))
            AND (OwnerUserId IS NULL OR OwnerUserId = @P2)",
         &[&id_list, &user_id],
     )
-    .await?
-    .and_then(|r| r.get(0))
-    .unwrap_or(0);
+    .await?;
     if known as usize != ids.len() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -246,14 +250,12 @@ pub async fn create_workout(
     {
         return Ok((StatusCode::OK, Json(saved)));
     }
-    let count: i32 = one_row(
+    let count = count_rows(
         &mut db,
         "SELECT COUNT(*) FROM dbo.Workouts WHERE UserId = @P1",
         &[&user_id],
     )
-    .await?
-    .and_then(|r| r.get(0))
-    .unwrap_or(0);
+    .await?;
     if count >= 5000 {
         return Err((StatusCode::BAD_REQUEST, "workout limit reached".into()));
     }
@@ -490,7 +492,7 @@ pub async fn last_sets(
     Ok(Json(rows.iter().map(to_set).collect::<ApiResult<_>>()?))
 }
 
-// The member's best estimated one-rep max on an exercise so far (Epley, as in exercise_progress),
+// The member's best estimated one-rep max on an exercise so far (EST_1RM),
 // from working sets only. The workout screen calls a set that beats it a PR
 pub async fn best_lift(
     AuthUser(user_id, mut db): AuthUser,
@@ -499,11 +501,13 @@ pub async fn best_lift(
     set_user(&mut db, user_id).await.map_err(internal)?;
     let row = one_row(
         &mut db,
-        "SELECT MAX(s.WeightKg * (1 + s.Reps / 30e0)) AS Best
+        &format!(
+            "SELECT MAX({EST_1RM}) AS Best
          FROM dbo.Workouts w
          JOIN dbo.WorkoutExercises we ON we.WorkoutId = w.Id
          JOIN dbo.Sets s ON s.WorkoutExerciseId = we.Id
-         WHERE w.UserId = @P1 AND we.ExerciseId = @P2 AND (s.Type IS NULL OR s.Type <> 'warmup')",
+         WHERE w.UserId = @P1 AND we.ExerciseId = @P2 AND {WORKING_SET}"
+        ),
         &[&user_id, &exercise_id],
     )
     .await?;
@@ -524,15 +528,17 @@ pub async fn muscle_sets(
         &mut db,
         // 1e0 and 5e-1 are FLOAT literals, so the sum comes back as a float, not a DECIMAL.
         // One side of a unilateral set is half a set, so L + R counts once
-        "SELECT m.Muscle, SUM(CASE WHEN m.Role = 'primary' THEN 1e0 ELSE 5e-1 END
+        &format!(
+            "SELECT m.Muscle, SUM(CASE WHEN m.Role = 'primary' THEN 1e0 ELSE 5e-1 END
                 * CASE WHEN s.Side IS NULL THEN 1e0 ELSE 5e-1 END) AS Sets
          FROM dbo.Workouts w
          JOIN dbo.WorkoutExercises we ON we.WorkoutId = w.Id
          JOIN dbo.Sets s ON s.WorkoutExerciseId = we.Id
          JOIN dbo.ExerciseMuscles m ON m.ExerciseId = we.ExerciseId
          WHERE w.UserId = @P1 AND w.[Date] >= DATEADD(day, -@P2, SYSUTCDATETIME())
-           AND (s.Type IS NULL OR s.Type <> 'warmup') -- warm-ups don't build the muscle
-         GROUP BY m.Muscle",
+           AND {WORKING_SET}
+         GROUP BY m.Muscle"
+        ),
         &[&user_id, &days],
     )
     .await?;
@@ -546,8 +552,7 @@ pub async fn muscle_sets(
     Ok(Json(out))
 }
 
-// Plus: the best estimated one-rep max for an exercise in each of the last 50 workouts that had it.
-// Epley formula: weight × (1 + reps / 30)
+// Plus: the best estimated one-rep max (EST_1RM) for an exercise in each of the last 50 workouts that had it
 pub async fn exercise_progress(
     PlusUser(user_id, mut db): PlusUser,
     Path(exercise_id): Path<i32>,
@@ -555,15 +560,14 @@ pub async fn exercise_progress(
     set_user(&mut db, user_id).await.map_err(internal)?;
     let rows = all_rows(
         &mut db,
-        // 30e0 is a FLOAT literal, so Reps / 30e0 isn't integer division (8 / 30 would be 0)
         // Days in the gym's time zone like admin_stats: [Date] is UTC, so a 7 am workout in Sydney would land on the day before
         &format!(
             "SELECT TOP 50 CONVERT(char(10), CAST(w.[Date] AT TIME ZONE 'UTC' AT TIME ZONE '{GYM_TZ}' AS date), 23) AS Day,
-                MAX(s.WeightKg * (1 + s.Reps / 30e0)) AS Est1rm
+                MAX({EST_1RM}) AS Est1rm
          FROM dbo.Workouts w
          JOIN dbo.WorkoutExercises we ON we.WorkoutId = w.Id
          JOIN dbo.Sets s ON s.WorkoutExerciseId = we.Id
-         WHERE w.UserId = @P1 AND we.ExerciseId = @P2 AND (s.Type IS NULL OR s.Type <> 'warmup')
+         WHERE w.UserId = @P1 AND we.ExerciseId = @P2 AND {WORKING_SET}
          GROUP BY CONVERT(char(10), CAST(w.[Date] AT TIME ZONE 'UTC' AT TIME ZONE '{GYM_TZ}' AS date), 23)
          ORDER BY Day DESC"
         ),
