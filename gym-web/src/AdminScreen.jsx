@@ -159,9 +159,26 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
   // Rounded up to even, so the middle gridline is a whole number
   const chartMax =
     2 * Math.ceil(Math.max(1, ...charts.flatMap((c) => c.data.map((d) => d.value))) / 2);
+  // Joins (green +) and deactivations (red −) over the same last 30 days as the login tiles
+  const joined = users?.filter(
+    (u) => u.createdAt && dayKey(new Date(u.createdAt)) >= range.from,
+  ).length;
+  const deactivated = stats && total(perDay(stats, 'deactivated', range.from, range.to));
   const tiles = [
-    ['Accounts', users?.length],
-    ['Active', users?.filter((u) => u.active).length],
+    [
+      'Accounts',
+      users?.length,
+      joined > 0 && { up: true, text: `+${joined}`, says: `${joined} joined in the last 30 days` },
+    ],
+    [
+      'Active',
+      users?.filter((u) => u.active).length,
+      deactivated > 0 && {
+        up: false,
+        text: `−${deactivated}`,
+        says: `${deactivated} deactivated in the last 30 days`,
+      },
+    ],
     ['Logins, last 30 days', charts[0] && total(charts[0].data)],
     ['Failed logins, last 30 days', charts[1] && total(charts[1].data)],
   ];
@@ -275,10 +292,21 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
           )}
 
           <dl className="stat-grid">
-            {tiles.map(([label, value]) => (
+            {tiles.map(([label, value, change]) => (
               <div key={label} className="stat">
                 <dt>{label}</dt>
-                <dd>{value ?? '–'}</dd>
+                <dd>
+                  {value ?? '–'}
+                  {change && (
+                    <span
+                      className={`stat-change ${change.up ? 'up' : 'down'}`}
+                      title={change.says}
+                    >
+                      {change.text}
+                      <span className="visually-hidden"> ({change.says})</span>
+                    </span>
+                  )}
+                </dd>
               </div>
             ))}
           </dl>

@@ -401,6 +401,8 @@ pub async fn delete_account(
     )
     .await
     .map_err(internal)?;
+    // Dated, for the red count on the Admin screen's Active tile
+    record(&mut db, user_id, "deactivated").await?;
     Ok(StatusCode::OK)
 }
 

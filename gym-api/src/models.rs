@@ -286,6 +286,7 @@ pub struct UserSummary {
     pub last_login: Option<DateTime<Utc>>,
     pub failed_last_7d: i32,
     pub workouts: i32,
+    pub created_at: Option<DateTime<Utc>>, // when they joined
 }
 
 #[derive(Deserialize)]

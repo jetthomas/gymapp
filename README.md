@@ -358,7 +358,7 @@ erDiagram
 | `Sets`             | One per set: position, weight in kg, reps, optional RIR, and `Side` (`L`/`R` for one side, NULL for both)                          |
 | `Exercises`        | The shared library: name, category, equipment, and `SourceId` (NULL for exercises an admin added)                                  |
 | `ExerciseMuscles`  | The muscles an exercise works (17 names), each `primary` or `secondary`                                                            |
-| `Events`           | An activity log: `login`, `login_failed`, `workout`, admin actions, and `admin_removed` (against the member who lost admin access) |
+| `Events`           | An activity log: `login`, `login_failed`, `workout`, `deactivated`, admin actions, and `admin_removed` (against the member who lost admin access) |
 | `RecoveryCodes`    | Hashed 2FA recovery codes and when each was used                                                                                   |
 
 - There's no route to delete a workout. If one is deleted in the database, its exercises and sets go with it (`ON DELETE CASCADE`).
@@ -486,7 +486,7 @@ Routes are shown as the API sees them; the website calls them with an `/api` pre
 
 | Method | Route                          | Body / query                                              | Returns                                                       |
 | ------ | ------------------------------ | --------------------------------------------------------- | ------------------------------------------------------------- |
-| GET    | `/admin/users`                 |                                                           | Every user with login and workout counts                      |
+| GET    | `/admin/users`                 |                                                           | Every user with join date, login and workout counts           |
 | GET    | `/admin/stats`                 | `?from=&to=` (YYYY-MM-DD, up to a year apart)             | `[{ day, kind, n }]` event counts per day, in Sydney time     |
 | PUT    | `/admin/users/{id}/admin`      | `isAdmin`                                                 | 200                                                           |
 | POST   | `/admin/users/{id}/reset-link` |                                                           | `link` (valid 15 minutes; turns 2FA off), or 403 for an admin |

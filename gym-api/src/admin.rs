@@ -136,14 +136,14 @@ pub async fn list_users(
 ) -> ApiResult<Json<Vec<UserSummary>>> {
     let rows = all_rows(
         &mut db,
-        "SELECT u.Id, u.FirstName, u.LastName, u.Email, u.Active, u.IsAdmin, u.TotpEnabled,
+        "SELECT u.Id, u.FirstName, u.LastName, u.Email, u.Active, u.IsAdmin, u.TotpEnabled, u.CreatedAt,
            COUNT(CASE WHEN e.Kind = 'login' THEN 1 END)    AS Logins,
            MAX(CASE WHEN e.Kind = 'login' THEN e.At END)   AS LastLogin,
            COUNT(CASE WHEN e.Kind = 'login_failed' AND e.At > DATEADD(day, -7, SYSUTCDATETIME()) THEN 1 END) AS FailedLast7d,
            COUNT(CASE WHEN e.Kind = 'workout' THEN 1 END)  AS Workouts
          FROM dbo.Users u
          LEFT JOIN dbo.Events e ON e.UserId = u.Id
-         GROUP BY u.Id, u.FirstName, u.LastName, u.Email, u.Active, u.IsAdmin, u.TotpEnabled
+         GROUP BY u.Id, u.FirstName, u.LastName, u.Email, u.Active, u.IsAdmin, u.TotpEnabled, u.CreatedAt
          ORDER BY u.Email",
         &[],
     )
@@ -164,6 +164,7 @@ pub async fn list_users(
             last_login: r.get::<NaiveDateTime, _>("LastLogin").map(|t| t.and_utc()),
             failed_last_7d: r.get("FailedLast7d").unwrap_or_default(),
             workouts: r.get("Workouts").unwrap_or_default(),
+            created_at: r.get::<NaiveDateTime, _>("CreatedAt").map(|t| t.and_utc()),
         })
         .collect();
     Ok(Json(users))
