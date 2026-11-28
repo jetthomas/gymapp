@@ -51,7 +51,7 @@ export const confirm2fa = (token, code) =>
 export const createExercise = (token, exercise) =>
   request('/admin/exercises', { method: 'POST', token, body: exercise });
 
-export const createResetLink = (token, userId) =>
+export const sendResetLink = (token, userId) =>
   request(`/admin/users/${userId}/reset-link`, { method: 'POST', token });
 
 export const createWorkout = (token, workout) =>
