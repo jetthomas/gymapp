@@ -4,6 +4,7 @@ import ErrorMsg from './ErrorMsg';
 import { ChevronLeft } from './icons';
 import PlusLock from './PlusLock';
 import ProgressChart from './ProgressChart';
+import { duration } from './week';
 
 // One finished workout: its totals, then every set
 export default function WorkoutDetail({ token, plus, id, onBack }) {
@@ -45,10 +46,7 @@ export default function WorkoutDetail({ token, plus, id, onBack }) {
           </div>
           <dl className="stat-grid">
             {[
-              [
-                'Duration',
-                workout.durationSec ? `${Math.round(workout.durationSec / 60)} min` : '–',
-              ],
+              ['Duration', workout.durationSec ? duration(workout.durationSec) : '–'],
               ['Sets', workout.sets],
               ['Volume', `${Math.round(volume).toLocaleString()} kg`],
             ].map(([label, value]) => (

@@ -1,6 +1,8 @@
-// Every call goes to /api/..., which Vite forwards to the Rust API
-// The iPhone app has no Vite to forward /api, so it calls the API directly
-const BASE = import.meta.env.VITE_API_URL ?? '/api';
+// Every call goes to .../api/..., which Vite (or the proxy in production) forwards to the Rust API.
+// The iPhone app isn't served by either, so VITE_API_URL gives it the full address. It must still end
+// in /api: the "Stay logged in" cookie is only sent to /api/auth.
+// ?. because import.meta.env only exists in Vite's builds; the tests run in plain Node
+const BASE = import.meta.env?.VITE_API_URL ?? '/api';
 // App sets this so a dead token sends the user back to the login screen
 let onSessionExpired = () => {};
 export const setOnSessionExpired = (fn) => {
@@ -77,8 +79,8 @@ export const getExport = (token) => request('/me/export', { token });
 export const forgotPassword = (email) =>
   request('/auth/forgot', { method: 'POST', body: { email } });
 
-export const getExercises = (token, q = '', muscle = '') =>
-  request(`/exercises?q=${encodeURIComponent(q)}&muscle=${encodeURIComponent(muscle)}`, { token });
+// The whole library; the screens search it themselves (ExerciseSearch.jsx)
+export const getExercises = (token) => request('/exercises', { token });
 
 // The sets from the last time the member did this exercise
 export const getLastSets = (token, exerciseId) =>

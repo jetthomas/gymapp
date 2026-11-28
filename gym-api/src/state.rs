@@ -91,6 +91,9 @@ pub fn client_ip(peer: IpAddr, headers: &HeaderMap) -> IpAddr {
 
 pub type Db = Client<Compat<TcpStream>>;
 
+// The gym's time zone, as SQL Server names it: the admin and progress charts count the gym's days, not UTC's
+pub const GYM_TZ: &str = "AUS Eastern Standard Time";
+
 pub type ApiResult<T> = Result<T, (StatusCode, String)>;
 
 // shortcut: one new connection per request, because RLS tags each connection read-only;

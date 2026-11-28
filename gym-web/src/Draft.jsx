@@ -32,6 +32,9 @@ export const newDraft = () => ({
 // Fields are strings while typing; '' = not filled in yet
 export const newSet = () => ({ weightKg: '', reps: '', rir: '', done: false });
 
+// The rest timer's length in seconds, set on the Account screen; 90 until the member picks another
+export const restSeconds = () => Number(localStorage.getItem('rest-seconds')) || 90;
+
 // 754000 -> "12:34"
 export function clock(ms) {
   const s = Math.max(0, Math.round(ms / 1000));

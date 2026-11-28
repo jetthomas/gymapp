@@ -1,11 +1,9 @@
 import { useEffect, useState } from 'react';
 import { getFood, getHealth } from './api';
-import { Meter, Ring } from './CaloriesScreen';
+import { Meter, RingSummary } from './CaloriesScreen';
 import targets from './targets';
-import { MACROS, MEALS } from './meals';
+import { MACROS, MEALS, total } from './meals';
 import { dayKey } from './week';
-
-const total = (entries, field) => entries.reduce((sum, e) => sum + e[field], 0);
 
 // Today's calories at a glance, and the last food logged; the Calories page has the detail
 export default function CaloriesCard({ token, onOpen }) {
@@ -42,7 +40,6 @@ export default function CaloriesCard({ token, onOpen }) {
   }
 
   const eaten = total(entries, 'kcal');
-  const left = target.kcal - eaten;
   // The newest entry has the highest id
   const last = entries.reduce((a, e) => (!a || e.id > a.id ? e : a), null);
 
@@ -52,22 +49,7 @@ export default function CaloriesCard({ token, onOpen }) {
         <h2 id="calories-title" className="eyebrow">
           Calories
         </h2>
-        <div className="ring-summary">
-          <Ring value={eaten} max={target.kcal}>
-            <span className="ring-value">{Math.abs(left).toLocaleString()}</span>
-            <span className="eyebrow">{left < 0 ? 'kcal over' : 'kcal left'}</span>
-          </Ring>
-          <dl className="figures">
-            <div>
-              <dt className="eyebrow">Goal</dt>
-              <dd>{target.kcal.toLocaleString()}</dd>
-            </div>
-            <div>
-              <dt className="eyebrow">Eaten</dt>
-              <dd>{eaten.toLocaleString()}</dd>
-            </div>
-          </dl>
-        </div>
+        <RingSummary eaten={eaten} goal={target.kcal} />
         <ul className="list card-rows">
           {MEALS.map(([meal, label]) => {
             const kcal = total(

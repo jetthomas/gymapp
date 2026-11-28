@@ -37,11 +37,14 @@ pub async fn create_checkout(
     if col::<bool>(&row, "IsAdmin")? {
         return Err((StatusCode::CONFLICT, "Admins get Plus for free.".into()));
     }
-    if !can_join(row.get("MembershipStatus")) {
-        return Err((
+    let already = || {
+        (
             StatusCode::CONFLICT,
-            "You already have Plus. Use Manage membership to change it.".into(),
-        ));
+            "You already have Plus. Use Manage membership to change it.".to_string(),
+        )
+    };
+    if !can_join(row.get("MembershipStatus")) {
+        return Err(already());
     }
     // One Stripe customer per member, made the first time they join and reused after that
     let customer = match row.get::<&str, _>("StripeCustomerId") {
@@ -56,10 +59,7 @@ pub async fn create_checkout(
             .await?;
             let subs = subs["data"].as_array().map_or(&[][..], Vec::as_slice);
             if !can_join(best_subscription(subs).0) {
-                return Err((
-                    StatusCode::CONFLICT,
-                    "You already have Plus. Use Manage membership to change it.".into(),
-                ));
+                return Err(already());
             }
             id.to_string()
         }

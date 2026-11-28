@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addDays, streak, weekDays, workoutDays } from './week.js';
+import { addDays, duration, streak, weekDays, workoutDays } from './week.js';
+
+test('a workout under half a minute says so instead of "0 min"', () => {
+  assert.equal(duration(20), 'under 1 min');
+  assert.equal(duration(30), '1 min');
+  assert.equal(duration(3720), '62 min');
+});
 
 // A workout at 6 pm on day `d` of November 2026, sent as the API sends it
 const at = (d) => ({ date: new Date(2026, 10, d, 18).toISOString() });

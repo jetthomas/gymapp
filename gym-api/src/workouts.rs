@@ -15,7 +15,9 @@ use crate::models::{
 };
 use crate::nutrition::to_food;
 use crate::passwords::{fits, plain};
-use crate::state::{ApiResult, Db, all_rows, batch, col, internal, one_row, record, set_user};
+use crate::state::{
+    ApiResult, Db, GYM_TZ, all_rows, batch, col, internal, one_row, record, set_user,
+};
 
 // The user ID comes from the token (AuthUser), never from the request body
 
@@ -403,15 +405,17 @@ pub async fn exercise_progress(
     let rows = all_rows(
         &mut db,
         // 30e0 is a FLOAT literal, so Reps / 30e0 isn't integer division (8 / 30 would be 0)
-        // Days in Sydney/Melbourne time like admin_stats: [Date] is UTC, so a 7 am workout would land on the day before
-        "SELECT TOP 50 CONVERT(char(10), CAST(w.[Date] AT TIME ZONE 'UTC' AT TIME ZONE 'AUS Eastern Standard Time' AS date), 23) AS Day,
+        // Days in the gym's time zone like admin_stats: [Date] is UTC, so a 7 am workout in Sydney would land on the day before
+        &format!(
+            "SELECT TOP 50 CONVERT(char(10), CAST(w.[Date] AT TIME ZONE 'UTC' AT TIME ZONE '{GYM_TZ}' AS date), 23) AS Day,
                 MAX(s.WeightKg * (1 + s.Reps / 30e0)) AS Est1rm
          FROM dbo.Workouts w
          JOIN dbo.WorkoutExercises we ON we.WorkoutId = w.Id
          JOIN dbo.Sets s ON s.WorkoutExerciseId = we.Id
          WHERE w.UserId = @P1 AND we.ExerciseId = @P2
-         GROUP BY CONVERT(char(10), CAST(w.[Date] AT TIME ZONE 'UTC' AT TIME ZONE 'AUS Eastern Standard Time' AS date), 23)
-         ORDER BY Day DESC",
+         GROUP BY CONVERT(char(10), CAST(w.[Date] AT TIME ZONE 'UTC' AT TIME ZONE '{GYM_TZ}' AS date), 23)
+         ORDER BY Day DESC"
+        ),
         &[&user_id, &exercise_id],
     )
     .await?;

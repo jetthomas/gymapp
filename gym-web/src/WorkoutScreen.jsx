@@ -2,16 +2,14 @@ import { useEffect, useState } from 'react';
 import { getLastSets } from './api';
 import { Ring } from './CaloriesScreen';
 import ConfirmDialog from './ConfirmDialog';
-import { clearDraft, clock, loadDraft, newDraft, newSet, saveDraft } from './Draft';
+import { clearDraft, clock, loadDraft, newDraft, newSet, restSeconds, saveDraft } from './Draft';
 import ErrorMsg from './ErrorMsg';
 import ExercisePicker from './ExercisePicker';
 import { Check, Dumbbell, Play, Timer } from './icons';
+import { decimal } from './numberInput';
 import PlateSheet from './PlateSheet';
 import { flush, queue, userIdOf } from './outbox';
 import { validSet } from './setLimits';
-
-// Set on the Account screen; 90 s until the member picks another
-const restSeconds = () => Number(localStorage.getItem('rest-seconds')) || 90;
 
 // The workout in progress: one card per exercise, one row per set.
 // With no draft it waits for Start, unless `start` (the dashboard's Start button) says begin now
@@ -272,11 +270,7 @@ export default function WorkoutScreen({ token, start, onDone }) {
                         placeholder={prev?.weightKg ?? ''}
                         value={s.weightKg}
                         readOnly={s.done}
-                        onChange={(ev) =>
-                          // Digits with at most one decimal point
-                          /^\d*\.?\d*$/.test(ev.target.value) &&
-                          changeSet(i, j, { weightKg: ev.target.value })
-                        }
+                        onChange={decimal((v) => changeSet(i, j, { weightKg: v }))}
                       />
                     </td>
                     <td>

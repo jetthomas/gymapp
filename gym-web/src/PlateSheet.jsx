@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { decimal } from './numberInput';
 import plates, { PLATES } from './plates';
 import useModal, { closeOnBackdrop } from './useModal';
 
@@ -38,7 +39,7 @@ export default function PlateSheet({ weightKg, onClose }) {
             id="plate-target"
             inputMode="decimal"
             value={target}
-            onChange={(e) => /^\d*\.?\d*$/.test(e.target.value) && setTarget(e.target.value)}
+            onChange={decimal(setTarget)}
           />
         </div>
         <div className="field">

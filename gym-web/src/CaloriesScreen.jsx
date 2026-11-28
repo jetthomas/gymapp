@@ -5,7 +5,7 @@ import FoodSheet from './FoodSheet';
 import { ChevronLeft, ChevronRight, Sliders } from './icons';
 import ProfileForm from './ProfileForm';
 import targets from './targets';
-import { MACROS, MEALS } from './meals';
+import { MACROS, MEALS, total } from './meals';
 import { addDays, dayKey } from './week';
 
 const today = () => dayKey(new Date());
@@ -18,7 +18,7 @@ const macros = (foods) =>
   ].map(([letter, field, className]) => (
     // A no-break space, so "F 22g" never splits across two lines
     <span key={field} className={className}>
-      {letter}&nbsp;{Math.round(foods.reduce((t, f) => t + f[field], 0))}g
+      {letter}&nbsp;{Math.round(total(foods, field))}g
     </span>
   ));
 
@@ -50,6 +50,29 @@ export function Ring({ value, max, big, children }) {
         )}
       </svg>
       <div className="ring-label">{children}</div>
+    </div>
+  );
+}
+
+// The ring with what's left in the middle, and the goal and what's eaten beside it.
+// One copy for the Calories page (big) and the dashboard's card, so their words can't drift apart
+export function RingSummary({ eaten, goal, big }) {
+  return (
+    <div className="ring-summary">
+      <Ring value={eaten} max={goal} big={big}>
+        <span className="ring-value">{Math.abs(goal - eaten).toLocaleString()}</span>
+        <span className="eyebrow">{eaten > goal ? 'kcal over' : 'kcal left'}</span>
+      </Ring>
+      <dl className="figures">
+        <div>
+          <dt className="eyebrow">Goal</dt>
+          <dd>{goal.toLocaleString()}</dd>
+        </div>
+        <div>
+          <dt className="eyebrow">Eaten</dt>
+          <dd>{eaten.toLocaleString()}</dd>
+        </div>
+      </dl>
     </div>
   );
 }
@@ -92,7 +115,7 @@ export default function CaloriesScreen({ token, plus }) {
   const target = profile && targets(profile);
   // Another day's entries are not shown while this day's are loading
   const entries = day?.date === date ? day.entries : null;
-  const sum = (field) => (entries ?? []).reduce((total, e) => total + e[field], 0);
+  const sum = (field) => total(entries ?? [], field);
   const eaten = sum('kcal');
 
   async function remove(id) {
@@ -187,23 +210,7 @@ export default function CaloriesScreen({ token, plus }) {
       <ErrorMsg>{error}</ErrorMsg>
 
       <section className="card" aria-label="Summary">
-        <div className="ring-summary">
-          <Ring value={eaten} max={target.kcal} big>
-            <span className="ring-value">{Math.abs(target.kcal - eaten).toLocaleString()}</span>
-            <span className="eyebrow">{eaten > target.kcal ? 'kcal over' : 'kcal left'}</span>
-          </Ring>
-          {/* Same words and order as the dashboard's Calories card */}
-          <dl className="figures">
-            <div>
-              <dt className="eyebrow">Goal</dt>
-              <dd>{target.kcal.toLocaleString()}</dd>
-            </div>
-            <div>
-              <dt className="eyebrow">Eaten</dt>
-              <dd>{eaten.toLocaleString()}</dd>
-            </div>
-          </dl>
-        </div>
+        <RingSummary eaten={eaten} goal={target.kcal} big />
         <dl className="macros">
           {MACROS.map(([label, field]) => (
             <div key={field}>
@@ -226,7 +233,7 @@ export default function CaloriesScreen({ token, plus }) {
               <div className="panel-head">
                 <h2 className="card-title">{label}</h2>
                 <span className="row-sub">
-                  {foods.reduce((t, f) => t + f.kcal, 0)} kcal · {macros(foods)}
+                  {total(foods, 'kcal')} kcal · {macros(foods)}
                 </span>
               </div>
               {foods.length > 0 && (

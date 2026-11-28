@@ -11,7 +11,8 @@ use crate::extractors::AdminUser;
 use crate::models::{AdminFlag, DayCount, RangeQuery, ResetLink, UserSummary};
 use crate::nutrition::sane;
 use crate::state::{
-    ApiResult, AppState, all_rows, batch, col, internal, one_row, record, send_security_notice,
+    ApiResult, AppState, GYM_TZ, all_rows, batch, col, internal, one_row, record,
+    send_security_notice,
 };
 use crate::tokens::make_reset_token;
 
@@ -183,18 +184,20 @@ pub async fn admin_stats(
     check_range(&q).map_err(|msg| (StatusCode::BAD_REQUEST, msg.to_string()))?;
     let rows = all_rows(
         &mut db,
-        // Days are counted in Sydney/Melbourne time, so an evening session isn't split across two UTC days.
+        // Days are counted in the gym's time zone, so an evening session isn't split across two UTC days.
         // The inner WHERE takes a day either side in UTC; the outer one trims to exact local days
-        "SELECT CONVERT(char(10), Day, 23) AS Day, Kind, N FROM (
-            SELECT CAST(At AT TIME ZONE 'UTC' AT TIME ZONE 'AUS Eastern Standard Time' AS date) AS Day,
+        &format!(
+            "SELECT CONVERT(char(10), Day, 23) AS Day, Kind, N FROM (
+            SELECT CAST(At AT TIME ZONE 'UTC' AT TIME ZONE '{GYM_TZ}' AS date) AS Day,
                    Kind, COUNT(*) AS N
             FROM dbo.Events
             WHERE At >= DATEADD(day, -1, CAST(@P1 AS datetime2))
               AND At < DATEADD(day, 2, CAST(@P2 AS datetime2))
-            GROUP BY CAST(At AT TIME ZONE 'UTC' AT TIME ZONE 'AUS Eastern Standard Time' AS date), Kind
+            GROUP BY CAST(At AT TIME ZONE 'UTC' AT TIME ZONE '{GYM_TZ}' AS date), Kind
          ) t
          WHERE Day BETWEEN @P1 AND @P2
-         ORDER BY Day",
+         ORDER BY Day"
+        ),
         &[&q.from, &q.to],
     )
     .await?;
