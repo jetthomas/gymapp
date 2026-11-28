@@ -115,9 +115,18 @@ export default function MuscleMap({ token, plus }) {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    // An older, slower answer must not replace a newer one: a year's sets arriving after a switch to 7 days
+    let stale = false;
     getMuscles(token, days)
-      .then((rows) => setSets(Object.fromEntries(rows.map((r) => [r.muscle, r.sets]))))
-      .catch(() => setError("Couldn't load your progress. Check your signal and try again."));
+      .then((rows) => {
+        if (!stale) setSets(Object.fromEntries(rows.map((r) => [r.muscle, r.sets])));
+      })
+      .catch(() => {
+        if (!stale) setError("Couldn't load your progress. Check your signal and try again.");
+      });
+    return () => {
+      stale = true;
+    };
   }, [token, days]);
 
   if (error) return <ErrorMsg>{error}</ErrorMsg>;

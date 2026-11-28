@@ -3,10 +3,7 @@ import { deleteExercise, getExercises } from './api';
 import ConfirmDialog from './ConfirmDialog';
 import ErrorMsg from './ErrorMsg';
 import ExerciseForm from './ExerciseForm';
-import { MUSCLES } from './muscles';
-
-// shortcut: only the first 100 matches are drawn; add paging if admins need to scroll the whole list
-const SHOWN = 100;
+import { ExerciseRows, ExerciseSearch } from './ExerciseSearch';
 
 // The admin screen's Exercises section: search the shared library, add, edit and delete
 export default function AdminExercises({ token }) {
@@ -20,26 +17,23 @@ export default function AdminExercises({ token }) {
   // The list is long, so it starts hidden; searching or picking a muscle opens it
   const [open, setOpen] = useState(false);
 
+  // The whole library once, searched here like the workout's picker; loaded again after each change
   useEffect(() => {
     // An older, slower answer must not replace a newer one
     let stale = false;
-    // Wait until typing stops, so each keystroke isn't its own request
-    const timer = setTimeout(() => {
-      getExercises(token, q, muscle)
-        .then((list) => {
-          if (stale) return;
-          setExercises(list);
-          setError('');
-        })
-        .catch((err) => {
-          if (!stale) setError(err.message);
-        });
-    }, 300);
+    getExercises(token)
+      .then((list) => {
+        if (stale) return;
+        setExercises(list);
+        setError('');
+      })
+      .catch((err) => {
+        if (!stale) setError(err.message);
+      });
     return () => {
       stale = true;
-      clearTimeout(timer);
     };
-  }, [token, q, muscle, saved]);
+  }, [token, saved]);
 
   function done() {
     setEditing(null);
@@ -71,31 +65,18 @@ export default function AdminExercises({ token }) {
         </div>
         {!editing && (
           <>
-            <input
-              className="admin-search"
-              type="search"
-              placeholder="Search exercises"
-              aria-label="Search exercises"
-              value={q}
-              onChange={(e) => {
-                setQ(e.target.value);
+            <ExerciseSearch
+              q={q}
+              muscle={muscle}
+              onSearch={(v) => {
+                setQ(v);
+                setOpen(true);
+              }}
+              onMuscle={(v) => {
+                setMuscle(v);
                 setOpen(true);
               }}
             />
-            <select
-              className="role-select status-filter"
-              aria-label="Muscle"
-              value={muscle}
-              onChange={(e) => {
-                setMuscle(e.target.value);
-                setOpen(true);
-              }}
-            >
-              <option value="">All muscles</option>
-              {MUSCLES.map((m) => (
-                <option key={m}>{m}</option>
-              ))}
-            </select>
             <button
               className="outline-btn"
               type="button"
@@ -127,28 +108,14 @@ export default function AdminExercises({ token }) {
           <ErrorMsg>{error}</ErrorMsg>
           <div id="exercise-results" hidden={!open}>
             {exercises === null && !error && <p className="msg">Loading exercises…</p>}
-            {exercises?.length === 0 && <p className="msg">No matches</p>}
-            {exercises?.length > 0 && (
-              <>
-                <div className="group exercise-list">
-                  {exercises.slice(0, SHOWN).map((e) => (
-                    <button className="row" type="button" key={e.id} onClick={() => setEditing(e)}>
-                      <span className="row-text">
-                        {e.name}
-                        <span className="row-sub">
-                          {[e.primaryMuscles.join(', '), e.equipment].filter(Boolean).join(' · ')}
-                        </span>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                {exercises.length > SHOWN && (
-                  <p className="hint">
-                    Showing {SHOWN} of {exercises.length}. Search or pick a muscle to narrow it
-                    down.
-                  </p>
-                )}
-              </>
+            {exercises && (
+              <ExerciseRows
+                library={exercises}
+                q={q}
+                muscle={muscle}
+                shown={100}
+                onPick={setEditing}
+              />
             )}
           </div>
         </>

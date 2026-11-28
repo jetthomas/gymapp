@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { deleteHealth, saveHealth } from './api';
 import ConfirmDialog from './ConfirmDialog';
 import ErrorMsg from './ErrorMsg';
+import { decimal } from './numberInput';
 import targets from './targets';
 import useSubmit from './useSubmit';
 
@@ -46,9 +47,6 @@ export default function ProfileForm({ token, profile, today, onSaved, onCancel }
       onSaved();
     });
   }
-
-  // Digits with at most one decimal point
-  const decimal = (set) => (e) => /^\d*\.?\d*$/.test(e.target.value) && set(e.target.value);
 
   return (
     <form className="card profile-form" onSubmit={handleSubmit}>

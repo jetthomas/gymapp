@@ -1,11 +1,8 @@
 import { useEffect, useState } from 'react';
 import { getExercises } from './api';
 import ErrorMsg from './ErrorMsg';
-import { MUSCLES } from './muscles';
+import { ExerciseRows, ExerciseSearch } from './ExerciseSearch';
 import useModal, { closeOnBackdrop } from './useModal';
-
-// shortcut: only the first 50 matches are drawn; searching narrows it down
-const SHOWN = 50;
 
 // The sheet for adding an exercise to the workout in progress
 export default function ExercisePicker({ token, onPick, onClose }) {
@@ -30,13 +27,6 @@ export default function ExercisePicker({ token, onPick, onClose }) {
       });
   }, [token]);
 
-  const words = q.trim().toLowerCase();
-  const exercises = library?.filter(
-    (e) =>
-      e.name.toLowerCase().includes(words) &&
-      (!muscle || [...e.primaryMuscles, ...e.secondaryMuscles].includes(muscle)),
-  );
-
   return (
     <dialog
       ref={ref}
@@ -54,44 +44,12 @@ export default function ExercisePicker({ token, onPick, onClose }) {
         </button>
       </div>
       <search className="section-head">
-        <input
-          className="admin-search"
-          type="search"
-          enterKeyHint="search"
-          autoCorrect="off"
-          placeholder="Search exercises"
-          aria-label="Search exercises"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-        <select
-          className="role-select status-filter"
-          aria-label="Muscle"
-          value={muscle}
-          onChange={(e) => setMuscle(e.target.value)}
-        >
-          <option value="">All muscles</option>
-          {MUSCLES.map((m) => (
-            <option key={m}>{m}</option>
-          ))}
-        </select>
+        <ExerciseSearch q={q} muscle={muscle} onSearch={setQ} onMuscle={setMuscle} />
       </search>
       <ErrorMsg>{error}</ErrorMsg>
       {library === null && !error && <p className="msg">Loading exercises…</p>}
-      {exercises?.length === 0 && <p className="msg">No matches</p>}
-      {exercises?.length > 0 && (
-        <div className="group exercise-list">
-          {exercises.slice(0, SHOWN).map((e) => (
-            <button className="row" type="button" key={e.id} onClick={() => onPick(e)}>
-              <span className="row-text">
-                {e.name}
-                <span className="row-sub">
-                  {[e.primaryMuscles.join(', '), e.equipment].filter(Boolean).join(' · ')}
-                </span>
-              </span>
-            </button>
-          ))}
-        </div>
+      {library && (
+        <ExerciseRows library={library} q={q} muscle={muscle} shown={50} onPick={onPick} />
       )}
     </dialog>
   );

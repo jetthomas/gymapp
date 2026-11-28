@@ -6,7 +6,7 @@ import UpgradeDialog from './UpgradeDialog';
 import useModal from './useModal';
 import useSubmit from './useSubmit';
 
-// Adds one food to a meal: type it in, or tap one logged before
+// Adds one food to a meal (type it in, or tap one logged before), or edits `food`, one already logged
 export default function FoodSheet({ token, plus, date, meal, onAdded, onClose, food }) {
   const ref = useModal();
   const [recent, setRecent] = useState([]);
@@ -79,7 +79,7 @@ export default function FoodSheet({ token, plus, date, meal, onAdded, onClose, f
     <>
       <dialog ref={ref} className="sheet picker" aria-labelledby="food-title" onCancel={onClose}>
         <form onSubmit={handleSubmit}>
-          <h2 id="food-title">Add food</h2>
+          <h2 id="food-title">{food ? 'Edit food' : 'Add food'}</h2>
           <div className="field">
             <label htmlFor="food-name">Food</label>
             <input
@@ -149,11 +149,12 @@ export default function FoodSheet({ token, plus, date, meal, onAdded, onClose, f
               Cancel
             </button>
             <button className="pill-btn filled" type="submit" disabled={loading}>
-              {loading ? 'Adding…' : 'Add'}
+              {loading ? 'Saving…' : food ? 'Save' : 'Add'}
             </button>
           </div>
         </form>
-        {recent.length > 0 && (
+        {/* Not while editing: one tap would turn the food being edited into this one */}
+        {!food && recent.length > 0 && (
           <>
             <h3 className="group-title">Recent</h3>
             <div className="group">

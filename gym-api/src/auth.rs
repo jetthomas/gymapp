@@ -374,18 +374,24 @@ pub async fn delete_avatar(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Sta
     Ok(StatusCode::OK)
 }
 
+// The checks before deactivating or deleting: the password, and no live Plus. Neither stops
+// Stripe billing, and afterwards the member can't reach Manage membership to cancel it
+async fn check_can_leave(db: &mut Db, user_id: i32, password: String, verb: &str) -> ApiResult<()> {
+    let row = require_password(db, user_id, password).await?;
+    if !can_join(row.get("MembershipStatus")) {
+        return Err((
+            StatusCode::CONFLICT,
+            format!("Cancel Plus in Manage membership first, then {verb}."),
+        ));
+    }
+    Ok(())
+}
+
 pub async fn delete_account(
     AuthUser(user_id, mut db): AuthUser,
     Json(r): Json<PasswordOnly>,
 ) -> ApiResult<StatusCode> {
-    let row = require_password(&mut db, user_id, r.password).await?;
-    // Deactivating doesn't stop Stripe billing, and a deactivated member can't reach Manage membership
-    if !can_join(row.get("MembershipStatus")) {
-        return Err((
-            StatusCode::CONFLICT,
-            "Cancel Plus in Manage membership first, then deactivate.".into(),
-        ));
-    }
+    check_can_leave(&mut db, user_id, r.password, "deactivate").await?;
     db.execute(
         "UPDATE dbo.Users SET Active = 0 WHERE Id = @P1",
         &[&user_id],
@@ -401,14 +407,7 @@ pub async fn erase_account(
     AuthUser(user_id, mut db): AuthUser,
     Json(r): Json<PasswordOnly>,
 ) -> ApiResult<StatusCode> {
-    let row = require_password(&mut db, user_id, r.password).await?;
-    // Deleting doesn't stop Stripe billing either, and afterwards there's no account to cancel from
-    if !can_join(row.get("MembershipStatus")) {
-        return Err((
-            StatusCode::CONFLICT,
-            "Cancel Plus in Manage membership first, then delete.".into(),
-        ));
-    }
+    check_can_leave(&mut db, user_id, r.password, "delete").await?;
     // DeleteMember deletes whoever the connection is tagged with, so it can only ever be this member
     set_user(&mut db, user_id).await.map_err(internal)?;
     db.execute("EXEC dbo.DeleteMember", &[])
@@ -543,5 +542,31 @@ mod tests {
             check_avatar(&format!("/9j/{}", "A".repeat(MAX_AVATAR_CHARS))).is_err(),
             "too big"
         );
+    }
+
+    // A table that points at a member and isn't in DeleteMember makes deleting an account fail
+    // with a foreign-key error. CI has no database, so this reads schema.sql as text.
+    // shortcut: only sees tables made with CREATE TABLE; check by hand if one ever gets an ALTER ... REFERENCES
+    #[test]
+    fn delete_member_clears_every_table_that_points_at_a_member() {
+        let schema = include_str!("../sql/schema.sql");
+        let (_, procedure) = schema
+            .split_once("CREATE OR ALTER PROCEDURE dbo.DeleteMember")
+            .expect("schema.sql makes dbo.DeleteMember");
+        let mut checked = 0;
+        for block in schema.split("CREATE TABLE ").skip(1) {
+            let (table, columns) = block.split_once(" (").expect("a table's name, then (");
+            // The columns end at the first ");"
+            let columns = columns.split(");").next().unwrap_or(columns);
+            if columns.contains("REFERENCES dbo.Users") {
+                assert!(
+                    procedure.contains(&format!("DELETE FROM {table} ")),
+                    "DeleteMember doesn't delete from {table}"
+                );
+                checked += 1;
+            }
+        }
+        // Workouts, Events, RecoveryCodes, Profiles, BodyWeights, FoodEntries: proves the parsing found them
+        assert!(checked >= 6, "found only {checked} tables");
     }
 }

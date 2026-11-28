@@ -5,6 +5,7 @@ import ConfirmDialog from './ConfirmDialog';
 import ErrorMsg from './ErrorMsg';
 import MuscleCard from './MuscleCard';
 import { drop, useRefused, useWaiting } from './outbox';
+import { duration, shortDate } from './week';
 import WeekCard from './WeekCard';
 import WorkoutCard from './WorkoutCard';
 import WorkoutDetail from './WorkoutDetail';
@@ -103,18 +104,12 @@ export default function HomeScreen({ token, showCalories, showWorkout, onOpenCal
                     <button className="row" type="button" key={w.id} onClick={() => setView(w.id)}>
                       <span className="row-text">
                         {w.name}
-                        <span className="row-sub">
-                          {new Date(w.date).toLocaleDateString(undefined, {
-                            weekday: 'short',
-                            day: 'numeric',
-                            month: 'short',
-                          })}
-                        </span>
+                        <span className="row-sub">{shortDate(w.date)}</span>
                       </span>
                       <span className="row-end">
                         {[
                           `${w.sets} ${w.sets === 1 ? 'set' : 'sets'}`,
-                          w.durationSec && `${Math.round(w.durationSec / 60)} min`,
+                          w.durationSec && duration(w.durationSec),
                         ]
                           .filter(Boolean)
                           .join(' · ')}

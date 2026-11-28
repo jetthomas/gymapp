@@ -3,6 +3,7 @@ import { getWorkout } from './api';
 import { loadDraft } from './Draft';
 import { Play } from './icons';
 import { userIdOf } from './outbox';
+import { duration, shortDate } from './week';
 
 // The last workout and what was in it; a workout planner would show today's plan here instead
 export default function WorkoutCard({ token, last, onStart, onOpen }) {
@@ -34,12 +35,8 @@ export default function WorkoutCard({ token, last, onStart, onOpen }) {
               <p className="row-sub">
                 {[
                   'Last workout',
-                  new Date(last.date).toLocaleDateString(undefined, {
-                    weekday: 'short',
-                    day: 'numeric',
-                    month: 'short',
-                  }),
-                  last.durationSec && `${Math.round(last.durationSec / 60)} min`,
+                  shortDate(last.date),
+                  last.durationSec && duration(last.durationSec),
                 ]
                   .filter(Boolean)
                   .join(' · ')}
