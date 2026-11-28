@@ -70,7 +70,8 @@ body {
 /* Buttons and inputs don't take the page font unless told to */
 button,
 input,
-select {
+select,
+textarea {
   font-family: inherit;
 }
 
@@ -362,6 +363,7 @@ fieldset.field {
 
 /* Every text box and dropdown: 44px tall on the inset colour */
 .field input,
+.field textarea,
 .field select,
 .role-select,
 .range-picker input,
@@ -379,14 +381,22 @@ fieldset.field {
     box-shadow 0.15s;
 }
 
-.field input {
+.field input,
+.field textarea {
   width: 100%;
   padding: 10px 14px;
   /* 16px or more, or iPhone zooms in when it's tapped */
   font-size: 1rem;
 }
 
+/* Taller by hand only, so dragging it can't widen the page */
+.field textarea {
+  display: block;
+  resize: vertical;
+}
+
 .field input:focus-visible,
+.field textarea:focus-visible,
 .field select:focus-visible,
 .role-select:focus-visible,
 .range-picker input:focus-visible,
@@ -1907,6 +1917,11 @@ span.role-select {
   margin-top: 0;
 }
 
+/* The notes box: the grid's gap spaces it too */
+.workout > .field {
+  margin: 0;
+}
+
 .workout > .page-head {
   margin-bottom: 16px;
 }
@@ -2366,6 +2381,13 @@ html:has(.rest-bar) {
     min-height: 44px;
     border-color: transparent;
   }
+}
+
+/* A finished workout's notes, with the member's line breaks */
+.notes-text {
+  margin: 8px 0 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 
 /* The numbered sets on a finished workout */

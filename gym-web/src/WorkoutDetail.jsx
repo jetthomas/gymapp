@@ -149,6 +149,14 @@ export default function WorkoutDetail({ token, plus, id, onBack, onEdit, onRepea
             ))}
           </dl>
           <div className="account-cards">
+            {workout.notes && (
+              <section className="card" aria-labelledby="notes-title">
+                <h2 id="notes-title" className="eyebrow">
+                  Notes
+                </h2>
+                <p className="notes-text">{workout.notes}</p>
+              </section>
+            )}
             {workout.exercises.map((e, i) => (
               <section className="card" key={i}>
                 <div className="section-head">

@@ -11,16 +11,19 @@ const builtFiles = (manifest) =>
     ),
   ].map((f) => `/${f}`);
 
-// Keeps a build's files (only the ones not kept yet), then drops older builds' files:
-// their names have a different hash, so nothing asks for them again
+// Keeps a build's files (only the ones not kept yet), then drops files from before the previous build.
+// The previous build stays: the page on screen may still be it, and it loads some files only when
+// they're used (the barcode scanner), which after a deploy the server no longer has
 async function keepBuild(cache, manifest) {
   const files = builtFiles(await manifest.clone().json());
+  const previous = await cache.match(MANIFEST);
+  const keep = new Set([...files, ...(previous ? builtFiles(await previous.json()) : [])]);
   const kept = new Set((await cache.keys()).map((r) => new URL(r.url).pathname));
   await cache.addAll(files.filter((f) => !kept.has(f)));
   await cache.put(MANIFEST, manifest);
   for (const req of await cache.keys()) {
     const path = new URL(req.url).pathname;
-    if (path.startsWith('/assets/') && !files.includes(path)) await cache.delete(req);
+    if (path.startsWith('/assets/') && !keep.has(path)) await cache.delete(req);
   }
 }
 
@@ -55,15 +58,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   // Opening the app shows the kept page at once instead of waiting on a slow link;
-  // the fresh copy fetched alongside it is the one shown on the next open
+  // the fresh copy fetched alongside it is the one shown on the next open.
+  // Every address is the same one-page app, so there's one copy, under '/': a copy per address
+  // (/?membership=done) would only update when that address opens, and point at deleted files
   if (event.request.mode === 'navigate') {
     const fresh = keepPage(event.request);
     event.waitUntil(fresh.catch(() => {}));
-    event.respondWith(
-      caches
-        .match(event.request)
-        .then((kept) => kept ?? fresh.catch(() => caches.match('/'))),
-    );
+    event.respondWith(caches.match('/').then((kept) => kept ?? fresh));
     return;
   }
   // Everything else (icons) can change, so try the network first
@@ -84,7 +85,7 @@ async function keepPage(request) {
   if (!page.ok || !manifest.ok) return page;
   const cache = await caches.open(CACHE);
   await keepBuild(cache, manifest);
-  await cache.put(request, page.clone());
+  await cache.put('/', page.clone());
   return page;
 }
 

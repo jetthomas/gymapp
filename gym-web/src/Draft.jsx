@@ -10,10 +10,11 @@ const OLD_KEY = 'workout-draft';
 export function loadDraft(userId) {
   try {
     const draft = JSON.parse(localStorage.getItem(keyFor(userId)) ?? localStorage.getItem(OLD_KEY));
-    // A draft saved before lb existed: kg, in a field called weightKg
+    // A draft saved before lb existed: kg, in a field called weightKg. Before notes: none
     return (
       draft && {
         unit: 'kg',
+        notes: '',
         ...draft,
         exercises: draft.exercises.map((e) => ({
           ...e,
@@ -46,6 +47,7 @@ export const newDraft = () => ({
   startedAt: Date.now(),
   // Weights are typed in this unit for the whole workout, even if Settings changes halfway
   unit: weightUnit(),
+  notes: '',
   exercises: [],
 });
 
@@ -64,6 +66,7 @@ export const editDraft = (workout, unit) => ({
   startedAt: new Date(workout.date).getTime(),
   minutes: workout.durationSec ? String(Math.round(workout.durationSec / 60)) : '',
   unit,
+  notes: workout.notes ?? '',
   exercises: workout.exercises.map((e) => ({
     id: e.exerciseId,
     name: e.name,

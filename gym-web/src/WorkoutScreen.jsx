@@ -269,6 +269,8 @@ export default function WorkoutScreen({ token, plus, start, saved, onDone }) {
     const workout = {
       name: draft.name.trim() || 'Workout',
       date: new Date(draft.startedAt).toISOString(),
+      // Always sent, '' when blank: on an edit that clears them, where leaving it out would keep them
+      notes: draft.notes.trim(),
       // The API allows up to a day
       durationSec: seconds ? Math.min(86400, seconds) : null,
       exercises,
@@ -523,6 +525,17 @@ export default function WorkoutScreen({ token, plus, start, saved, onDone }) {
       <button className="outline-btn wide" type="button" onClick={() => setPicking(true)}>
         Add exercise
       </button>
+      <div className="field">
+        <label htmlFor="workout-notes">Notes</label>
+        {/* 2000 is the API's cap */}
+        <textarea
+          id="workout-notes"
+          rows={3}
+          maxLength={2000}
+          value={draft.notes}
+          onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
+        />
+      </div>
       <ErrorMsg>{message || saving.message}</ErrorMsg>
       {draft.editingId ? (
         <div className="finish-row">
