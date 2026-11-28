@@ -10,7 +10,7 @@ import ProgressChart from './ProgressChart';
 import { typeName } from './setTypes';
 import { fromKg, weightUnit } from './units';
 import useSubmit from './useSubmit';
-import { duration } from './week';
+import { dateText, duration } from './week';
 
 // One finished workout: its totals, then every set. Edit opens it on the workout screen;
 // Do this again starts a new workout laid out the same way (`onRepeat` gets the new draft)
@@ -101,11 +101,7 @@ export default function WorkoutDetail({ token, plus, id, onBack, onEdit, onRepea
           <div className="page-head">
             <div>
               <p className="eyebrow">
-                {new Date(workout.date).toLocaleDateString(undefined, {
-                  weekday: 'long',
-                  day: 'numeric',
-                  month: 'long',
-                })}
+                {dateText(workout.date, { weekday: 'long', day: 'numeric', month: 'long' })}
               </p>
               <h1 className="page-title">{workout.name}</h1>
             </div>

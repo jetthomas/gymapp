@@ -6,7 +6,7 @@ import { ChevronLeft, ChevronRight, Sliders } from './icons';
 import ProfileForm from './ProfileForm';
 import targets from './targets';
 import { MACROS, MEALS, total } from './meals';
-import { addDays, dayKey } from './week';
+import { addDays, dateText, dayKey } from './week';
 
 const today = () => dayKey(new Date());
 // P 50g · C 100g · F 20g, summed over one food or a whole meal
@@ -175,11 +175,7 @@ export default function CaloriesScreen({ token, plus }) {
       <div className="page-head">
         <div>
           <p className="eyebrow">
-            {new Date(`${date}T12:00:00`).toLocaleDateString(undefined, {
-              weekday: 'short',
-              day: 'numeric',
-              month: 'short',
-            })}
+            {dateText(`${date}T12:00:00`, { weekday: 'short', day: 'numeric', month: 'short' })}
           </p>
           <h1 className="page-title">{isToday ? 'Today' : 'Calories'}</h1>
         </div>

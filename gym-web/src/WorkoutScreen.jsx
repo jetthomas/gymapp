@@ -15,6 +15,7 @@ import {
   rirShown,
   saveDraft,
   toLocalInput,
+  workoutName,
 } from './Draft';
 import ErrorMsg from './ErrorMsg';
 import ExercisePicker from './ExercisePicker';
@@ -317,10 +318,15 @@ export default function WorkoutScreen({ token, plus, start, saved, onDone }) {
               type="datetime-local"
               max={toLocalInput(now)}
               value={toLocalInput(draft.startedAt)}
-              onChange={(e) =>
-                e.target.value &&
-                setDraft({ ...draft, startedAt: new Date(e.target.value).getTime() })
-              }
+              onChange={(e) => {
+                if (!e.target.value) return;
+                // max only limits the picker; a typed future date becomes now
+                const startedAt = Math.min(new Date(e.target.value).getTime(), Date.now());
+                // A name still the default follows the date: "Thursday workout" for a Thursday
+                const name =
+                  draft.name === workoutName(draft.startedAt) ? workoutName(startedAt) : draft.name;
+                setDraft({ ...draft, startedAt, name });
+              }}
             />
           </div>
           <div className="field">
@@ -353,6 +359,21 @@ export default function WorkoutScreen({ token, plus, start, saved, onDone }) {
                 Unilateral
               </label>
             )}
+            {e.equipment === 'barbell' && (
+              <button
+                className="ghost-btn"
+                type="button"
+                aria-label={`Plates for ${e.name}`}
+                // The next set to do, or the last once all are ticked; the sheet takes any weight
+                onClick={() => {
+                  const j = e.sets.findIndex((s) => !s.done);
+                  const k = j === -1 ? e.sets.length - 1 : j;
+                  setPlateWeight(k >= 0 ? filled(e, k).weight : '');
+                }}
+              >
+                Plates
+              </button>
+            )}
             <button
               className="ghost-btn danger"
               type="button"
@@ -372,11 +393,6 @@ export default function WorkoutScreen({ token, plus, start, saved, onDone }) {
                 <th scope="col">{unit}</th>
                 <th scope="col">Reps</th>
                 {showRir && <th scope="col">RIR</th>}
-                {e.equipment === 'barbell' && (
-                  <th scope="col">
-                    <span className="visually-hidden">Plates</span>
-                  </th>
-                )}
                 <th scope="col">
                   <span className="visually-hidden">Done</span>
                 </th>
@@ -409,8 +425,8 @@ export default function WorkoutScreen({ token, plus, start, saved, onDone }) {
                         {label}
                       </button>
                     </th>
-                    <td className="prev">{prev ? `${prevWeight} × ${prev.reps}` : '–'}</td>
-                    <td>
+                    <td className="prev">{prev ? `${prevWeight}\u00a0× ${prev.reps}` : '–'}</td>
+                    <td className="weight">
                       <input
                         inputMode="decimal"
                         enterKeyHint="next"
@@ -449,31 +465,6 @@ export default function WorkoutScreen({ token, plus, start, saved, onDone }) {
                             changeSet(i, j, { rir: ev.target.value })
                           }
                         />
-                      </td>
-                    )}
-                    {e.equipment === 'barbell' && (
-                      <td>
-                        <button
-                          className="tick plate-btn"
-                          type="button"
-                          aria-label={`Plates for set ${label}`}
-                          disabled={ready.weight === '' || isNaN(ready.weight)}
-                          onClick={() => setPlateWeight(ready.weight)}
-                        >
-                          {/* A bar with two plates each side */}
-                          <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <path
-                              d="M2 12h20"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                            />
-                            <rect x="5" y="6" width="3" height="12" rx="1" />
-                            <rect x="9" y="8" width="2.5" height="8" rx="1" />
-                            <rect x="12.5" y="8" width="2.5" height="8" rx="1" />
-                            <rect x="16" y="6" width="3" height="12" rx="1" />
-                          </svg>
-                        </button>
                       </td>
                     )}
                     <td>

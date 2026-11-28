@@ -21,13 +21,16 @@ export function weekDays(today = new Date()) {
 // The days (YYYY-MM-DD) with at least one workout, from when each one started
 export const workoutDays = (dates) => new Set(dates.map((d) => dayKey(new Date(d))));
 
+// A date as text, with the year only when it isn't this one: "Tue, 24 Nov", "Sun, 2 Jan 2028"
+export function dateText(date, options) {
+  const d = new Date(date);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString(undefined, sameYear ? options : { ...options, year: 'numeric' });
+}
+
 // "Tue, 24 Nov": a workout's day in History and on the dashboard's Workout card
 export const shortDate = (date) =>
-  new Date(date).toLocaleDateString(undefined, {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-  });
+  dateText(date, { weekday: 'short', day: 'numeric', month: 'short' });
 
 // A workout's length. Under half a minute would round to "0 min"
 export const duration = (sec) => (sec < 30 ? 'under 1 min' : `${Math.round(sec / 60)} min`);

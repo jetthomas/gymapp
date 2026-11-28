@@ -140,8 +140,29 @@ async fn save_muscles(db: &mut Db, id: i32, e: &NewExercise) -> ApiResult<()> {
 // otherwise a member's id. Admins pass SHARED and members their own id, so neither reaches the other's
 const SHARED: i32 = 0;
 
+// No two exercises one person sees may share a name, or the picker shows two identical rows:
+// the shared library for admins, the shared library plus their own for a member.
+// `id` is the exercise being renamed (0 for a new one), which may keep its own name
+async fn check_name_free(db: &mut Db, owner: i32, id: i32, name: &str) -> ApiResult<()> {
+    let taken = count_rows(
+        db,
+        "SELECT COUNT(*) FROM dbo.Exercises
+         WHERE Name = @P1 AND Id <> @P2 AND (OwnerUserId IS NULL OR OwnerUserId = NULLIF(@P3, 0))",
+        &[&name, &id, &owner],
+    )
+    .await?;
+    if taken > 0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "There's already an exercise with that name.".into(),
+        ));
+    }
+    Ok(())
+}
+
 async fn save_exercise(db: &mut Db, owner: i32, e: &NewExercise) -> ApiResult<StatusCode> {
     let name = check_exercise(e).map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
+    check_name_free(db, owner, 0, name).await?;
     // If anything fails before COMMIT, the connection closes and SQL Server undoes it all
     batch(db, "BEGIN TRANSACTION").await?;
     let id: i32 = one_row(
@@ -165,6 +186,7 @@ async fn replace_exercise(
     e: &NewExercise,
 ) -> ApiResult<StatusCode> {
     let name = check_exercise(e).map_err(|msg| (StatusCode::BAD_REQUEST, msg))?;
+    check_name_free(db, owner, id, name).await?;
     // Same as save: an early return closes the connection, which undoes the transaction
     batch(db, "BEGIN TRANSACTION").await?;
     let updated = db

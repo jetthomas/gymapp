@@ -1993,7 +1993,8 @@ span.role-select {
   margin: 0;
 }
 
-.exercise-head .ghost-btn {
+/* The last button's text lines up with the card's edge; Plates keeps its gap before Remove */
+.exercise-head .ghost-btn:last-child {
   margin-right: -10px;
 }
 
@@ -2293,7 +2294,7 @@ html:has(.rest-bar) {
   scroll-padding-bottom: 160px;
 }
 
-/* A phone needs every pixel for the sets: tighter cards, cells and headings, so eight columns fit */
+/* A phone needs every pixel for the sets: tighter cards, cells and headings, so every column fits */
 @media (max-width: 480px) {
   .workout .card:not(.empty-state) {
     padding: 16px;
@@ -2312,6 +2313,11 @@ html:has(.rest-bar) {
   /* "176.4 × 8" over two lines, so a weight in lb has room in its box */
   .set-table .prev {
     white-space: normal;
+  }
+
+  /* The weight box gets the room left over: reps and RIR only ever hold a digit or two */
+  .set-table td.weight {
+    width: 100%;
   }
 
   .tick {
@@ -2525,20 +2531,6 @@ html:has(.rest-bar) {
   color: var(--primary-foreground);
   background: var(--primary);
   border-color: transparent;
-}
-
-/* The Plates button is a .tick square holding a barbell drawing */
-.plate-btn svg {
-  width: 22px;
-  height: 22px;
-  fill: currentColor;
-}
-
-@media (hover: hover) {
-  .plate-btn:not(:disabled):hover {
-    color: var(--foreground);
-    border-color: var(--muted-foreground);
-  }
 }
 
 /* The × that removes one set: quiet until hovered */

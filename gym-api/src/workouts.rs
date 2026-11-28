@@ -75,6 +75,10 @@ pub fn check_workout(w: &NewWorkout) -> Result<&str, String> {
     if !(1..=9999).contains(&w.date.year()) {
         return Err("date is out of range".into());
     }
+    // A future workout would stay at the top of History. An hour's leeway for a phone clock running fast
+    if w.date > Utc::now() + chrono::Duration::hours(1) {
+        return Err("a workout can't be in the future".into());
+    }
     // crypto.randomUUID() in the browser: 36 characters of hex and dashes
     if w.client_id
         .as_deref()
@@ -654,5 +658,10 @@ mod tests {
         assert!(check_workout(&typed).is_ok(), "a warm-up set");
         typed.exercises[0].sets[0].set_type = Some("cooldown".into());
         assert!(check_workout(&typed).is_err(), "unknown set type");
+        let mut later = workout(40.0, 10, None);
+        later.date = chrono::Utc::now() + chrono::Duration::minutes(30);
+        assert!(check_workout(&later).is_ok(), "a phone clock a little fast");
+        later.date = chrono::Utc::now() + chrono::Duration::days(2);
+        assert!(check_workout(&later).is_err(), "in the future");
     }
 }

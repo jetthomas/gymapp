@@ -34,11 +34,15 @@ export function clearDraft(userId) {
   localStorage.removeItem(OLD_KEY);
 }
 
+// "Tuesday workout" for a workout started on a Tuesday, so History isn't a list of identical
+// names; the member can rename it
+export const workoutName = (ms) =>
+  `${new Date(ms).toLocaleDateString(undefined, { weekday: 'long' })} workout`;
+
 export const newDraft = () => ({
   // Sent with the save, so the server stores it once even if the request is repeated
   clientId: crypto.randomUUID(),
-  // "Tuesday workout", so History isn't a list of identical names; the member can rename it
-  name: `${new Date().toLocaleDateString(undefined, { weekday: 'long' })} workout`,
+  name: workoutName(Date.now()),
   startedAt: Date.now(),
   // Weights are typed in this unit for the whole workout, even if Settings changes halfway
   unit: weightUnit(),
@@ -46,12 +50,10 @@ export const newDraft = () => ({
 });
 
 // A workout done earlier and typed in afterwards: a date and a length instead of a running clock
-export const newPastDraft = () => ({
-  ...newDraft(),
-  past: true,
-  startedAt: Date.now() - 60 * 60 * 1000,
-  minutes: '60',
-});
+export function newPastDraft() {
+  const startedAt = Date.now() - 60 * 60 * 1000;
+  return { ...newDraft(), past: true, startedAt, name: workoutName(startedAt), minutes: '60' };
+}
 
 // A saved workout opened for editing: every set already ticked, in the member's unit.
 // Kept out of localStorage (editingId), so it never replaces a workout in progress
