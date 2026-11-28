@@ -16,6 +16,7 @@
   --input: oklch(1 0 0 / 15%); /* input and outline-button borders */
   --ring: oklch(0.85 0 0); /* focus ring */
   --destructive: oklch(0.72 0.17 27);
+  --positive: oklch(0.78 0.17 150); /* the green + of a gain */
   /* The one exception to black and white: each macro keeps its own colour */
   --protein: #6cc4f2;
   --carbs: #a78bfa;
@@ -1250,6 +1251,21 @@ button.row:focus-visible {
   font-weight: 700;
   line-height: 1.15;
   font-variant-numeric: tabular-nums;
+}
+
+/* Beside an account count: joins (green +) and deactivations (red −) in the last 30 days */
+.stat-change {
+  margin-left: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.stat-change.up {
+  color: var(--positive);
+}
+
+.stat-change.down {
+  color: var(--destructive);
 }
 
 /* A section's title with what sits beside it: the search box, or "Last 30 days" */
