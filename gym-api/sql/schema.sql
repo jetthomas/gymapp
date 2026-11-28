@@ -163,6 +163,20 @@ IF COL_LENGTH('dbo.Sets', 'Side') IS NULL
     ALTER TABLE dbo.Sets ADD Side CHAR(1) NULL CHECK (Side IN ('L', 'R'));
 GO
 
+-- Set types: 'warmup', 'drop' or 'failure'; NULL = a normal working set, as every set before this.
+-- Warm-ups don't count toward volume, muscle sets or one-rep maxes
+IF COL_LENGTH('dbo.Sets', 'Type') IS NULL
+    ALTER TABLE dbo.Sets ADD Type VARCHAR(7) NULL CHECK (Type IN ('warmup', 'drop', 'failure'));
+GO
+
+-- A member's own exercises, seen only by them: OwnerUserId is who made it; NULL = the shared library
+IF COL_LENGTH('dbo.Exercises', 'OwnerUserId') IS NULL
+    ALTER TABLE dbo.Exercises ADD OwnerUserId INT NULL REFERENCES dbo.Users(Id);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Exercises_OwnerUserId')
+    CREATE INDEX IX_Exercises_OwnerUserId ON dbo.Exercises (OwnerUserId);
+GO
+
 -- Deleting an account (DELETE /auth/erase): everything the member owns, then the member, in one
 -- transaction. gym_app has no DELETE on Users or Events (security.sql); it may only run this, and
 -- it takes no id: it deletes the member the connection is tagged with (set_user), nobody else
@@ -176,6 +190,8 @@ BEGIN
         THROW 50000, 'DeleteMember: the connection has no member', 1;
     BEGIN TRANSACTION;
     DELETE FROM dbo.Workouts WHERE UserId = @UserId;  -- their exercises and sets cascade
+    -- After the workouts, which were the only ones using them; their muscle rows cascade
+    DELETE FROM dbo.Exercises WHERE OwnerUserId = @UserId;
     DELETE FROM dbo.FoodEntries WHERE UserId = @UserId;
     DELETE FROM dbo.BodyWeights WHERE UserId = @UserId;
     DELETE FROM dbo.Profiles WHERE UserId = @UserId;

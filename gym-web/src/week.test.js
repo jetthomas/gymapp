@@ -8,8 +8,8 @@ test('a workout under half a minute says so instead of "0 min"', () => {
   assert.equal(duration(3720), '62 min');
 });
 
-// A workout at 6 pm on day `d` of November 2026, sent as the API sends it
-const at = (d) => ({ date: new Date(2026, 10, d, 18).toISOString() });
+// When a workout at 6 pm on day `d` of November 2026 started, as /me/workout-days sends it
+const at = (d) => new Date(2026, 10, d, 18).toISOString();
 const today = new Date(2026, 10, 18, 9); // Wednesday 18 November, 9 am
 
 test('the week runs Monday to Sunday', () => {

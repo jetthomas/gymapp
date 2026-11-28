@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { createExercise, updateExercise } from './api';
 import ErrorMsg from './ErrorMsg';
 import { MUSCLES } from './muscles';
 import useSubmit from './useSubmit';
@@ -43,8 +42,9 @@ function MuscleBoxes({ legend, picked, taken, onChange }) {
   );
 }
 
-// Adds an exercise, or edits `exercise` when one is given
-export default function ExerciseForm({ token, exercise, onSaved, onDelete, onCancel }) {
+// Adds an exercise, or edits `exercise` when one is given. `onSave(body)` sends it: to the shared
+// library from the Admin screen, or to the member's own list from Settings
+export default function ExerciseForm({ exercise, onSave, onSaved, onDelete, onCancel }) {
   const [name, setName] = useState(exercise?.name ?? '');
   const [equipment, setEquipment] = useState(exercise?.equipment ?? '');
   const [primary, setPrimary] = useState(exercise?.primaryMuscles ?? []);
@@ -60,8 +60,7 @@ export default function ExerciseForm({ token, exercise, onSaved, onDelete, onCan
         primaryMuscles: primary,
         secondaryMuscles: secondary,
       };
-      if (exercise) await updateExercise(token, exercise.id, body);
-      else await createExercise(token, body);
+      await onSave(body);
       onSaved();
     });
   }

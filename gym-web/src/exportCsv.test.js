@@ -16,8 +16,8 @@ test('a header, then a row per set, food and weigh-in, oldest first', () => {
           {
             name: 'Bench press',
             sets: [
-              { weightKg: 80, reps: 8, rir: 2, side: null },
-              { weightKg: 80, reps: 7, rir: null, side: null },
+              { weightKg: 80, reps: 8, rir: 2, side: null, type: 'warmup' },
+              { weightKg: 80, reps: 7, rir: null, side: null, type: null },
             ],
           },
         ],
@@ -39,12 +39,12 @@ test('a header, then a row per set, food and weigh-in, oldest first', () => {
   assert.equal(out.length, 5);
   assert.match(
     out[0],
-    /^Type,Date,Workout,Exercise,Set,Side,Weight \(kg\),Reps,RIR,Meal,Food,kcal,/,
+    /^Type,Date,Workout,Exercise,Set,Set type,Side,Weight \(kg\),Reps,RIR,Meal,Food,kcal,/,
   );
-  assert.equal(out[1], 'Food,2026-11-19,,,,,,,,Breakfast,Oats,420,18,62,10,');
-  assert.equal(out[2], 'Set,2026-11-20,Push day,Bench press,1,,80,8,2,,,,,,,');
-  assert.equal(out[3], 'Set,2026-11-20,Push day,Bench press,2,,80,7,,,,,,,,');
-  assert.equal(out[4], 'Weigh-in,2026-11-21,,,,,,,,,,,,,,80.5');
+  assert.equal(out[1], 'Food,2026-11-19,,,,,,,,,Breakfast,Oats,420,18,62,10,');
+  assert.equal(out[2], 'Set,2026-11-20,Push day,Bench press,1,Warm-up,,80,8,2,,,,,,,');
+  assert.equal(out[3], 'Set,2026-11-20,Push day,Bench press,2,,,80,7,,,,,,,,');
+  assert.equal(out[4], 'Weigh-in,2026-11-21,,,,,,,,,,,,,,,80.5');
 });
 
 test('quotes commas and quotes, and stops text being read as a formula', () => {

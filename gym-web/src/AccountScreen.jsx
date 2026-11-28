@@ -4,6 +4,7 @@ import { toAvatar } from './avatar';
 import ChangePasswordForm from './ChangePasswordForm';
 import { clock, restSeconds as savedRestSeconds } from './Draft';
 import ErrorMsg from './ErrorMsg';
+import ExerciseLibrary from './ExerciseLibrary';
 import toCsv from './exportCsv';
 import { Check, LogOut } from './icons';
 import UpgradeDialog from './UpgradeDialog';
@@ -12,6 +13,7 @@ import PasswordInput from './PasswordInput';
 import TwoFactorDisable from './TwoFactorDisable';
 import TwoFactorSetup from './TwoFactorSetup';
 import { useWaiting } from './outbox';
+import { weightUnit } from './units';
 import useSubmit from './useSubmit';
 import { dayKey } from './week';
 
@@ -44,6 +46,7 @@ export default function AccountScreen({
   const [showRir, setShowRir] = useState(() => localStorage.getItem('show-rir') === '1');
   // The same reading and default the workout timer uses
   const [restSeconds, setRestSeconds] = useState(() => String(savedRestSeconds()));
+  const [unit, setUnit] = useState(weightUnit);
   const waiting = useWaiting(token);
   const photo = useSubmit();
   const [photoSavedAt, setPhotoSavedAt] = useState(0); // a new value restarts the 3 s timer
@@ -343,7 +346,28 @@ export default function AccountScreen({
                 ))}
               </select>
             </div>
+            <div className="row static">
+              <label className="row-text" htmlFor="weight-unit">
+                Weight unit
+                <span className="row-sub">
+                  For sets, plates and body weight. Workouts already started keep their unit.
+                </span>
+              </label>
+              <select
+                id="weight-unit"
+                className="role-select"
+                value={unit}
+                onChange={(e) => {
+                  setUnit(e.target.value);
+                  localStorage.setItem('weight-unit', e.target.value);
+                }}
+              >
+                <option value="kg">kg</option>
+                <option value="lb">lb</option>
+              </select>
+            </div>
           </section>
+          <ExerciseLibrary token={token} mine />
           <section className="card split plus" aria-labelledby="plus-title">
             <div>
               <h2 id="plus-title" className="section-title">

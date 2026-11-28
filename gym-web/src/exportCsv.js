@@ -1,4 +1,5 @@
 import { MEALS } from './meals.js';
+import { typeName } from './setTypes.js';
 import { dayKey } from './week.js';
 
 const COLUMNS = [
@@ -7,6 +8,7 @@ const COLUMNS = [
   'Workout',
   'Exercise',
   'Set',
+  'Set type',
   'Side',
   'Weight (kg)',
   'Reps',
@@ -42,6 +44,8 @@ export default function toCsv({ workouts, food, bodyWeights }) {
           Workout: w.name,
           Exercise: e.name,
           Set: i + 1,
+          // Blank for a normal working set, so a spreadsheet can filter warm-ups out
+          'Set type': s.type && typeName(s.type),
           Side: s.side,
           'Weight (kg)': s.weightKg,
           Reps: s.reps,

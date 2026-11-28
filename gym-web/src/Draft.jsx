@@ -1,3 +1,5 @@
+import { fromKg, weightUnit } from './units';
+
 // The workout in progress, kept in the browser so a refresh or a dead battery doesn't lose it.
 // One per member, so on a shared phone nobody else sees it or saves it as theirs
 const keyFor = (userId) => `workout-draft-${userId}`;
@@ -6,7 +8,18 @@ const OLD_KEY = 'workout-draft';
 
 export function loadDraft(userId) {
   try {
-    return JSON.parse(localStorage.getItem(keyFor(userId)) ?? localStorage.getItem(OLD_KEY));
+    const draft = JSON.parse(localStorage.getItem(keyFor(userId)) ?? localStorage.getItem(OLD_KEY));
+    // A draft saved before lb existed: kg, in a field called weightKg
+    return (
+      draft && {
+        unit: 'kg',
+        ...draft,
+        exercises: draft.exercises.map((e) => ({
+          ...e,
+          sets: e.sets.map(({ weightKg, ...s }) => ({ weight: weightKg ?? '', ...s })),
+        })),
+      }
+    );
   } catch {
     return null;
   }
@@ -26,11 +39,55 @@ export const newDraft = () => ({
   // "Tuesday workout", so History isn't a list of identical names; the member can rename it
   name: `${new Date().toLocaleDateString(undefined, { weekday: 'long' })} workout`,
   startedAt: Date.now(),
+  // Weights are typed in this unit for the whole workout, even if Settings changes halfway
+  unit: weightUnit(),
   exercises: [],
 });
 
-// Fields are strings while typing; '' = not filled in yet
-export const newSet = () => ({ weightKg: '', reps: '', rir: '', done: false });
+// A workout done earlier and typed in afterwards: a date and a length instead of a running clock
+export const newPastDraft = () => ({
+  ...newDraft(),
+  past: true,
+  startedAt: Date.now() - 60 * 60 * 1000,
+  minutes: '60',
+});
+
+// A saved workout opened for editing: every set already ticked, in the member's unit.
+// Kept out of localStorage (editingId), so it never replaces a workout in progress
+export const editDraft = (workout, unit) => ({
+  editingId: workout.id,
+  past: true,
+  name: workout.name,
+  startedAt: new Date(workout.date).getTime(),
+  minutes: workout.durationSec ? String(Math.round(workout.durationSec / 60)) : '',
+  unit,
+  exercises: workout.exercises.map((e) => ({
+    id: e.exerciseId,
+    name: e.name,
+    equipment: e.equipment,
+    previous: [],
+    unilateral: e.sets.some((s) => s.side),
+    sets: e.sets.map((s) => ({
+      weight: String(fromKg(s.weightKg, unit)),
+      kg: s.weightKg, // saved back unchanged unless the weight is edited (setKg)
+      reps: String(s.reps),
+      rir: s.rir == null ? '' : String(s.rir),
+      side: s.side,
+      type: s.type,
+      done: true,
+    })),
+  })),
+});
+
+// Fields are strings while typing; '' = not filled in yet. `weight` is in the draft's unit
+export const newSet = () => ({ weight: '', reps: '', rir: '', done: false });
+
+// A time as a datetime-local box shows it, "2026-11-28T18:30", in the phone's own time zone
+export function toLocalInput(ms) {
+  const d = new Date(ms);
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+}
 
 // The rest timer's length in seconds, set on the Account screen; 90 until the member picks another
 export const restSeconds = () => Number(localStorage.getItem('rest-seconds')) || 90;

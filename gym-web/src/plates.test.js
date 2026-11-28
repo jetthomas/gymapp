@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import plates from './plates.js';
+import plates, { LB_PLATES } from './plates.js';
+
+test('works in lb with a 45 lb bar', () => {
+  assert.deepEqual(plates(225, 45, LB_PLATES), { side: [45, 45], total: 225 });
+  assert.deepEqual(plates(185, 45, LB_PLATES), { side: [45, 25], total: 185 });
+  assert.deepEqual(plates(140, 45, LB_PLATES), { side: [45, 2.5], total: 140 });
+  // 46.25 lb a side needs a 1.25 lb plate, which lb sets don't have: the nearest below
+  assert.deepEqual(plates(137.5, 45, LB_PLATES), { side: [45], total: 135 });
+});
 
 test('loads the heaviest plates first', () => {
   assert.deepEqual(plates(100), { side: [25, 15], total: 100 });

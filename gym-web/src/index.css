@@ -1250,6 +1250,11 @@ button.row:focus-visible {
   gap: 12px;
 }
 
+/* The text on the left and its one button at the right edge, like the .card.split cards */
+.section-head.split-head {
+  justify-content: space-between;
+}
+
 .section-head .link-btn {
   margin: 0 0 0 auto;
 }
@@ -2016,6 +2021,36 @@ span.role-select {
   font-weight: 700;
 }
 
+/* The set's number is a button: one tap steps its type (W warm-up, D drop set, F to failure) */
+.set-type {
+  min-width: 32px;
+  min-height: 36px;
+  padding: 0 4px;
+  font: inherit;
+  font-weight: 700;
+  color: var(--foreground);
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+/* A past workout's date and time need more room than its minutes */
+.field-pair .field.past-when {
+  flex: 2;
+}
+
+/* A warm-up reads as lighter work than the sets that count */
+.set-type.warmup {
+  color: var(--muted-foreground);
+}
+
+@media (hover: hover) {
+  .set-type:hover {
+    background: var(--accent);
+  }
+}
+
 .set-table .prev {
   font-size: 0.875rem;
   white-space: nowrap;
@@ -2185,6 +2220,12 @@ html:has(.rest-bar) {
 
   .set-table input {
     min-width: 36px;
+    padding-inline: 2px;
+  }
+
+  /* "176.4 × 8" over two lines, so a weight in lb has room in its box */
+  .set-table .prev {
+    white-space: normal;
   }
 
   .tick {

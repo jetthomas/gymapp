@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getWorkouts } from './api';
+import { getWorkoutDays, getWorkouts } from './api';
 import CaloriesCard from './CaloriesCard';
 import ConfirmDialog from './ConfirmDialog';
 import ErrorMsg from './ErrorMsg';
@@ -14,7 +14,10 @@ import WorkoutScreen from './WorkoutScreen';
 // The member's home screen: this week, the last workout, and every workout before it
 export default function HomeScreen({ token, showCalories, showWorkout, onOpenCalories, plus }) {
   const [view, setView] = useState('home'); // 'home', 'active', or the id of a workout to show
-  const [workouts, setWorkouts] = useState(null); // null = still loading
+  const [workouts, setWorkouts] = useState(null); // History, a page of 200 at a time; null = still loading
+  const [more, setMore] = useState(false); // there may be older workouts than History shows
+  const [days, setDays] = useState(null); // when every workout started, for the streak
+  const [editing, setEditing] = useState(null); // a saved workout open for editing
   const [error, setError] = useState('');
   const waiting = useWaiting(token);
   const refused = useRefused(token);
@@ -26,15 +29,42 @@ export default function HomeScreen({ token, showCalories, showWorkout, onOpenCal
     getWorkouts(token)
       .then((list) => {
         setWorkouts(list);
+        setMore(list.length === 200);
         setError('');
       })
       .catch((err) => setError(err.message));
+    // Every workout, not just History's first page; if it fails (an API not updated yet) that page will do
+    getWorkoutDays(token)
+      .then(setDays)
+      .catch(() => setDays(null));
   }, [token, view, waiting]);
 
+  async function showOlder() {
+    try {
+      const page = await getWorkouts(token, workouts.length);
+      // Merged by id: a workout saved meanwhile shifts the pages, which would repeat one
+      setWorkouts((list) => [...list, ...page.filter((p) => !list.some((w) => w.id === p.id))]);
+      setMore(page.length === 200);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  if (editing) {
+    return <WorkoutScreen token={token} saved={editing} onDone={() => setEditing(null)} />;
+  }
   if (view === 'active')
     return <WorkoutScreen token={token} start onDone={() => setView('home')} />;
   if (view !== 'home') {
-    return <WorkoutDetail token={token} plus={plus} id={view} onBack={() => setView('home')} />;
+    return (
+      <WorkoutDetail
+        token={token}
+        plus={plus}
+        id={view}
+        onBack={() => setView('home')}
+        onEdit={setEditing}
+      />
+    );
   }
 
   return (
@@ -82,7 +112,7 @@ export default function HomeScreen({ token, showCalories, showWorkout, onOpenCal
 
       {workouts && (
         <>
-          <WeekCard workouts={workouts} />
+          <WeekCard dates={days ?? workouts.map((w) => w.date)} />
           <div className="dash">
             {showWorkout && (
               <WorkoutCard
@@ -117,6 +147,11 @@ export default function HomeScreen({ token, showCalories, showWorkout, onOpenCal
                     </button>
                   ))}
                 </div>
+                {more && (
+                  <button className="link-btn" type="button" onClick={showOlder}>
+                    Show older workouts
+                  </button>
+                )}
               </section>
             )}
           </div>

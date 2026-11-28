@@ -1,24 +1,31 @@
 import { useState } from 'react';
 import { decimal } from './numberInput';
-import plates, { PLATES } from './plates';
+import plates, { LB_PLATES, PLATES } from './plates';
 import useModal, { closeOnBackdrop } from './useModal';
 
-// Shows which plates go on each side of the bar for a weight
-export default function PlateSheet({ weightKg, onClose }) {
+// The plates and bars in each unit, and where this device remembers the biggest plate to load
+const KIT = {
+  kg: { plates: PLATES, bars: [20, 15], key: 'top-plate' },
+  lb: { plates: LB_PLATES, bars: [45, 35], key: 'top-plate-lb' },
+};
+
+// Shows which plates go on each side of the bar for a weight, in the workout's unit
+export default function PlateSheet({ weight, unit, onClose }) {
+  const kit = KIT[unit];
   const ref = useModal();
-  const [target, setTarget] = useState(weightKg);
-  const [bar, setBar] = useState(20);
+  const [target, setTarget] = useState(weight);
+  const [bar, setBar] = useState(kit.bars[0]);
   // The biggest plate to load, remembered on this device; smaller plates fill the gap
-  const [top, setTop] = useState(() => Number(localStorage.getItem('top-plate')) || PLATES[0]);
+  const [top, setTop] = useState(() => Number(localStorage.getItem(kit.key)) || kit.plates[0]);
   const { side, total } = plates(
     Number(target) || 0,
     bar,
-    PLATES.filter((p) => p <= top),
+    kit.plates.filter((p) => p <= top),
   );
 
   function pick(p) {
     setTop(p);
-    localStorage.setItem('top-plate', p);
+    localStorage.setItem(kit.key, p);
   }
 
   return (
@@ -34,7 +41,7 @@ export default function PlateSheet({ weightKg, onClose }) {
       <h2 id="plates-title">Plates</h2>
       <div className="plate-inputs">
         <div className="field">
-          <label htmlFor="plate-target">Weight (kg)</label>
+          <label htmlFor="plate-target">Weight ({unit})</label>
           <input
             id="plate-target"
             inputMode="decimal"
@@ -50,15 +57,18 @@ export default function PlateSheet({ weightKg, onClose }) {
             value={bar}
             onChange={(e) => setBar(Number(e.target.value))}
           >
-            <option value={20}>20 kg</option>
-            <option value={15}>15 kg</option>
+            {kit.bars.map((b) => (
+              <option key={b} value={b}>
+                {b} {unit}
+              </option>
+            ))}
           </select>
         </div>
       </div>
       <div className="plate-have">
         <span id="plate-have">Biggest plate</span>
         <div className="chips" role="group" aria-labelledby="plate-have">
-          {PLATES.map((p) => (
+          {kit.plates.map((p) => (
             <button
               key={p}
               className="chip"
@@ -74,14 +84,14 @@ export default function PlateSheet({ weightKg, onClose }) {
       {/* The picture repeats the sentence under it, so it is hidden from screen readers */}
       <div className="plates" aria-hidden="true">
         {side.map((p, i) => (
-          <span key={i} style={{ '--size': p / 25 }}>
+          <span key={i} style={{ '--size': p / kit.plates[0] }}>
             {p}
           </span>
         ))}
       </div>
       <p role="status">
         {side.length ? `Each side: ${side.join(', ')}` : 'Just the bar.'}
-        {total !== Number(target) && ` That makes ${total} kg, the closest these plates get.`}
+        {total !== Number(target) && ` That makes ${total} ${unit}, the closest these plates get.`}
       </p>
       <div className="sheet-actions">
         <button className="pill-btn filled" type="button" onClick={onClose}>

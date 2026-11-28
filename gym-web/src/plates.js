@@ -1,5 +1,7 @@
 // Standard plates in kg, heaviest first
 export const PLATES = [25, 20, 15, 10, 5, 2.5, 1.25];
+// And in lb. Every one is a whole number of 1.25 steps, so plates() below works for them unchanged
+export const LB_PLATES = [45, 35, 25, 10, 5, 2.5];
 
 // The fewest plates for EACH side of the bar, heaviest first, and the weight they really make.
 // `have` is the plates the gym has. `total` is under `target` when the target can't be made (61 kg),

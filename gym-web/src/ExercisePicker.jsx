@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getExercises } from './api';
 import ErrorMsg from './ErrorMsg';
 import { ExerciseRows, ExerciseSearch } from './ExerciseSearch';
+import { userIdOf } from './outbox';
 import useModal, { closeOnBackdrop } from './useModal';
 
 // The sheet for adding an exercise to the workout in progress
@@ -14,14 +15,15 @@ export default function ExercisePicker({ token, onPick, onClose }) {
 
   // The whole library once (about 900 exercises); searching then happens here, with no request per key
   useEffect(() => {
+    // Kept for when there's no signal; per member, because it holds their own exercises too
+    const key = `exercises-${userIdOf(token)}`;
     getExercises(token)
       .then((list) => {
         setLibrary(list);
-        // Kept for when there's no signal
-        localStorage.setItem('exercises', JSON.stringify(list));
+        localStorage.setItem(key, JSON.stringify(list));
       })
       .catch((err) => {
-        const kept = JSON.parse(localStorage.getItem('exercises') ?? 'null');
+        const kept = JSON.parse(localStorage.getItem(key) ?? 'null');
         if (kept) setLibrary(kept);
         else setError(err.message);
       });

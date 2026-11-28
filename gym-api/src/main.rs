@@ -32,7 +32,10 @@ use crate::auth::{
     login, logout, put_avatar, reactivate_account, refresh, register, reset_password, verify_email,
 };
 use crate::billing::{create_checkout, create_portal, webhook};
-use crate::exercises::{create_exercise, delete_exercise, list_exercises, update_exercise};
+use crate::exercises::{
+    create_exercise, create_my_exercise, delete_exercise, delete_my_exercise, list_exercises,
+    update_exercise, update_my_exercise,
+};
 use crate::extractors::login_limiter;
 use crate::nutrition::{
     add_food, barcode_food, delete_food, delete_health, get_health, list_food, put_health,
@@ -41,8 +44,8 @@ use crate::nutrition::{
 use crate::state::{AppState, ProxyIpKeyExtractor, connect};
 use crate::two_factor::{totp_confirm, totp_disable, totp_setup, totp_verify};
 use crate::workouts::{
-    create_workout, exercise_progress, export_data, get_workout, last_sets, list_workouts,
-    muscle_sets,
+    create_workout, delete_workout, exercise_progress, export_data, get_workout, last_sets,
+    list_workouts, muscle_sets, update_workout, workout_days,
 };
 
 fn env_or(key: &str, default: &str) -> String {
@@ -238,7 +241,16 @@ async fn main() {
         .route("/workouts", get(list_workouts).post(create_workout))
         .route("/me/muscles", get(muscle_sets))
         .route("/me/export", get(export_data))
-        .route("/workouts/{id}", get(get_workout))
+        .route("/me/workout-days", get(workout_days))
+        .route("/me/exercises", post(create_my_exercise))
+        .route(
+            "/me/exercises/{id}",
+            put(update_my_exercise).delete(delete_my_exercise),
+        )
+        .route(
+            "/workouts/{id}",
+            get(get_workout).put(update_workout).delete(delete_workout),
+        )
         .route("/exercises/{id}/last", get(last_sets))
         .route(
             "/admin/exercises/{id}",

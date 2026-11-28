@@ -99,7 +99,26 @@ export const getUsers = (token) => request('/admin/users', { token });
 
 export const getWorkout = (token, id) => request(`/workouts/${id}`, { token });
 
-export const getWorkouts = (token) => request('/workouts', { token });
+// History, 200 at a time, newest first; `offset` skips that many to get older ones
+export const getWorkouts = (token, offset = 0) =>
+  request(offset ? `/workouts?offset=${offset}` : '/workouts', { token });
+
+// When every one of the member's workouts started, for the streak
+export const getWorkoutDays = (token) => request('/me/workout-days', { token });
+
+// Replaces a saved workout (same body as createWorkout, without clientId)
+export const updateWorkout = (token, id, workout) =>
+  request(`/workouts/${id}`, { method: 'PUT', token, body: workout });
+
+export const deleteWorkout = (token, id) => request(`/workouts/${id}`, { method: 'DELETE', token });
+
+// The member's own exercises, which only they see (Settings → My exercises)
+export const createMyExercise = (token, exercise) =>
+  request('/me/exercises', { method: 'POST', token, body: exercise });
+export const updateMyExercise = (token, id, exercise) =>
+  request(`/me/exercises/${id}`, { method: 'PUT', token, body: exercise });
+export const deleteMyExercise = (token, id) =>
+  request(`/me/exercises/${id}`, { method: 'DELETE', token });
 
 export const login = (email, password, remember) =>
   request('/auth/login', { method: 'POST', body: { email, password, remember } });

@@ -123,6 +123,9 @@ pub struct NewSet {
     pub reps: i32,
     pub rir: Option<i32>, // reps in reserve; only sent when the member has "Show RIR" on
     pub side: Option<String>, // "L" or "R" for one side of a unilateral exercise; None = both
+    // "warmup", "drop" or "failure"; None = a normal working set (and what older apps send)
+    #[serde(rename = "type")]
+    pub set_type: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -163,6 +166,8 @@ pub struct LoggedSet {
     pub reps: i32,
     pub rir: Option<i32>,
     pub side: Option<String>,
+    #[serde(rename = "type")]
+    pub set_type: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -170,7 +175,15 @@ pub struct LoggedSet {
 pub struct LoggedExercise {
     pub exercise_id: i32,
     pub name: String,
+    // So a workout opened for editing gets its plate calculator and Unilateral box back
+    pub equipment: Option<String>,
     pub sets: Vec<LoggedSet>,
+}
+
+// GET /workouts?offset=200: the next page of History, older than the first `offset` workouts
+#[derive(Deserialize)]
+pub struct PageQuery {
+    pub offset: Option<i32>,
 }
 
 // One workout with everything logged in it
@@ -203,6 +216,7 @@ pub struct Exercise {
     pub equipment: Option<String>,
     pub primary_muscles: Vec<String>,
     pub secondary_muscles: Vec<String>,
+    pub mine: bool, // the member added it themselves (Settings → My exercises); only they see it
 }
 
 #[derive(Serialize)]
