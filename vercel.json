@@ -1,0 +1,24 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["syd1"],
+  "services": {
+    "gym-api": {
+      "root": "gym-api",
+      "runtime": "rust",
+      "routes": [
+        {
+          "src": "/api/(.*)",
+          "transforms": [{ "type": "request.path", "op": "set", "args": "/$1" }]
+        }
+      ]
+    },
+    "gym-web": {
+      "root": "gym-web",
+      "framework": "vite"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": { "service": "gym-api" } },
+    { "source": "/(.*)", "destination": { "service": "gym-web" } }
+  ]
+}

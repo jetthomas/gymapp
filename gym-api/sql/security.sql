@@ -103,3 +103,8 @@ ALTER SECURITY POLICY Security.WorkoutPolicy
     ADD FILTER PREDICATE Security.fn_workout_owner(UserId) ON dbo.SavedMeals,
     ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.SavedMeals AFTER INSERT;
 GO
+
+-- Rate limits. Already set up? Run just this part, after schema.sql has made the table.
+-- DELETE is for the hourly cleanup of rows whose tries are all back
+GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.RateLimits TO gym_app;
+GO

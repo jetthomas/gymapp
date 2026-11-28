@@ -9,7 +9,9 @@ use crate::models::{
     CodeRequest, DisableRequest, PasswordOnly, RecoveryCodes, TotpSetup, VerifyRequest,
 };
 use crate::passwords::{hash_password, make_totp, recovery_code, totp_for, use_totp_code};
-use crate::state::{ApiResult, AppState, col, connect, internal, one_row, send_security_notice};
+use crate::state::{
+    ApiResult, AppState, allow, col, connect, internal, one_row, send_security_notice,
+};
 use crate::tokens::{challenge_key, make_token, read_token};
 
 pub async fn totp_setup(
@@ -120,15 +122,16 @@ pub async fn totp_verify(
     };
     let (id, _) =
         read_token(&r.challenge, &challenge_key(&state.jwt_secret)).ok_or_else(expired)?;
-    // Counted per user, not per IP, so an attacker with the password can't spread guesses out
-    if state.totp_attempts.check_key(&id).is_err() {
+    let mut db = connect(&state).await.map_err(internal)?;
+    // Counted per user, not per IP, so an attacker with the password can't spread guesses out:
+    // 5 tries, then one more each minute
+    if !allow(&mut db, &format!("totp:{id}"), 60, 5).await? {
         return Err((
             StatusCode::TOO_MANY_REQUESTS,
             "Too many tries. Wait a minute and try again.".into(),
         ));
     }
 
-    let mut db = connect(&state).await.map_err(internal)?;
     let row = one_row(
         &mut db,
         "SELECT Email, TotpSecret, IsAdmin, SessionVersion, Active FROM dbo.Users WHERE Id = @P1",

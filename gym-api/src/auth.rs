@@ -77,13 +77,13 @@ pub async fn register(
             let id: i32 = row
                 .and_then(|r| r.get(0))
                 .ok_or_else(|| internal("insert returned no Id"))?;
-            send_verify_mail(&state, email.clone(), id)?;
+            send_verify_mail(&state, &mut db, email.clone(), id).await?;
             Ok(StatusCode::OK)
         }
         // 2627 / 2601 = unique constraint violated, so the email already exists.
         // Answer exactly as for a new account, so sign-up can't reveal who's a member
         Err(tiberius::error::Error::Server(e)) if e.code() == 2627 || e.code() == 2601 => {
-            if may_mail(&state, &email) {
+            if may_mail(&mut db, &email).await? {
                 send_mail(
                     state.clone(),
                     email.clone(),
@@ -105,13 +105,13 @@ pub async fn login(
 ) -> ApiResult<Response> {
     let mut db = connect(&state).await.map_err(internal)?;
     let ip = client_ip(peer.ip(), &headers);
-    let account = verify_credentials(&state, &mut db, &c, ip).await?;
+    let account = verify_credentials(&mut db, &c, ip).await?;
     // Checked after the password so a stranger can't probe which emails are deactivated
     if !account.active {
         return Err((StatusCode::FORBIDDEN, "Account is deactivated.".into()));
     }
     if !account.email_verified {
-        send_verify_mail(&state, c.email.to_lowercase(), account.id)?;
+        send_verify_mail(&state, &mut db, c.email.to_lowercase(), account.id).await?;
         // 409, not 403: the frontend reads 403 as "deactivated"
         return Err((
             StatusCode::CONFLICT,
@@ -176,9 +176,12 @@ pub async fn forgot_password(
         &[&email],
     )
     .await?;
-    // The answer is the same either way, so the cap reveals nothing
+    // Spent whether or not the account exists, so the extra query's time doesn't tell them apart
+    // (an address longer than Users.Email can't be anyone's). The answer is the same either way,
+    // so the cap reveals nothing
+    let may = fits(&email, 256) && may_mail(&mut db, &email).await?;
     if let Some(row) = row
-        && may_mail(&state, &email)
+        && may
     {
         let id: i32 = col(&row, "Id")?;
         let stored: &str = col(&row, "PasswordHash")?;
@@ -291,7 +294,7 @@ pub async fn reactivate_account(
 ) -> ApiResult<StatusCode> {
     let mut db = connect(&state).await.map_err(internal)?;
     let ip = client_ip(peer.ip(), &headers);
-    let account = verify_credentials(&state, &mut db, &c, ip).await?;
+    let account = verify_credentials(&mut db, &c, ip).await?;
     // Bump SessionVersion so tokens from before the deactivation don't come back to life.
     // Active = 0 means an already-active account isn't touched, so this can't sign anyone out.
     db.execute(

@@ -5,32 +5,28 @@ use std::{
 };
 
 use axum::{
-    extract::ConnectInfo,
-    http::{HeaderMap, Request, StatusCode},
+    extract::{ConnectInfo, Request, State},
+    http::{HeaderMap, StatusCode},
+    middleware::Next,
+    response::Response,
 };
 use chrono::{DateTime, NaiveDateTime, Utc};
-use governor::DefaultKeyedRateLimiter;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor, message::Mailbox};
 use tiberius::{Client, Config, Row, ToSql};
 use tokio::net::TcpStream;
 use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
-use tower_governor::{GovernorError, key_extractor::KeyExtractor};
 
 use crate::tokens::make_verify_token;
+
+tokio::task_local! {
+    // The Vercel request being answered, when the API runs there (serve_on_vercel); see send_mail
+    pub static VERCEL_REQUEST: vercel_runtime::AppState;
+}
 
 pub struct AppState {
     pub db_config: Config,
     pub jwt_secret: String,
     pub frontend_url: String,
-    // Wrong-code budget per user for 2FA, so spreading guesses over many IPs doesn't help
-    // shortcut: in memory, so it resets on restart and isn't shared between processes;
-    // move it to a DB column if the API ever runs as more than one process
-    pub totp_attempts: DefaultKeyedRateLimiter<i32>,
-    // Password tries per (account, client IP); see login_limiter.
-    // shortcut: in memory like totp_attempts, with the same limit and the same upgrade path
-    pub login_attempts: DefaultKeyedRateLimiter<(i32, IpAddr)>,
-    // Caps mail that anyone can trigger, per address, so the app can't be used to flood an inbox
-    pub mail_attempts: DefaultKeyedRateLimiter<String>,
     pub mailer: AsyncSmtpTransport<Tokio1Executor>,
     pub mail_from: Mailbox,
     pub http: reqwest::Client,
@@ -41,27 +37,58 @@ pub struct AppState {
     pub food_user_agent: String,
 }
 
-// The API only listens on 127.0.0.1 behind a proxy, so the client IP is the last
+// True while `bucket` has tries left: up to `burst` at once, then one more every `every_secs`.
+// In the database, not memory, so every API process counts together: on Vercel there are many.
+// Tat is when the bucket has every try back (GCRA); a try fits while Tat is under burst - 1 steps
+// ahead, and moves it one step on. HOLDLOCK makes two racing tries take turns
+pub async fn allow(db: &mut Db, bucket: &str, every_secs: i32, burst: i32) -> ApiResult<bool> {
+    let spent = one_row(
+        db,
+        "DECLARE @now DATETIME2 = SYSUTCDATETIME();
+         MERGE dbo.RateLimits WITH (HOLDLOCK) AS r
+         USING (SELECT @P1 AS Bucket) AS s ON r.Bucket = s.Bucket
+         WHEN MATCHED AND r.Tat <= DATEADD(SECOND, @P2 * (@P3 - 1), @now) THEN
+             UPDATE SET Tat = DATEADD(SECOND, @P2, IIF(r.Tat > @now, r.Tat, @now))
+         WHEN NOT MATCHED THEN
+             INSERT (Bucket, Tat) VALUES (@P1, DATEADD(SECOND, @P2, @now))
+         OUTPUT 1;",
+        &[&bucket, &every_secs, &burst],
+    )
+    .await?;
+    Ok(spent.is_some())
+}
+
+// One new attempt every 2 seconds per client IP, bursts of up to 30:
+// room for a gym's members logging in over one shared Wi-Fi
+pub async fn ip_limit(
+    State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    req: Request,
+    next: Next,
+) -> ApiResult<Response> {
+    let ip = client_ip(peer.ip(), req.headers());
+    // Its own connection, closed before the route opens one
+    let allowed = allow(
+        &mut connect(&state).await.map_err(internal)?,
+        &format!("ip:{ip}"),
+        2,
+        30,
+    )
+    .await?;
+    if !allowed {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many tries. Wait a moment and try again.".into(),
+        ));
+    }
+    Ok(next.run(req).await)
+}
+
+// The API only listens on 127.0.0.1 behind a proxy (Vite, Caddy or Vercel's), so the client IP is the last
 // X-Forwarded-For entry that isn't this machine. Earlier entries come from the client and can be faked.
 // Loopback entries are skipped: behind a local tunnel (cloudflared -> Vite) Vite adds 127.0.0.1,
 // and the real visitor is the entry Cloudflare added just before it.
-#[derive(Clone)]
-pub struct ProxyIpKeyExtractor;
-
-impl KeyExtractor for ProxyIpKeyExtractor {
-    type Key = IpAddr;
-
-    fn extract<T>(&self, req: &Request<T>) -> Result<IpAddr, GovernorError> {
-        let peer = req
-            .extensions()
-            .get::<ConnectInfo<SocketAddr>>()
-            .map(|c| c.0.ip())
-            .ok_or(GovernorError::UnableToExtractKey)?;
-        Ok(client_ip(peer, req.headers()))
-    }
-}
-
-// The client's IP as the rate limits see it; the per-account login limit uses it too
+// The client's IP as the rate limits see it
 pub fn client_ip(peer: IpAddr, headers: &HeaderMap) -> IpAddr {
     // Only our proxy (on this machine) may tell us the client's IP
     let ip = if peer.is_loopback() {
@@ -212,7 +239,7 @@ pub fn internal<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
 
 // Sends in the background: the response must not wait, or its timing would reveal who has an account
 pub fn send_mail(state: Arc<AppState>, to: String, subject: &'static str, body: String) {
-    tokio::spawn(async move {
+    let job = async move {
         let Ok(to) = to.parse() else { return };
         let msg = Message::builder()
             .from(state.mail_from.clone())
@@ -227,17 +254,31 @@ pub fn send_mail(state: Arc<AppState>, to: String, subject: &'static str, body: 
             }
             Err(e) => eprintln!("mail error: {e}"),
         }
-    });
+    };
+    // Vercel can pause the instance once the response is out, stranding a spawned task;
+    // wait_until keeps the request open until the mail has gone
+    match VERCEL_REQUEST.try_with(Clone::clone) {
+        Ok(vercel) => vercel.wait_until(job),
+        Err(_) => {
+            tokio::spawn(job);
+        }
+    }
 }
 
-// False once an address has had its share of mail that anyone can trigger
-pub fn may_mail(state: &AppState, email: &str) -> bool {
-    state.mail_attempts.check_key(&email.to_string()).is_ok()
+// False once an address has had its share of mail that anyone can trigger: 3, then one more
+// every 20 minutes, so the app can't be used to flood an inbox
+pub async fn may_mail(db: &mut Db, email: &str) -> ApiResult<bool> {
+    allow(db, &format!("mail:{email}"), 20 * 60, 3).await
 }
 
 // The same confirmation email for a new sign-up and for a login before the address is confirmed
-pub fn send_verify_mail(state: &Arc<AppState>, email: String, user_id: i32) -> ApiResult<()> {
-    if !may_mail(state, &email) {
+pub async fn send_verify_mail(
+    state: &Arc<AppState>,
+    db: &mut Db,
+    email: String,
+    user_id: i32,
+) -> ApiResult<()> {
+    if !may_mail(db, &email).await? {
         return Ok(());
     }
     let token = make_verify_token(user_id, &state.jwt_secret).map_err(internal)?;
@@ -272,73 +313,41 @@ mod tests {
 
     #[test]
     fn client_ip_is_the_entry_our_proxy_added() {
-        let req = |xff: Option<&str>| {
-            let mut b = Request::builder();
-            if let Some(v) = xff {
-                b = b.header("x-forwarded-for", v);
-            }
-            let mut r = b.body(()).unwrap();
-            r.extensions_mut()
-                .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 5173))));
-            r
-        };
         let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+        let from_peer = |peer: &str, xff: Option<&str>| {
+            let mut headers = HeaderMap::new();
+            if let Some(v) = xff {
+                headers.insert("x-forwarded-for", v.parse().unwrap());
+            }
+            client_ip(ip(peer), &headers)
+        };
+        // through our proxy on this machine
+        let req = |xff| from_peer("127.0.0.1", xff);
         // the client faked the first entry; the proxy appended the real one
-        assert_eq!(
-            ProxyIpKeyExtractor
-                .extract(&req(Some("6.6.6.6, 203.0.113.9")))
-                .unwrap(),
-            ip("203.0.113.9")
-        );
-        assert_eq!(
-            ProxyIpKeyExtractor
-                .extract(&req(Some("203.0.113.9")))
-                .unwrap(),
-            ip("203.0.113.9")
-        );
+        assert_eq!(req(Some("6.6.6.6, 203.0.113.9")), ip("203.0.113.9"));
+        assert_eq!(req(Some("203.0.113.9")), ip("203.0.113.9"));
         // behind a local tunnel the last entry is Vite's 127.0.0.1; the visitor is the one before it
         for xff in [
             "6.6.6.6, 203.0.113.9, 127.0.0.1",
             "203.0.113.9, ::ffff:127.0.0.1",
             "203.0.113.9, ::1",
         ] {
-            assert_eq!(
-                ProxyIpKeyExtractor.extract(&req(Some(xff))).unwrap(),
-                ip("203.0.113.9"),
-                "{xff}"
-            );
+            assert_eq!(req(Some(xff)), ip("203.0.113.9"), "{xff}");
         }
         // only loopback entries: fall back to the peer
-        assert_eq!(
-            ProxyIpKeyExtractor
-                .extract(&req(Some("127.0.0.1")))
-                .unwrap(),
-            ip("127.0.0.1")
-        );
+        assert_eq!(req(Some("127.0.0.1")), ip("127.0.0.1"));
         // no header (e.g. curl straight to the API on this machine): fall back to the peer
-        assert_eq!(
-            ProxyIpKeyExtractor.extract(&req(None)).unwrap(),
-            ip("127.0.0.1")
-        );
+        assert_eq!(req(None), ip("127.0.0.1"));
 
-        let from_peer = |peer: SocketAddr, xff: &str| {
-            let mut r = Request::builder()
-                .header("x-forwarded-for", xff)
-                .body(())
-                .unwrap();
-            r.extensions_mut().insert(ConnectInfo(peer));
-            ProxyIpKeyExtractor.extract(&r).unwrap()
-        };
         // the peer isn't our proxy, so its header is ignored
         assert_eq!(
-            from_peer(SocketAddr::from(([198, 51, 100, 7], 1)), "203.0.113.9"),
+            from_peer("198.51.100.7", Some("203.0.113.9")),
             ip("198.51.100.7")
         );
         // two IPv6 addresses in the same /64 share one bucket
-        let v6 = |s: &str| SocketAddr::new(ip(s), 1);
         assert_eq!(
-            from_peer(v6("2001:db8:1:2::1"), ""),
-            from_peer(v6("2001:db8:1:2:ffff::9"), "")
+            from_peer("2001:db8:1:2::1", Some("")),
+            from_peer("2001:db8:1:2:ffff::9", Some(""))
         );
     }
 }
