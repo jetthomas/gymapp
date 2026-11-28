@@ -16,9 +16,7 @@ mod workouts;
 use std::{env, net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{
-    Router,
-    extract::ConnectInfo,
-    middleware,
+    Router, middleware,
     routing::{delete, get, post, put},
 };
 use lettre::{
@@ -26,8 +24,6 @@ use lettre::{
     transport::smtp::authentication::Credentials as SmtpCredentials,
 };
 use tiberius::{AuthMethod, Config};
-use tower::{Layer, ServiceExt};
-use vercel_runtime::axum::VercelLayer;
 
 use crate::admin::{admin_stats, create_reset_link, list_users, reactivate_user, set_admin};
 use crate::auth::{
@@ -45,7 +41,7 @@ use crate::nutrition::{
     put_weight, recent_food, update_food,
 };
 use crate::routines::{create_routine, delete_routine, list_routines, update_routine};
-use crate::state::{AppState, VERCEL_REQUEST, batch, connect, internal, ip_limit};
+use crate::state::{AppState, batch, connect, internal, ip_limit};
 use crate::two_factor::{totp_confirm, totp_disable, totp_setup, totp_verify};
 use crate::workouts::{
     best_lift, create_workout, delete_workout, exercise_progress, export_data, get_workout,
@@ -106,15 +102,16 @@ fn db_config() -> Config {
     db_config
 }
 
-// Fails fast at startup when SQL Server can't be reached. The tables come from sql/schema.sql
-async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
-    connect(state)
-        .await?
-        .simple_query("SELECT 1")
-        .await?
-        .into_results()
-        .await?;
-    Ok(())
+// Fails fast at startup when SQL Server can't be reached or isn't set up as the API needs.
+// The tables come from sql/schema.sql
+async fn init_db(state: &AppState) {
+    let mut db = connect(state)
+        .await
+        .expect("could not connect to SQL Server");
+    // Every login, sign-up and refresh is counted here; without it they'd all answer "server error"
+    batch(&mut db, "SELECT TOP 0 Bucket FROM dbo.RateLimits")
+        .await
+        .expect("dbo.RateLimits is missing or gym_app can't use it: run its parts of sql/schema.sql and sql/security.sql");
 }
 
 #[tokio::main]
@@ -174,9 +171,7 @@ async fn main() {
         food_user_agent: env_required("FOOD_USER_AGENT"),
     });
 
-    init_db(&state)
-        .await
-        .expect("could not connect to SQL Server");
+    init_db(&state).await;
 
     // A rate-limit row past its Tat has every try back, the same as no row; drop those so the
     // table stays small. Each process does it, which is harmless
@@ -268,10 +263,6 @@ async fn main() {
         .merge(limited)
         .with_state(state);
 
-    // vercel_runtime's own signals: VERCEL_IPC_PATH on Vercel, VERCEL_DEV under `vercel dev`
-    if env::var_os("VERCEL_IPC_PATH").is_some() || env::var_os("VERCEL_DEV").is_some() {
-        return serve_on_vercel(app).await;
-    }
     let addr = env_or("BIND_ADDR", "127.0.0.1:5080");
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
@@ -283,29 +274,6 @@ async fn main() {
     )
     .await
     .unwrap();
-}
-
-// On Vercel the API is one function: vercel_runtime takes the requests and hands each to the router
-async fn serve_on_vercel(app: Router) {
-    let app = VercelLayer::new().layer(app);
-    vercel_runtime::run(vercel_runtime::service_fn(
-        move |mut req: vercel_runtime::Request, vercel: vercel_runtime::AppState| {
-            let app = app.clone();
-            async move {
-                // vercel_runtime only takes connections from Vercel's proxy on 127.0.0.1 and doesn't
-                // pass the peer on, so this is the true peer: client_ip then reads the visitor
-                // from X-Forwarded-For, which Vercel overwrites, as it does behind Vite or Caddy
-                req.extensions_mut()
-                    .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))));
-                // Lets send_mail reach this request's wait_until
-                VERCEL_REQUEST
-                    .scope(vercel.clone(), app.oneshot((vercel, req)))
-                    .await
-            }
-        },
-    ))
-    .await
-    .expect("vercel_runtime stopped");
 }
 
 #[cfg(test)]

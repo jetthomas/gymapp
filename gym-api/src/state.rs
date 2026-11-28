@@ -18,11 +18,6 @@ use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 
 use crate::tokens::make_verify_token;
 
-tokio::task_local! {
-    // The Vercel request being answered, when the API runs there (serve_on_vercel); see send_mail
-    pub static VERCEL_REQUEST: vercel_runtime::AppState;
-}
-
 pub struct AppState {
     pub db_config: Config,
     pub jwt_secret: String,
@@ -38,7 +33,7 @@ pub struct AppState {
 }
 
 // True while `bucket` has tries left: up to `burst` at once, then one more every `every_secs`.
-// In the database, not memory, so every API process counts together: on Vercel there are many.
+// In the database, not memory, so every API process counts together.
 // Tat is when the bucket has every try back (GCRA); a try fits while Tat is under burst - 1 steps
 // ahead, and moves it one step on. HOLDLOCK makes two racing tries take turns
 pub async fn allow(db: &mut Db, bucket: &str, every_secs: i32, burst: i32) -> ApiResult<bool> {
@@ -84,7 +79,7 @@ pub async fn ip_limit(
     Ok(next.run(req).await)
 }
 
-// The API only listens on 127.0.0.1 behind a proxy (Vite, Caddy or Vercel's), so the client IP is the last
+// The API only listens on 127.0.0.1 behind a proxy (Vite or Caddy), so the client IP is the last
 // X-Forwarded-For entry that isn't this machine. Earlier entries come from the client and can be faked.
 // Loopback entries are skipped: behind a local tunnel (cloudflared -> Vite) Vite adds 127.0.0.1,
 // and the real visitor is the entry Cloudflare added just before it.
@@ -239,7 +234,7 @@ pub fn internal<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
 
 // Sends in the background: the response must not wait, or its timing would reveal who has an account
 pub fn send_mail(state: Arc<AppState>, to: String, subject: &'static str, body: String) {
-    let job = async move {
+    tokio::spawn(async move {
         let Ok(to) = to.parse() else { return };
         let msg = Message::builder()
             .from(state.mail_from.clone())
@@ -254,21 +249,15 @@ pub fn send_mail(state: Arc<AppState>, to: String, subject: &'static str, body: 
             }
             Err(e) => eprintln!("mail error: {e}"),
         }
-    };
-    // Vercel can pause the instance once the response is out, stranding a spawned task;
-    // wait_until keeps the request open until the mail has gone
-    match VERCEL_REQUEST.try_with(Clone::clone) {
-        Ok(vercel) => vercel.wait_until(job),
-        Err(_) => {
-            tokio::spawn(job);
-        }
-    }
+    });
 }
 
-// False once an address has had its share of mail that anyone can trigger: 3, then one more
-// every 20 minutes, so the app can't be used to flood an inbox
-pub async fn may_mail(db: &mut Db, email: &str) -> ApiResult<bool> {
-    allow(db, &format!("mail:{email}"), 20 * 60, 3).await
+// False once an address has had its share of one kind of mail that anyone can trigger: 3, then one
+// more every 20 minutes, so the app can't be used to flood an inbox. "forgot" is counted apart from
+// "mail" (sign-up), because forgot_password spends it for any address typed, and that mustn't hold up
+// the sign-up email of whoever registers the address later
+pub async fn may_mail(db: &mut Db, kind: &str, email: &str) -> ApiResult<bool> {
+    allow(db, &format!("{kind}:{email}"), 20 * 60, 3).await
 }
 
 // The same confirmation email for a new sign-up and for a login before the address is confirmed
@@ -278,7 +267,7 @@ pub async fn send_verify_mail(
     email: String,
     user_id: i32,
 ) -> ApiResult<()> {
-    if !may_mail(db, &email).await? {
+    if !may_mail(db, "mail", &email).await? {
         return Ok(());
     }
     let token = make_verify_token(user_id, &state.jwt_secret).map_err(internal)?;

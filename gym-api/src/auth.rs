@@ -83,7 +83,7 @@ pub async fn register(
         // 2627 / 2601 = unique constraint violated, so the email already exists.
         // Answer exactly as for a new account, so sign-up can't reveal who's a member
         Err(tiberius::error::Error::Server(e)) if e.code() == 2627 || e.code() == 2601 => {
-            if may_mail(&mut db, &email).await? {
+            if may_mail(&mut db, "mail", &email).await? {
                 send_mail(
                     state.clone(),
                     email.clone(),
@@ -179,7 +179,7 @@ pub async fn forgot_password(
     // Spent whether or not the account exists, so the extra query's time doesn't tell them apart
     // (an address longer than Users.Email can't be anyone's). The answer is the same either way,
     // so the cap reveals nothing
-    let may = fits(&email, 256) && may_mail(&mut db, &email).await?;
+    let may = fits(&email, 256) && may_mail(&mut db, "forgot", &email).await?;
     if let Some(row) = row
         && may
     {
