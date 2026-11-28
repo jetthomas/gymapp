@@ -1,8 +1,0 @@
-# For `vercel` CLI deploys, which upload this folder: keep secrets and build leftovers out.
-# Settings belong in the project's Environment Variables on Vercel instead
-.env
-.env.*
-**/target
-**/node_modules
-gym-web/dist
-gym-web/ios

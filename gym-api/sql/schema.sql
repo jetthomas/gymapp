@@ -272,7 +272,7 @@ END
 GO
 
 -- Rate limits (password, 2FA and mail tries, and requests per IP), kept here rather than in memory
--- so every API process counts together: on Vercel there are many. One row per bucket, e.g.
+-- so every API process counts together. One row per bucket, e.g.
 -- 'login:7:203.0.113.9'; Tat is when it has every try back. Not member data, so no row-level security
 IF OBJECT_ID('dbo.RateLimits', 'U') IS NULL
     CREATE TABLE dbo.RateLimits (

@@ -12,7 +12,6 @@ A full-stack workout tracker for a gym's members. Members log workouts set by se
 - [Getting started](#getting-started)
 - [Configuration](#configuration)
 - [Commands](#commands)
-- [Deploying to Vercel](#deploying-to-vercel)
 - [How it works](#how-it-works)
   - [Architecture](#architecture)
   - [Life of a request](#life-of-a-request)
@@ -178,7 +177,7 @@ All API settings live in `gym-api/.env`.
 | `SMTP_USER`, `SMTP_PASSWORD` | No       |                  | For a real mail provider                                                                    |
 | `MAIL_FROM`                  | Yes      |                  | The From address, e.g. `BarMetric <no-reply@yourgym.com>`                                     |
 | `FRONTEND_URL`               | Yes      |                  | Used to build links in emails and Stripe redirects (`http://localhost:5173` in development) |
-| `BIND_ADDR`                  | No       | `127.0.0.1:5080` | Where the API listens. Keep it on `127.0.0.1` behind a proxy. Not used on Vercel            |
+| `BIND_ADDR`                  | No       | `127.0.0.1:5080` | Where the API listens. Keep it on `127.0.0.1` behind a proxy                                |
 | `STRIPE_KEY`                 | Yes      |                  | Stripe secret key for Plus (`sk_test_...` in development)                                   |
 | `STRIPE_PRICE_ID`            | Yes      |                  | The Plus price (`price_...`); members can't choose their own                                |
 | `STRIPE_WEBHOOK_SECRET`      | Yes      |                  | Webhook signing secret (`whsec_...`); in development `stripe listen` prints one             |
@@ -197,27 +196,6 @@ All API settings live in `gym-api/.env`.
 | `gym-web/` | `npm run build`                                                      | Build for production into `dist/`                              |
 | `gym-web/` | `npm run preview`                                                    | Serve the production build (the service worker only runs here) |
 | root       | `node scripts/exercise-seed.mjs exercises.json > seed-exercises.sql` | Regenerate the exercise seed SQL                               |
-
-## Deploying to Vercel
-
-[`vercel.json`](vercel.json) deploys both halves as one Vercel project with [services](https://vercel.com/docs/services) (beta), on one domain:
-
-- `gym-web` (Vite) serves the website at `/`.
-- `gym-api` (Rust) serves `/api/*`. Vercel strips `/api` before the API sees the path, as the Vite proxy does locally. It runs as a function through `vercel_runtime` (see `serve_on_vercel` in `main.rs`); `cargo run` still starts the normal server.
-
-Before the first deploy:
-
-1. **A database Vercel can reach.** SQL Server has to accept connections from the internet over TLS, e.g. Azure SQL in Australia East (`vercel.json` runs the API in `syd1`, Sydney). Don't set `DB_TRUST_CERT`.
-2. **Run the new parts of `schema.sql` and `security.sql`** (the rate-limits table and its grant) as the admin login. Without them every login and sign-up fails.
-3. **Environment variables.** In the Vercel project's settings, add every required setting from [Configuration](#configuration), with `FRONTEND_URL` set to the site's address (no trailing slash). `BIND_ADDR` isn't needed. Give the production values to **Production only**: every pushed branch gets a Preview copy of the app, which should get a test database and Stripe test keys, if anything. Keep Deployment Protection on for previews. Never name a secret `VITE_...`: both services share these settings, and Vite builds every `VITE_` value into the public JavaScript.
-4. **Stripe webhook:** `https://<your domain>/api/stripe/webhook`.
-5. **iPhone app:** `VITE_API_URL` in `gym-web/.env.ios` is `https://<your domain>/api`.
-
-6. **Firewall and spend.** Each rate-limited request opens a database connection, even one it turns away. In the project's Firewall, add a rate-limit rule for `/api/auth/*`, and set a spend limit, so a flood can't run up the bill.
-
-The API refuses to start on a deployment that's set up unsafely, and its log says why: when `DB_TRUST_CERT` is `true`, when it connects as an admin (`db_owner`) instead of `gym_app`, when `dbo.RateLimits` is missing, or when a Preview has a live Stripe key.
-
-After deploying, `https://<your domain>/api/health` should answer `ok`.
 
 ## How it works
 
@@ -351,7 +329,7 @@ Every security change (password, 2FA, reset) emails the member.
 | Per user         | 2FA codes at login                                           | 5, then 1 a minute             |
 | Per email        | Emails anyone can trigger (forgot-password counted apart)    | 3, then 1 every 20 minutes     |
 
-Every limit is counted in SQL Server (`dbo.RateLimits`), not in memory, so it holds across restarts and across every API process (Vercel runs many). The client IP is the last `X-Forwarded-For` entry, which our proxy adds; earlier entries can be faked. IPv6 addresses are grouped by /64. Security notices are never rate-limited, so they can't be silenced.
+Every limit is counted in SQL Server (`dbo.RateLimits`), not in memory, so it holds across restarts and across every API process. The client IP is the last `X-Forwarded-For` entry, which our proxy adds; earlier entries can be faked. IPv6 addresses are grouped by /64. Security notices are never rate-limited, so they can't be silenced.
 
 **Database**
 
