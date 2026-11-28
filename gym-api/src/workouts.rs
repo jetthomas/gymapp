@@ -272,7 +272,7 @@ pub async fn create_workout(
         &mut db,
         "INSERT INTO dbo.Workouts (UserId, [Date], Name, Notes, DurationSec, ClientId)
          OUTPUT INSERTED.Id
-         VALUES (@P1, @P2, @P3, @P4, @P5, COALESCE(@P6, CONVERT(VARCHAR(36), NEWID())))",
+         VALUES (@P1, @P2, @P3, NULLIF(@P4, N''), @P5, COALESCE(@P6, CONVERT(VARCHAR(36), NEWID())))",
         &[
             &user_id,
             &date,
@@ -311,9 +311,11 @@ pub async fn update_workout(
     check_exercises(&mut db, user_id, w.exercises.iter().map(|e| e.exercise_id)).await?;
     // Same as create: an early return closes the connection, which undoes the transaction
     batch(&mut db, "BEGIN TRANSACTION").await?;
+    // No notes sent = an app from before notes, so the saved ones stay; "" clears them
     let updated = db
         .execute(
-            "UPDATE dbo.Workouts SET [Date] = @P3, Name = @P4, Notes = @P5, DurationSec = @P6
+            "UPDATE dbo.Workouts SET [Date] = @P3, Name = @P4,
+                Notes = CASE WHEN @P5 IS NULL THEN Notes ELSE NULLIF(@P5, N'') END, DurationSec = @P6
              WHERE Id = @P1 AND UserId = @P2",
             &[
                 &id,

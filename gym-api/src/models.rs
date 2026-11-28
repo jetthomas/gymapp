@@ -140,6 +140,7 @@ pub struct NewWorkoutExercise {
 pub struct NewWorkout {
     pub name: String,
     pub date: DateTime<Utc>,
+    // "" = none. Left out (older apps) = none on a new workout, and on an edit the saved notes stay
     pub notes: Option<String>,
     // Made on the phone, so a save that is sent twice is stored once
     pub client_id: Option<String>,
