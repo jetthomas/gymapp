@@ -209,9 +209,13 @@ Before the first deploy:
 
 1. **A database Vercel can reach.** SQL Server has to accept connections from the internet over TLS, e.g. Azure SQL in Australia East (`vercel.json` runs the API in `syd1`, Sydney). Don't set `DB_TRUST_CERT`.
 2. **Run the new parts of `schema.sql` and `security.sql`** (the rate-limits table and its grant) as the admin login. Without them every login and sign-up fails.
-3. **Environment variables.** In the Vercel project's settings, add every required setting from [Configuration](#configuration), with `FRONTEND_URL` set to the site's address (no trailing slash). `BIND_ADDR` isn't needed.
+3. **Environment variables.** In the Vercel project's settings, add every required setting from [Configuration](#configuration), with `FRONTEND_URL` set to the site's address (no trailing slash). `BIND_ADDR` isn't needed. Give the production values to **Production only**: every pushed branch gets a Preview copy of the app, which should get a test database and Stripe test keys, if anything. Keep Deployment Protection on for previews. Never name a secret `VITE_...`: both services share these settings, and Vite builds every `VITE_` value into the public JavaScript.
 4. **Stripe webhook:** `https://<your domain>/api/stripe/webhook`.
 5. **iPhone app:** `VITE_API_URL` in `gym-web/.env.ios` is `https://<your domain>/api`.
+
+6. **Firewall and spend.** Each rate-limited request opens a database connection, even one it turns away. In the project's Firewall, add a rate-limit rule for `/api/auth/*`, and set a spend limit, so a flood can't run up the bill.
+
+The API refuses to start on a deployment that's set up unsafely, and its log says why: when `DB_TRUST_CERT` is `true`, when it connects as an admin (`db_owner`) instead of `gym_app`, when `dbo.RateLimits` is missing, or when a Preview has a live Stripe key.
 
 After deploying, `https://<your domain>/api/health` should answer `ok`.
 
@@ -345,7 +349,7 @@ Every security change (password, 2FA, reset) emails the member.
 | Per IP           | `/auth/*` routes that check or hash a password, or send mail | Bursts of 30, then 1 every 2 s |
 | Per account + IP | Passwords at login and reactivate                            | 10, then 1 every 90 s          |
 | Per user         | 2FA codes at login                                           | 5, then 1 a minute             |
-| Per email        | Emails anyone can trigger                                    | 3, then 1 every 20 minutes     |
+| Per email        | Emails anyone can trigger (forgot-password counted apart)    | 3, then 1 every 20 minutes     |
 
 Every limit is counted in SQL Server (`dbo.RateLimits`), not in memory, so it holds across restarts and across every API process (Vercel runs many). The client IP is the last `X-Forwarded-For` entry, which our proxy adds; earlier entries can be faked. IPv6 addresses are grouped by /64. Security notices are never rate-limited, so they can't be silenced.
 

@@ -249,6 +249,7 @@ BEGIN
     DECLARE @UserId INT = CAST(SESSION_CONTEXT(N'UserId') AS INT);
     IF @UserId IS NULL
         THROW 50000, 'DeleteMember: the connection has no member', 1;
+    DECLARE @Email NVARCHAR(256) = (SELECT Email FROM dbo.Users WHERE Id = @UserId);
     BEGIN TRANSACTION;
     DELETE FROM dbo.Workouts WHERE UserId = @UserId;  -- their exercises and sets cascade
     DELETE FROM dbo.Routines WHERE UserId = @UserId;  -- and the exercises in them
@@ -260,6 +261,11 @@ BEGIN
     DELETE FROM dbo.Profiles WHERE UserId = @UserId;
     DELETE FROM dbo.RecoveryCodes WHERE UserId = @UserId;
     DELETE FROM dbo.Events WHERE UserId = @UserId;
+    -- Their rate-limit counts, which name them by id or email (the per-IP ones aren't theirs alone).
+    -- The table is made further down; a procedure may name a table that doesn't exist yet
+    DELETE FROM dbo.RateLimits
+    WHERE Bucket LIKE CONCAT(N'login:', @UserId, N':%')
+       OR Bucket IN (CONCAT(N'totp:', @UserId), N'mail:' + @Email, N'forgot:' + @Email);
     DELETE FROM dbo.Users WHERE Id = @UserId;
     COMMIT;
 END

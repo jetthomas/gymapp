@@ -265,10 +265,12 @@ pub fn send_mail(state: Arc<AppState>, to: String, subject: &'static str, body: 
     }
 }
 
-// False once an address has had its share of mail that anyone can trigger: 3, then one more
-// every 20 minutes, so the app can't be used to flood an inbox
-pub async fn may_mail(db: &mut Db, email: &str) -> ApiResult<bool> {
-    allow(db, &format!("mail:{email}"), 20 * 60, 3).await
+// False once an address has had its share of one kind of mail that anyone can trigger: 3, then one
+// more every 20 minutes, so the app can't be used to flood an inbox. "forgot" is counted apart from
+// "mail" (sign-up), because forgot_password spends it for any address typed, and that mustn't hold up
+// the sign-up email of whoever registers the address later
+pub async fn may_mail(db: &mut Db, kind: &str, email: &str) -> ApiResult<bool> {
+    allow(db, &format!("{kind}:{email}"), 20 * 60, 3).await
 }
 
 // The same confirmation email for a new sign-up and for a login before the address is confirmed
@@ -278,7 +280,7 @@ pub async fn send_verify_mail(
     email: String,
     user_id: i32,
 ) -> ApiResult<()> {
-    if !may_mail(db, &email).await? {
+    if !may_mail(db, "mail", &email).await? {
         return Ok(());
     }
     let token = make_verify_token(user_id, &state.jwt_secret).map_err(internal)?;

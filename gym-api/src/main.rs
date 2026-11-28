@@ -45,7 +45,7 @@ use crate::nutrition::{
     put_weight, recent_food, update_food,
 };
 use crate::routines::{create_routine, delete_routine, list_routines, update_routine};
-use crate::state::{AppState, VERCEL_REQUEST, batch, connect, internal, ip_limit};
+use crate::state::{AppState, VERCEL_REQUEST, batch, connect, internal, ip_limit, one_row};
 use crate::two_factor::{totp_confirm, totp_disable, totp_setup, totp_verify};
 use crate::workouts::{
     best_lift, create_workout, delete_workout, exercise_progress, export_data, get_workout,
@@ -106,15 +106,28 @@ fn db_config() -> Config {
     db_config
 }
 
-// Fails fast at startup when SQL Server can't be reached. The tables come from sql/schema.sql
-async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
-    connect(state)
-        .await?
-        .simple_query("SELECT 1")
-        .await?
-        .into_results()
-        .await?;
-    Ok(())
+// Fails fast at startup when SQL Server can't be reached or isn't set up as the API needs.
+// The tables come from sql/schema.sql
+async fn init_db(state: &AppState, deployed: bool) {
+    let mut db = connect(state)
+        .await
+        .expect("could not connect to SQL Server");
+    // Every login, sign-up and refresh is counted here; without it they'd all answer "server error"
+    batch(&mut db, "SELECT TOP 0 Bucket FROM dbo.RateLimits")
+        .await
+        .expect("dbo.RateLimits is missing or gym_app can't use it: run its parts of sql/schema.sql and sql/security.sql");
+    // On Vercel the database is open to the internet, so the app's login must be the locked-down one
+    if deployed {
+        let owner = one_row(&mut db, "SELECT IS_MEMBER('db_owner')", &[])
+            .await
+            .expect("could not check the database login")
+            .and_then(|r| r.get::<i32, _>(0));
+        assert_eq!(
+            owner,
+            Some(0),
+            "On Vercel the API must connect as gym_app (sql/security.sql), not an admin login"
+        );
+    }
 }
 
 #[tokio::main]
@@ -126,6 +139,21 @@ async fn main() {
     {
         panic!("{problem}");
     }
+    // vercel_runtime's own signals: VERCEL_IPC_PATH on a deployment, VERCEL_DEV under `vercel dev`
+    let deployed = env::var_os("VERCEL_IPC_PATH").is_some();
+    let on_vercel = deployed || env::var_os("VERCEL_DEV").is_some();
+    // A deployment reaches the database over the internet, where skipping the certificate
+    // check would let anyone in between read and change every query
+    assert!(
+        !(deployed && env_or("DB_TRUST_CERT", "false") == "true"),
+        "DB_TRUST_CERT is for development only. Remove it from the Vercel project's settings"
+    );
+    let stripe_key = env_required("STRIPE_KEY");
+    // Vercel makes a preview copy of the app for every pushed branch; one must never take real money
+    assert!(
+        !(env::var("VERCEL_ENV").as_deref() == Ok("preview") && stripe_key.contains("_live_")),
+        "Preview deployments must use Stripe test keys. Give the live key to Production only"
+    );
     let jwt_secret = env_required("JWT_SECRET");
     // A short key can be cracked from any token, letting someone forge an admin login
     assert!(
@@ -168,15 +196,13 @@ async fn main() {
             .timeout(Duration::from_secs(10))
             .build()
             .expect("could not build the HTTPS client"),
-        stripe_key: env_required("STRIPE_KEY"),
+        stripe_key,
         stripe_price_id: env_required("STRIPE_PRICE_ID"),
         stripe_webhook_secret: env_required("STRIPE_WEBHOOK_SECRET"),
         food_user_agent: env_required("FOOD_USER_AGENT"),
     });
 
-    init_db(&state)
-        .await
-        .expect("could not connect to SQL Server");
+    init_db(&state, deployed).await;
 
     // A rate-limit row past its Tat has every try back, the same as no row; drop those so the
     // table stays small. Each process does it, which is harmless
@@ -268,8 +294,7 @@ async fn main() {
         .merge(limited)
         .with_state(state);
 
-    // vercel_runtime's own signals: VERCEL_IPC_PATH on Vercel, VERCEL_DEV under `vercel dev`
-    if env::var_os("VERCEL_IPC_PATH").is_some() || env::var_os("VERCEL_DEV").is_some() {
+    if on_vercel {
         return serve_on_vercel(app).await;
     }
     let addr = env_or("BIND_ADDR", "127.0.0.1:5080");
