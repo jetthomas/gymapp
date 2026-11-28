@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
-import { getUsers, getStats, createResetLink, reactivateUser, setAdmin } from './api';
+import { getUsers, getStats, sendResetLink, reactivateUser, setAdmin } from './api';
 import ExerciseLibrary from './ExerciseLibrary';
 import BarChart from './BarChart';
 import ConfirmDialog from './ConfirmDialog';
@@ -34,14 +34,13 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
   const [users, setUsers] = useState(null); // null = still loading
   const [error, setError] = useState('');
   const [rowError, setRowError] = useState(null); // { userId, message }
-  const [reset, setReset] = useState(null); // { userId, link } once a link is made
-  const [copied, setCopied] = useState(false);
-  const [creatingFor, setCreatingFor] = useState(null); // userId while a link is being made
+  const [sentTo, setSentTo] = useState(null); // userId once their reset link is emailed
+  const [sendingTo, setSendingTo] = useState(null); // userId while a reset link is being sent
   const [savingId, setSavingId] = useState(null); // userId while their role or active flag is being saved
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all'); // 'all', 'active' or 'inactive'
   const [announce, setAnnounce] = useState('');
-  const [confirming, setConfirming] = useState(null); // { user, kind: 'role' | 'reactivate' } awaiting a yes
+  const [confirming, setConfirming] = useState(null); // { user, kind: 'role' | 'reactivate' | 'reset' } awaiting a yes
   const [stats, setStats] = useState(null);
   // Its own error, so a stats answer can't clear a failed users load
   const [statsError, setStatsError] = useState('');
@@ -66,15 +65,15 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
 
   async function handleReset(userId) {
     setRowError(null);
-    setCopied(false);
-    setCreatingFor(userId);
+    setSentTo(null);
+    setSendingTo(userId);
     try {
-      const { link } = await createResetLink(token, userId);
-      setReset({ userId, link });
+      await sendResetLink(token, userId);
+      setSentTo(userId);
     } catch (err) {
       setRowError({ userId, message: err.message });
     } finally {
-      setCreatingFor(null);
+      setSendingTo(null);
     }
   }
 
@@ -96,6 +95,14 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
   // What the confirm dialog says and does for the change that's waiting
   function pendingChange({ user, kind }) {
     const name = displayName(user);
+    if (kind === 'reset')
+      return {
+        title: `Email ${name} a reset link?`,
+        // The link turns 2FA off, so whoever reads that inbox gets in: check it's really them asking
+        body: `We'll email ${user.email} a link to choose a new password. It also turns off their two-factor, so only send it once you're sure it's really them asking.`,
+        confirmLabel: 'Send email',
+        run: () => handleReset(user.id),
+      };
     if (kind === 'reactivate')
       return {
         title: `Reactivate ${name}?`,
@@ -112,8 +119,8 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
     return {
       title: user.isAdmin ? `Remove admin from ${name}?` : `Make ${name} an admin?`,
       body: user.isAdmin
-        ? 'They will no longer see every account or create reset links.'
-        : 'They will see every account and can create reset links.',
+        ? 'They will no longer see every account or send reset links.'
+        : 'They will see every account and can send reset links.',
       confirmLabel: user.isAdmin ? 'Remove admin' : 'Make admin',
       danger: user.isAdmin,
       run: () =>
@@ -124,18 +131,6 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
           `${name} is ${user.isAdmin ? 'no longer' : 'now'} an admin`,
         ),
     };
-  }
-
-  async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(reset.link);
-      setCopied(true);
-    } catch {
-      setRowError({
-        userId: reset.userId,
-        message: "Couldn't copy. Select the link and copy it yourself.",
-      });
-    }
   }
 
   const q = query.trim().toLowerCase();
@@ -431,12 +426,12 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
                                 aria-label={`Send reset link to ${displayName(u)}`}
                                 className="outline-btn"
                                 type="button"
-                                onClick={() => handleReset(u.id)}
+                                onClick={() => setConfirming({ user: u, kind: 'reset' })}
                                 // The API refuses admins: the link turns 2FA off
-                                disabled={u.isAdmin || creatingFor === u.id}
+                                disabled={u.isAdmin || sendingTo === u.id}
                                 title={u.isAdmin ? 'Admins use Forgot password instead' : undefined}
                               >
-                                {creatingFor === u.id ? 'Creating…' : 'Send reset link'}
+                                {sendingTo === u.id ? 'Sending…' : 'Send reset link'}
                               </button>
                             ) : (
                               <button
@@ -451,30 +446,13 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
                             )}
                           </td>
                         </tr>
-                        {(reset?.userId === u.id || rowError?.userId === u.id) && (
+                        {(sentTo === u.id || rowError?.userId === u.id) && (
                           <tr className="detail-row">
                             <td colSpan={4}>
-                              {reset?.userId === u.id && (
-                                <>
-                                  <div className="reset-field">
-                                    <input
-                                      readOnly
-                                      value={reset.link}
-                                      aria-label={`Reset link for ${displayName(u)}`}
-                                      onFocus={(e) => e.target.select()}
-                                    />
-                                    <button
-                                      className="pill-btn filled"
-                                      type="button"
-                                      onClick={handleCopy}
-                                    >
-                                      {copied ? 'Copied' : 'Copy'}
-                                    </button>
-                                  </div>
-                                  <p className="hint">
-                                    Copy this and send it to them. It works once, for 15 minutes.
-                                  </p>
-                                </>
+                              {sentTo === u.id && (
+                                <p className="hint" role="status">
+                                  Reset link emailed to {u.email}. It works once, for 15 minutes.
+                                </p>
                               )}
                               {rowError?.userId === u.id && (
                                 <p className="msg error row-error" role="alert">

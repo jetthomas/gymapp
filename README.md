@@ -43,7 +43,7 @@ A full-stack workout tracker for a gym's members. Members log workouts set by se
 **Admins**
 
 - List members with their login and workout counts; charts of logins and failed logins per day
-- Make or remove admins, create password reset links, reactivate accounts
+- Make or remove admins, email password reset links, reactivate accounts
 - Add, edit and delete exercises in the shared library
 
 ## Getting started
@@ -290,7 +290,7 @@ sequenceDiagram
 
 **Forgot password.** `POST /auth/forgot` always answers 200; if the account exists, it emails a 15-minute link. `POST /auth/reset` sets the new password. On a 2FA account, a member's own reset also needs a current code (the first attempt answers 401 and the form asks for it), so access to someone's inbox isn't enough to get around 2FA. A reset signs out every session and emails the member.
 
-**Admin reset link.** Made on the Admin screen and passed to the member by hand. It also turns 2FA off: it's the way back in after losing a phone. The member is emailed as soon as it's made, and the admin who made it is recorded. Admins can't get one for another admin (or themselves), and neither can a former admin, so one stolen admin login can't open the other admins' accounts, even by removing their admin access first. Removing someone's admin access emails them. An admin who loses their 2FA phone uses a recovery code.
+**Admin reset link.** Sent from the Admin screen, after the admin confirms, by email to the member; the admin never sees it. It also turns 2FA off: it's the way back in after losing a phone. That makes 2FA only as strong as the member's inbox, so the confirm dialog asks the admin to check it's really them asking. The admin who sent it is recorded. Admins can't get one for another admin (or themselves), and neither can a former admin, so one stolen admin login can't open the other admins' accounts, even by removing their admin access first. Removing someone's admin access emails them. An admin who loses their 2FA phone uses a recovery code.
 
 **Change password.** `POST /auth/password` with the current and new passwords. Other devices are signed out; this one gets a new token (and refresh cookie) in the response.
 
@@ -489,7 +489,7 @@ Routes are shown as the API sees them; the website calls them with an `/api` pre
 | GET    | `/admin/users`                 |                                                           | Every user with join date, login and workout counts           |
 | GET    | `/admin/stats`                 | `?from=&to=` (YYYY-MM-DD, up to a year apart)             | `[{ day, kind, n }]` event counts per day, in Sydney time     |
 | PUT    | `/admin/users/{id}/admin`      | `isAdmin`                                                 | 200                                                           |
-| POST   | `/admin/users/{id}/reset-link` |                                                           | `link` (valid 15 minutes; turns 2FA off), or 403 for an admin |
+| POST   | `/admin/users/{id}/reset-link` |                                                           | 200; emails the member a link (valid 15 minutes; turns 2FA off), or 403 for an admin |
 | POST   | `/admin/users/{id}/reactivate` |                                                           | 200                                                           |
 | POST   | `/admin/exercises`             | `name`, `equipment`, `primaryMuscles`, `secondaryMuscles` | 201                                                           |
 | PUT    | `/admin/exercises/{id}`        | Same as POST                                              | 200                                                           |

@@ -8,10 +8,10 @@ use axum::{
 use chrono::NaiveDateTime;
 
 use crate::extractors::AdminUser;
-use crate::models::{AdminFlag, DayCount, RangeQuery, ResetLink, UserSummary};
+use crate::models::{AdminFlag, DayCount, RangeQuery, UserSummary};
 use crate::nutrition::sane;
 use crate::state::{
-    ApiResult, AppState, GYM_TZ, all_rows, batch, col, internal, one_row, record,
+    ApiResult, AppState, GYM_TZ, all_rows, batch, col, internal, one_row, record, send_mail,
     send_security_notice,
 };
 use crate::tokens::make_reset_token;
@@ -29,7 +29,7 @@ pub async fn set_admin(
             "You can't remove your own admin access.".to_string(),
         ));
     }
-    // One transaction, so a removed admin is never saved without the event create_reset_link checks.
+    // One transaction, so a removed admin is never saved without the event send_reset_link checks.
     // An early return closes the connection, which undoes it
     batch(&mut db, "BEGIN TRANSACTION").await?;
     // Active = 1: a deactivated account's role is frozen, here and not just on the Admin screen
@@ -48,7 +48,7 @@ pub async fn set_admin(
     })?;
     let removed = col::<bool>(&row, "WasAdmin")? && !body.is_admin;
     if removed {
-        // Against the member, not the admin: create_reset_link looks for it
+        // Against the member, not the admin: send_reset_link looks for it
         record(&mut db, user_id, "admin_removed").await?;
     }
     record(&mut db, admin_id, "admin_changed").await?;
@@ -63,11 +63,12 @@ pub async fn set_admin(
     Ok(StatusCode::OK)
 }
 
-pub async fn create_reset_link(
+// Emails the member a link to choose a new password, which also turns their 2FA off
+pub async fn send_reset_link(
     State(state): State<Arc<AppState>>,
     AdminUser(admin_id, mut db): AdminUser,
     Path(user_id): Path<i32>,
-) -> ApiResult<Json<ResetLink>> {
+) -> ApiResult<StatusCode> {
     let row = one_row(
         &mut db,
         "SELECT PasswordHash, Email, IsAdmin,
@@ -90,17 +91,18 @@ pub async fn create_reset_link(
     }
     let stored: &str = col(&row, "PasswordHash")?;
     let token = make_reset_token(user_id, &state.jwt_secret, stored).map_err(internal)?;
-    // The link turns off the member's 2FA, so keep a record of which admin made it
+    // The link turns off the member's 2FA, so keep a record of which admin sent it
     record(&mut db, admin_id, "reset_link").await?;
-    // Told now, not only once it's used, so a member can react within the link's 15 minutes
-    send_security_notice(
-        &state,
-        col(&row, "Email")?,
-        "An admin made a password reset link for your account. It works for 15 minutes.",
+    send_mail(
+        state.clone(),
+        col::<&str>(&row, "Email")?.to_string(),
+        "Reset your BarMetric password",
+        format!(
+            "An admin sent you this link to choose a new password. It also turns off two-factor, so you can set it up again on a new phone:\n{}/#reset={token}\n\nThe link works for 15 minutes. If you didn't ask for this, ignore this email and tell an admin.",
+            state.frontend_url
+        ),
     );
-    Ok(Json(ResetLink {
-        link: format!("{}/#reset={token}", state.frontend_url),
-    }))
+    Ok(StatusCode::OK)
 }
 
 // Brings back an account its member deactivated; the member is emailed, as with other account changes

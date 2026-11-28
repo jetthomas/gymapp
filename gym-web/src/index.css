@@ -369,7 +369,6 @@ fieldset.field {
 .role-select,
 .range-picker input,
 .admin-search,
-.reset-field input,
 .set-table input {
   min-height: 44px;
   color: var(--foreground);
@@ -402,7 +401,6 @@ fieldset.field {
 .role-select:focus-visible,
 .range-picker input:focus-visible,
 .admin-search:focus-visible,
-.reset-field input:focus-visible,
 .set-table input:focus-visible {
   border-color: var(--ring);
   box-shadow: 0 0 0 1px var(--ring);
@@ -1500,19 +1498,6 @@ span.role-select {
 
 .user-table .outline-btn {
   min-width: 132px;
-}
-
-.reset-field {
-  display: flex;
-  gap: 8px;
-}
-
-.reset-field input {
-  flex: 1;
-  min-width: 0;
-  padding: 8px 12px;
-  font-family: var(--mono);
-  font-size: max(1rem, 1em);
 }
 
 /* Admin activity charts (BarChart.jsx) */

@@ -310,11 +310,6 @@ pub struct Claims {
     pub ver: i32,
 }
 
-#[derive(Serialize)]
-pub struct ResetLink {
-    pub link: String,
-}
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdminFlag {

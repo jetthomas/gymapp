@@ -25,7 +25,7 @@ use lettre::{
 };
 use tiberius::{AuthMethod, Config};
 
-use crate::admin::{admin_stats, create_reset_link, list_users, reactivate_user, set_admin};
+use crate::admin::{admin_stats, list_users, reactivate_user, send_reset_link, set_admin};
 use crate::auth::{
     change_password, delete_account, delete_avatar, erase_account, forgot_password, get_profile,
     login, logout, put_avatar, reactivate_account, refresh, register, reset_password, verify_email,
@@ -219,7 +219,7 @@ async fn main() {
         .route("/admin/users", get(list_users))
         .route("/admin/stats", get(admin_stats))
         .route("/admin/users/{id}/admin", put(set_admin))
-        .route("/admin/users/{id}/reset-link", post(create_reset_link))
+        .route("/admin/users/{id}/reset-link", post(send_reset_link))
         .route("/admin/users/{id}/reactivate", post(reactivate_user))
         .route("/exercises", get(list_exercises))
         .route("/admin/exercises", post(create_exercise))
