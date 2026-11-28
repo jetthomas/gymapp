@@ -9,9 +9,14 @@ use chrono::{Datelike, NaiveDate};
 use serde_json::Value;
 
 use crate::extractors::{AuthUser, PlusUser};
-use crate::models::{DayQuery, Food, FoodEntry, HealthProfile, NewFood};
+use crate::models::{
+    BodyWeight, DayQuery, Food, FoodEntry, HealthProfile, NewFood, NewFoods, NewSavedMeal,
+    SavedMeal,
+};
 use crate::passwords::{fits, plain};
-use crate::state::{ApiResult, AppState, all_rows, col, count_rows, internal, one_row, set_user};
+use crate::state::{
+    ApiResult, AppState, Db, all_rows, batch, col, count_rows, internal, one_row, set_user,
+};
 use tiberius::Row;
 
 // Everything here is health information: every query is tied to the member's own id from the token,
@@ -19,6 +24,11 @@ use tiberius::Row;
 
 const GOALS: [&str; 4] = ["lose", "maintain", "lean_bulk", "bulk"];
 const MEALS: [&str; 4] = ["breakfast", "lunch", "dinner", "snacks"];
+const WEIGHT_KG: std::ops::RangeInclusive<f64> = 20.0..=500.0;
+// Caps so one account can't fill the database's disk
+const DAY_LIMIT: i32 = 100; // foods logged on one day
+const MAX_SAVED_MEALS: i32 = 100;
+const MEAL_FOODS: usize = 30; // foods sent at once, or kept in one saved meal
 
 // Far-off years make the database driver panic, and no member was born in 1850
 pub fn sane(d: NaiveDate) -> bool {
@@ -46,7 +56,7 @@ pub fn check_profile(p: &HealthProfile) -> Result<(), &'static str> {
     if p.height_cm.is_some_and(|h| !(50.0..=272.0).contains(&h)) {
         return Err("Height must be 50 to 272 cm.");
     }
-    if p.weight_kg.is_some_and(|w| !(20.0..=500.0).contains(&w)) {
+    if p.weight_kg.is_some_and(|w| !WEIGHT_KG.contains(&w)) {
         return Err("Weight must be 20 to 500 kg.");
     }
     if p.activity.is_some_and(|a| !(1..=5).contains(&a)) {
@@ -89,7 +99,34 @@ pub fn check_food(f: &NewFood) -> Result<&str, &'static str> {
     Ok(name)
 }
 
-// A food's name, calories and macros, from a FoodEntries row
+// Checks foods sent as a list (several logged at once, or a saved meal); returns their trimmed names
+fn check_food_list(foods: &[Food]) -> Result<Vec<&str>, &'static str> {
+    if foods.is_empty() || foods.len() > MEAL_FOODS {
+        return Err("A meal holds 1 to 30 foods.");
+    }
+    foods
+        .iter()
+        .map(|f| {
+            let name = f.name.trim();
+            check_food_values(name, f.kcal, [f.protein_g, f.carbs_g, f.fat_g])?;
+            Ok(name)
+        })
+        .collect()
+}
+
+// Checks a saved meal before it is kept; returns its trimmed name and its foods' trimmed names
+pub fn check_saved_meal(m: &NewSavedMeal) -> Result<(&str, Vec<&str>), &'static str> {
+    let name = m.name.trim();
+    if name.is_empty() || !fits(name, 100) {
+        return Err("Meal name must be 1 to 100 characters.");
+    }
+    if !plain(name, false) {
+        return Err("Meal name can't contain hidden or control characters.");
+    }
+    Ok((name, check_food_list(&m.foods)?))
+}
+
+// A food's name, calories and macros, from a FoodEntries (or SavedMealFoods) row
 pub fn to_food(r: &Row) -> ApiResult<Food> {
     Ok(Food {
         name: col::<&str>(r, "Name")?.to_string(),
@@ -154,21 +191,65 @@ pub async fn put_health(
     )
     .await
     .map_err(internal)?;
-    // A weight is one row per day in the weight log; `today` is the member's own date, not the server's
+    // `today` is the member's own date, not the server's
     if let (Some(kg), Some(day)) = (p.weight_kg, p.today) {
-        db.execute(
-            // Locked the same way as the profile above
-            "BEGIN TRANSACTION;
-             UPDATE dbo.BodyWeights WITH (UPDLOCK, HOLDLOCK) SET Kg = @P3
-             WHERE UserId = @P1 AND [Date] = @P2;
-             IF @@ROWCOUNT = 0
-                INSERT INTO dbo.BodyWeights (UserId, [Date], Kg) VALUES (@P1, @P2, @P3);
-             COMMIT;",
-            &[&user_id, &day, &kg],
-        )
-        .await
-        .map_err(internal)?;
+        log_weight(&mut db, user_id, day, kg).await?;
     }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// A weight is one row per day in the weight log: a second weigh-in that day replaces the first.
+// Locked the same way as the profile in put_health
+async fn log_weight(db: &mut Db, user_id: i32, day: NaiveDate, kg: f64) -> ApiResult<()> {
+    db.execute(
+        "BEGIN TRANSACTION;
+         UPDATE dbo.BodyWeights WITH (UPDLOCK, HOLDLOCK) SET Kg = @P3
+         WHERE UserId = @P1 AND [Date] = @P2;
+         IF @@ROWCOUNT = 0
+            INSERT INTO dbo.BodyWeights (UserId, [Date], Kg) VALUES (@P1, @P2, @P3);
+         COMMIT;",
+        &[&user_id, &day, &kg],
+    )
+    .await
+    .map_err(internal)?;
+    Ok(())
+}
+
+// The member's last 90 weigh-ins, oldest first, for the weight trend on the Calories screen
+pub async fn list_weights(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Json<Vec<BodyWeight>>> {
+    set_user(&mut db, user_id).await.map_err(internal)?;
+    let rows = all_rows(
+        &mut db,
+        "SELECT [Date], Kg FROM (
+           SELECT TOP 90 [Date], Kg FROM dbo.BodyWeights WHERE UserId = @P1 ORDER BY [Date] DESC
+         ) w ORDER BY [Date]",
+        &[&user_id],
+    )
+    .await?;
+    let mut out = Vec::new();
+    for r in &rows {
+        out.push(BodyWeight {
+            date: col(r, "Date")?,
+            kg: col(r, "Kg")?,
+        });
+    }
+    Ok(Json(out))
+}
+
+// A quick weigh-in, without the rest of the profile
+pub async fn put_weight(
+    AuthUser(user_id, mut db): AuthUser,
+    Json(w): Json<BodyWeight>,
+) -> ApiResult<StatusCode> {
+    if !sane(w.date) {
+        return Err(bad("That date is out of range."));
+    }
+    // NaN fails contains(), so this rejects it too
+    if !WEIGHT_KG.contains(&w.kg) {
+        return Err(bad("Weight must be 20 to 500 kg."));
+    }
+    set_user(&mut db, user_id).await.map_err(internal)?;
+    log_weight(&mut db, user_id, w.date, w.kg).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -177,6 +258,7 @@ pub async fn delete_health(AuthUser(user_id, mut db): AuthUser) -> ApiResult<Sta
     set_user(&mut db, user_id).await.map_err(internal)?;
     db.execute(
         "DELETE FROM dbo.FoodEntries WHERE UserId = @P1;
+         DELETE FROM dbo.SavedMeals WHERE UserId = @P1;
          DELETE FROM dbo.BodyWeights WHERE UserId = @P1;
          DELETE FROM dbo.Profiles WHERE UserId = @P1;",
         &[&user_id],
@@ -233,14 +315,7 @@ pub async fn add_food(
 ) -> ApiResult<StatusCode> {
     let name = check_food(&f).map_err(bad)?;
     set_user(&mut db, user_id).await.map_err(internal)?;
-    // A cap per day, so one account can't fill the database's disk
-    let count = count_rows(
-        &mut db,
-        "SELECT COUNT(*) FROM dbo.FoodEntries WHERE UserId = @P1 AND [Date] = @P2",
-        &[&user_id, &f.date],
-    )
-    .await?;
-    if count >= 100 {
+    if day_count(&mut db, user_id, f.date).await? >= DAY_LIMIT {
         return Err(bad("That day is full: 100 entries is the limit."));
     }
     db.execute(
@@ -260,6 +335,156 @@ pub async fn add_food(
     .await
     .map_err(internal)?;
     Ok(StatusCode::CREATED)
+}
+
+// How many foods the member has logged on `day`, for the per-day cap
+async fn day_count(db: &mut Db, user_id: i32, day: NaiveDate) -> ApiResult<i32> {
+    count_rows(
+        db,
+        "SELECT COUNT(*) FROM dbo.FoodEntries WHERE UserId = @P1 AND [Date] = @P2",
+        &[&user_id, &day],
+    )
+    .await
+}
+
+// Several foods into one meal in one go: copying the day before, or logging a saved meal.
+// All or none: a day that can't fit them all gets none of them
+pub async fn add_foods(
+    AuthUser(user_id, mut db): AuthUser,
+    Json(f): Json<NewFoods>,
+) -> ApiResult<StatusCode> {
+    let names = check_food_list(&f.foods).map_err(bad)?;
+    if !MEALS.contains(&f.meal.as_str()) {
+        return Err(bad("Pick a meal from the list."));
+    }
+    if !sane(f.date) {
+        return Err(bad("That date is out of range."));
+    }
+    set_user(&mut db, user_id).await.map_err(internal)?;
+    // At most 30 foods, so the cast can't wrap
+    if day_count(&mut db, user_id, f.date).await? + names.len() as i32 > DAY_LIMIT {
+        return Err(bad("That day is full: 100 entries is the limit."));
+    }
+    // If anything fails before COMMIT, the connection closes and SQL Server undoes it all
+    batch(&mut db, "BEGIN TRANSACTION").await?;
+    for (name, food) in names.iter().zip(&f.foods) {
+        db.execute(
+            "INSERT INTO dbo.FoodEntries (UserId, [Date], Meal, Name, Kcal, ProteinG, CarbsG, FatG)
+             VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7, @P8)",
+            &[
+                &user_id,
+                &f.date,
+                &f.meal.as_str(),
+                name,
+                &food.kcal,
+                &food.protein_g,
+                &food.carbs_g,
+                &food.fat_g,
+            ],
+        )
+        .await
+        .map_err(internal)?;
+    }
+    batch(&mut db, "COMMIT").await?;
+    Ok(StatusCode::CREATED)
+}
+
+// The member's saved meals ("My foods" in the food sheet), by name
+pub async fn list_saved_meals(
+    AuthUser(user_id, mut db): AuthUser,
+) -> ApiResult<Json<Vec<SavedMeal>>> {
+    set_user(&mut db, user_id).await.map_err(internal)?;
+    let rows = all_rows(
+        &mut db,
+        "SELECT m.Id, m.Name AS MealName, f.Name, f.Kcal, f.ProteinG, f.CarbsG, f.FatG
+         FROM dbo.SavedMeals m
+         JOIN dbo.SavedMealFoods f ON f.SavedMealId = m.Id
+         WHERE m.UserId = @P1
+         ORDER BY m.Name, m.Id, f.Position",
+        &[&user_id],
+    )
+    .await?;
+    // One row per food; rows for the same meal arrive together
+    let mut out: Vec<SavedMeal> = Vec::new();
+    for r in &rows {
+        let id: i32 = col(r, "Id")?;
+        if out.last().map(|m| m.id) != Some(id) {
+            out.push(SavedMeal {
+                id,
+                name: col::<&str>(r, "MealName")?.to_string(),
+                foods: vec![],
+            });
+        }
+        if let Some(meal) = out.last_mut() {
+            meal.foods.push(to_food(r)?);
+        }
+    }
+    Ok(Json(out))
+}
+
+pub async fn create_saved_meal(
+    AuthUser(user_id, mut db): AuthUser,
+    Json(m): Json<NewSavedMeal>,
+) -> ApiResult<StatusCode> {
+    let (name, names) = check_saved_meal(&m).map_err(bad)?;
+    set_user(&mut db, user_id).await.map_err(internal)?;
+    let count = count_rows(
+        &mut db,
+        "SELECT COUNT(*) FROM dbo.SavedMeals WHERE UserId = @P1",
+        &[&user_id],
+    )
+    .await?;
+    if count >= MAX_SAVED_MEALS {
+        return Err(bad("You can keep up to 100 saved meals."));
+    }
+    // Same as add_foods: an early return closes the connection, which undoes the transaction
+    batch(&mut db, "BEGIN TRANSACTION").await?;
+    let id: i32 = one_row(
+        &mut db,
+        "INSERT INTO dbo.SavedMeals (UserId, Name) OUTPUT INSERTED.Id VALUES (@P1, @P2)",
+        &[&user_id, &name],
+    )
+    .await?
+    .and_then(|r| r.get(0))
+    .ok_or_else(|| internal("insert returned no Id"))?;
+    for (i, (food_name, food)) in names.iter().zip(&m.foods).enumerate() {
+        db.execute(
+            "INSERT INTO dbo.SavedMealFoods (SavedMealId, Position, Name, Kcal, ProteinG, CarbsG, FatG)
+             VALUES (@P1, @P2, @P3, @P4, @P5, @P6, @P7)",
+            &[
+                &id,
+                &(i as i32),
+                food_name,
+                &food.kcal,
+                &food.protein_g,
+                &food.carbs_g,
+                &food.fat_g,
+            ],
+        )
+        .await
+        .map_err(internal)?;
+    }
+    batch(&mut db, "COMMIT").await?;
+    Ok(StatusCode::CREATED)
+}
+
+pub async fn delete_saved_meal(
+    AuthUser(user_id, mut db): AuthUser,
+    Path(id): Path<i32>,
+) -> ApiResult<StatusCode> {
+    set_user(&mut db, user_id).await.map_err(internal)?;
+    // Its foods cascade
+    let done = db
+        .execute(
+            "DELETE FROM dbo.SavedMeals WHERE Id = @P1 AND UserId = @P2",
+            &[&id, &user_id],
+        )
+        .await
+        .map_err(internal)?;
+    if done.total() == 0 {
+        return Err((StatusCode::NOT_FOUND, "Saved meal not found.".into()));
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn delete_food(
@@ -462,6 +687,53 @@ mod tests {
         assert!(
             check_food_values("Oats (100 g)", 10_001, [0.0; 3]).is_err(),
             "too many calories"
+        );
+    }
+
+    fn plain_food(name: &str, kcal: i32) -> Food {
+        Food {
+            name: name.into(),
+            kcal,
+            protein_g: 10.0,
+            carbs_g: 0.0,
+            fat_g: 0.0,
+        }
+    }
+
+    #[test]
+    fn saved_meals_are_checked() {
+        let meal = |name: &str, foods: Vec<Food>| NewSavedMeal {
+            name: name.into(),
+            foods,
+        };
+        assert_eq!(
+            check_saved_meal(&meal(" Oats bowl ", vec![plain_food(" Oats ", 300)])),
+            Ok(("Oats bowl", vec!["Oats"]))
+        );
+        assert!(
+            check_saved_meal(&meal(" ", vec![plain_food("Oats", 300)])).is_err(),
+            "no name"
+        );
+        assert!(
+            check_saved_meal(&meal("Bowl\u{202E}", vec![plain_food("Oats", 300)])).is_err(),
+            "bidi override in name"
+        );
+        assert!(check_saved_meal(&meal("Bowl", vec![])).is_err(), "no foods");
+        assert!(
+            check_saved_meal(&meal(
+                "Bowl",
+                (0..31).map(|_| plain_food("Oats", 1)).collect()
+            ))
+            .is_err(),
+            "too many foods"
+        );
+        assert!(
+            check_saved_meal(&meal("Bowl", vec![plain_food("Oats", -5)])).is_err(),
+            "a food's calories are checked too"
+        );
+        assert!(
+            check_saved_meal(&meal("Bowl", vec![plain_food("", 300)])).is_err(),
+            "a food needs a name"
         );
     }
 

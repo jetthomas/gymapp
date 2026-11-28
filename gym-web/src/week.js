@@ -46,3 +46,18 @@ export function streak(days, today = new Date()) {
   }
   return n;
 }
+
+// A month as a calendar shows it: its days at noon in rows of 7, Monday first, with null in the
+// gaps before the 1st and after the last day. `month` is any day in it
+export function monthDays(month) {
+  const y = month.getFullYear();
+  const m = month.getMonth();
+  const lead = (new Date(y, m, 1).getDay() + 6) % 7; // getDay() is 0 on Sunday
+  const count = new Date(y, m + 1, 0).getDate(); // day 0 of next month = this month's last day
+  const days = [
+    ...Array(lead).fill(null),
+    ...Array.from({ length: count }, (_, i) => new Date(y, m, i + 1, 12)),
+  ];
+  while (days.length % 7) days.push(null);
+  return days;
+}

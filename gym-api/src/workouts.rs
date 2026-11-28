@@ -199,9 +199,9 @@ async fn insert_exercises(db: &mut Db, workout_id: i32, w: &NewWorkout) -> ApiRe
     for (i, e) in w.exercises.iter().enumerate() {
         let we_id: i32 = one_row(
             db,
-            "INSERT INTO dbo.WorkoutExercises (WorkoutId, ExerciseId, Position)
-             OUTPUT INSERTED.Id VALUES (@P1, @P2, @P3)",
-            &[&workout_id, &e.exercise_id, &(i as i32)],
+            "INSERT INTO dbo.WorkoutExercises (WorkoutId, ExerciseId, Position, SupersetWithNext)
+             OUTPUT INSERTED.Id VALUES (@P1, @P2, @P3, @P4)",
+            &[&workout_id, &e.exercise_id, &(i as i32), &e.superset_with_next],
         )
         .await?
         .and_then(|r| r.get(0))
@@ -391,7 +391,8 @@ async fn workout_detail(db: &mut Db, user_id: i32, id: i32) -> ApiResult<Workout
     // WorkoutExercises and Sets have no UserId of their own: the workout above was already checked as this member's
     let rows = all_rows(
         db,
-        "SELECT we.Id AS WeId, we.ExerciseId, e.Name, e.Equipment, s.WeightKg, s.Reps, s.Rir, s.Side, s.Type
+        "SELECT we.Id AS WeId, we.ExerciseId, we.SupersetWithNext, e.Name, e.Equipment,
+                s.WeightKg, s.Reps, s.Rir, s.Side, s.Type
          FROM dbo.WorkoutExercises we
          JOIN dbo.Exercises e ON e.Id = we.ExerciseId
          JOIN dbo.Sets s ON s.WorkoutExerciseId = we.Id
@@ -412,6 +413,7 @@ async fn workout_detail(db: &mut Db, user_id: i32, id: i32) -> ApiResult<Workout
                 name: col::<&str>(r, "Name")?.to_string(),
                 equipment: r.get::<&str, _>("Equipment").map(String::from),
                 sets: vec![],
+                superset_with_next: col(r, "SupersetWithNext")?,
             });
         }
         if let Some(e) = exercises.last_mut() {
@@ -612,6 +614,7 @@ mod tests {
                     side: None,
                     set_type: None,
                 }],
+                superset_with_next: false,
             }],
         }
     }

@@ -92,3 +92,19 @@ ALTER SECURITY POLICY Security.WorkoutPolicy
     ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.Routines AFTER INSERT,
     ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.Routines AFTER UPDATE;
 GO
+
+-- Saved meals. Already set up? Run just this part, after schema.sql has made the tables.
+-- The member's own, so the same owner check as routines; their foods are reached through a
+-- saved meal already checked as the member's, like a routine's exercises
+GRANT SELECT, INSERT, DELETE ON dbo.SavedMeals TO gym_app;
+GRANT SELECT, INSERT, DELETE ON dbo.SavedMealFoods TO gym_app;
+GO
+ALTER SECURITY POLICY Security.WorkoutPolicy
+    ADD FILTER PREDICATE Security.fn_workout_owner(UserId) ON dbo.SavedMeals,
+    ADD BLOCK PREDICATE Security.fn_workout_owner(UserId) ON dbo.SavedMeals AFTER INSERT;
+GO
+
+-- Rate limits. Already set up? Run just this part, after schema.sql has made the table.
+-- DELETE is for the hourly cleanup of rows whose tries are all back
+GRANT SELECT, INSERT, UPDATE, DELETE ON dbo.RateLimits TO gym_app;
+GO

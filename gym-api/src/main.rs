@@ -13,19 +13,21 @@ mod tokens;
 mod two_factor;
 mod workouts;
 
-use std::{env, net::SocketAddr, num::NonZeroU32, sync::Arc, time::Duration};
+use std::{env, net::SocketAddr, sync::Arc, time::Duration};
 
 use axum::{
     Router,
+    extract::ConnectInfo,
+    middleware,
     routing::{delete, get, post, put},
 };
-use governor::{DefaultKeyedRateLimiter, Quota};
 use lettre::{
     AsyncSmtpTransport, Tokio1Executor, message::Mailbox,
     transport::smtp::authentication::Credentials as SmtpCredentials,
 };
 use tiberius::{AuthMethod, Config};
-use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
+use tower::{Layer, ServiceExt};
+use vercel_runtime::axum::VercelLayer;
 
 use crate::admin::{admin_stats, create_reset_link, list_users, reactivate_user, set_admin};
 use crate::auth::{
@@ -37,13 +39,13 @@ use crate::exercises::{
     create_exercise, create_my_exercise, delete_exercise, delete_my_exercise, list_exercises,
     update_exercise, update_my_exercise,
 };
-use crate::extractors::login_limiter;
 use crate::nutrition::{
-    add_food, barcode_food, delete_food, delete_health, get_health, list_food, put_health,
-    recent_food, update_food,
+    add_food, add_foods, barcode_food, create_saved_meal, delete_food, delete_health,
+    delete_saved_meal, get_health, list_food, list_saved_meals, list_weights, put_health,
+    put_weight, recent_food, update_food,
 };
 use crate::routines::{create_routine, delete_routine, list_routines, update_routine};
-use crate::state::{AppState, ProxyIpKeyExtractor, connect};
+use crate::state::{AppState, VERCEL_REQUEST, batch, connect, internal, ip_limit};
 use crate::two_factor::{totp_confirm, totp_disable, totp_setup, totp_verify};
 use crate::workouts::{
     best_lift, create_workout, delete_workout, exercise_progress, export_data, get_workout,
@@ -85,6 +87,25 @@ fn env_file_problem(e: dotenvy::Error, contents: &str) -> Option<String> {
     }
 }
 
+fn db_config() -> Config {
+    let mut db_config = Config::new();
+    db_config.host(env_required("DB_HOST"));
+    db_config.port(
+        env_or("DB_PORT", "1433")
+            .parse()
+            .expect("DB_PORT must be a number"),
+    );
+    db_config.database(env_or("DB_NAME", "Gym_App"));
+    db_config.authentication(AuthMethod::sql_server(
+        env_required("DB_USER"),
+        env_required("DB_PASSWORD"),
+    ));
+    if env_or("DB_TRUST_CERT", "false") == "true" {
+        db_config.trust_cert(); // development only: accepts SQL Server's self-signed certificate
+    }
+    db_config
+}
+
 // Fails fast at startup when SQL Server can't be reached. The tables come from sql/schema.sql
 async fn init_db(state: &AppState) -> Result<(), tiberius::error::Error> {
     connect(state)
@@ -105,22 +126,6 @@ async fn main() {
     {
         panic!("{problem}");
     }
-    let mut db_config = Config::new();
-    db_config.host(env_required("DB_HOST"));
-    db_config.port(
-        env_or("DB_PORT", "1433")
-            .parse()
-            .expect("DB_PORT must be a number"),
-    );
-    db_config.database(env_or("DB_NAME", "Gym_App"));
-    db_config.authentication(AuthMethod::sql_server(
-        env_required("DB_USER"),
-        env_required("DB_PASSWORD"),
-    ));
-    if env_or("DB_TRUST_CERT", "false") == "true" {
-        db_config.trust_cert(); // development only: accepts SQL Server's self-signed certificate
-    }
-
     let jwt_secret = env_required("JWT_SECRET");
     // A short key can be cracked from any token, letting someone forge an admin login
     assert!(
@@ -153,7 +158,7 @@ async fn main() {
         .expect("MAIL_FROM must look like BarMetric <no-reply@yourgym.com>");
 
     let state = Arc::new(AppState {
-        db_config,
+        db_config: db_config(),
         jwt_secret,
         // Required: a forgotten one would quietly put localhost links in every email and Stripe redirect
         frontend_url: env_required("FRONTEND_URL"),
@@ -167,44 +172,27 @@ async fn main() {
         stripe_price_id: env_required("STRIPE_PRICE_ID"),
         stripe_webhook_secret: env_required("STRIPE_WEBHOOK_SECRET"),
         food_user_agent: env_required("FOOD_USER_AGENT"),
-        // 5 tries, then one more each minute
-        totp_attempts: DefaultKeyedRateLimiter::keyed(
-            Quota::with_period(Duration::from_secs(60))
-                .unwrap()
-                .allow_burst(NonZeroU32::new(5).unwrap()),
-        ),
-        login_attempts: login_limiter(),
-        // 3 emails to one address, then one more every 20 minutes
-        mail_attempts: DefaultKeyedRateLimiter::keyed(
-            Quota::with_period(Duration::from_secs(20 * 60))
-                .unwrap()
-                .allow_burst(NonZeroU32::new(3).unwrap()),
-        ),
     });
 
     init_db(&state)
         .await
         .expect("could not connect to SQL Server");
 
-    // One new attempt every 2 seconds per client IP, bursts of up to 30:
-    // room for a gym's members logging in over one shared Wi-Fi
-    let limit = GovernorConfigBuilder::default()
-        .key_extractor(ProxyIpKeyExtractor)
-        .per_second(2)
-        .burst_size(30)
-        .finish()
-        .unwrap();
-    // Both limiters keep an entry per IP / user until pruned; drop the ones that are idle again
-    let ip_limiter = limit.limiter().clone();
+    // A rate-limit row past its Tat has every try back, the same as no row; drop those so the
+    // table stays small. Each process does it, which is harmless
     let cleanup_state = state.clone();
     tokio::spawn(async move {
-        let mut every_minute = tokio::time::interval(Duration::from_secs(60));
+        let mut every_hour = tokio::time::interval(Duration::from_secs(60 * 60));
         loop {
-            every_minute.tick().await;
-            ip_limiter.retain_recent();
-            cleanup_state.totp_attempts.retain_recent();
-            cleanup_state.login_attempts.retain_recent();
-            cleanup_state.mail_attempts.retain_recent();
+            every_hour.tick().await;
+            // internal() logs a failure; the next hour tries again
+            if let Ok(mut db) = connect(&cleanup_state).await.map_err(internal) {
+                let _ = batch(
+                    &mut db,
+                    "DELETE FROM dbo.RateLimits WHERE Tat < SYSUTCDATETIME()",
+                )
+                .await;
+            }
         }
     });
     let limited = Router::new()
@@ -225,7 +213,7 @@ async fn main() {
         .route("/auth/delete", delete(delete_account))
         .route("/auth/erase", delete(erase_account))
         .route("/auth/2fa/setup", post(totp_setup))
-        .layer(GovernorLayer::new(limit));
+        .layer(middleware::from_fn_with_state(state.clone(), ip_limit));
 
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
@@ -267,6 +255,10 @@ async fn main() {
         )
         .route("/me/food", get(list_food).post(add_food))
         .route("/me/food/recent", get(recent_food))
+        .route("/me/food/many", post(add_foods))
+        .route("/me/meals", get(list_saved_meals).post(create_saved_meal))
+        .route("/me/meals/{id}", delete(delete_saved_meal))
+        .route("/me/weights", get(list_weights).put(put_weight))
         .route("/me/food/{id}", put(update_food).delete(delete_food))
         .route("/billing/checkout", post(create_checkout))
         .route("/billing/portal", post(create_portal))
@@ -276,6 +268,10 @@ async fn main() {
         .merge(limited)
         .with_state(state);
 
+    // vercel_runtime's own signals: VERCEL_IPC_PATH on Vercel, VERCEL_DEV under `vercel dev`
+    if env::var_os("VERCEL_IPC_PATH").is_some() || env::var_os("VERCEL_DEV").is_some() {
+        return serve_on_vercel(app).await;
+    }
     let addr = env_or("BIND_ADDR", "127.0.0.1:5080");
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
@@ -287,6 +283,29 @@ async fn main() {
     )
     .await
     .unwrap();
+}
+
+// On Vercel the API is one function: vercel_runtime takes the requests and hands each to the router
+async fn serve_on_vercel(app: Router) {
+    let app = VercelLayer::new().layer(app);
+    vercel_runtime::run(vercel_runtime::service_fn(
+        move |mut req: vercel_runtime::Request, vercel: vercel_runtime::AppState| {
+            let app = app.clone();
+            async move {
+                // vercel_runtime only takes connections from Vercel's proxy on 127.0.0.1 and doesn't
+                // pass the peer on, so this is the true peer: client_ip then reads the visitor
+                // from X-Forwarded-For, which Vercel overwrites, as it does behind Vite or Caddy
+                req.extensions_mut()
+                    .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 0))));
+                // Lets send_mail reach this request's wait_until
+                VERCEL_REQUEST
+                    .scope(vercel.clone(), app.oneshot((vercel, req)))
+                    .await
+            }
+        },
+    ))
+    .await
+    .expect("vercel_runtime stopped");
 }
 
 #[cfg(test)]
@@ -310,5 +329,36 @@ mod tests {
         );
         let missing = dotenvy::Error::Io(std::io::ErrorKind::NotFound.into());
         assert!(env_file_problem(missing, "").is_none(), "no .env is fine");
+    }
+
+    // CI has no database. Run after schema.sql and security.sql: cargo test -- --ignored
+    #[tokio::test]
+    #[ignore = "needs SQL Server"]
+    async fn a_rate_limit_allows_its_burst_then_refills() {
+        use tokio_util::compat::TokioAsyncWriteCompatExt;
+        let _ = dotenvy::dotenv();
+        let config = db_config();
+        let tcp = tokio::net::TcpStream::connect(config.get_addr())
+            .await
+            .unwrap();
+        let mut db = tiberius::Client::connect(config, tcp.compat_write())
+            .await
+            .unwrap();
+        let bucket = format!("test:{}", std::process::id());
+        let other = format!("{bucket}:other");
+        // 2 at once, then one more every second
+        let mut try_once = async |b: &str| state::allow(&mut db, b, 1, 2).await.unwrap();
+        assert!(try_once(&bucket).await && try_once(&bucket).await);
+        assert!(!try_once(&bucket).await, "the 3rd try at once");
+        assert!(try_once(&other).await, "another bucket has its own tries");
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        assert!(try_once(&bucket).await, "a try back after a second");
+        assert!(!try_once(&bucket).await, "but only one");
+        db.execute(
+            "DELETE FROM dbo.RateLimits WHERE Bucket IN (@P1, @P2)",
+            &[&bucket, &other],
+        )
+        .await
+        .unwrap();
     }
 }

@@ -5,8 +5,8 @@ import { ExerciseRows, ExerciseSearch } from './ExerciseSearch';
 import { userIdOf } from './outbox';
 import useModal, { closeOnBackdrop } from './useModal';
 
-// The sheet for adding an exercise to the workout in progress
-export default function ExercisePicker({ token, onPick, onClose }) {
+// The sheet for adding an exercise to the workout in progress (or picking one for anything else)
+export default function ExercisePicker({ token, title = 'Add exercise', onPick, onClose }) {
   const ref = useModal();
   const [q, setQ] = useState('');
   const [muscle, setMuscle] = useState('');
@@ -40,7 +40,7 @@ export default function ExercisePicker({ token, onPick, onClose }) {
       onClick={closeOnBackdrop(onClose)}
     >
       <div className="section-head">
-        <h2 id="picker-title">Add exercise</h2>
+        <h2 id="picker-title">{title}</h2>
         <button className="pill-btn" type="button" onClick={onClose}>
           Close
         </button>

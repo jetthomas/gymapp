@@ -206,6 +206,38 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Routines_UserId')
     CREATE INDEX IX_Routines_UserId ON dbo.Routines (UserId);
 GO
 
+-- Saved meals ("My foods" on the Calories screen): foods a member logs together in one tap.
+-- One with a single food is a custom food
+IF OBJECT_ID('dbo.SavedMeals', 'U') IS NULL
+    CREATE TABLE dbo.SavedMeals (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        UserId INT NOT NULL REFERENCES dbo.Users(Id),
+        Name NVARCHAR(100) NOT NULL,
+        INDEX IX_SavedMeals_UserId (UserId)
+    );
+-- What's in one, in order; the same columns as FoodEntries. Deleting the meal removes them
+IF OBJECT_ID('dbo.SavedMealFoods', 'U') IS NULL
+    CREATE TABLE dbo.SavedMealFoods (
+        Id INT IDENTITY(1,1) PRIMARY KEY,
+        SavedMealId INT NOT NULL REFERENCES dbo.SavedMeals(Id) ON DELETE CASCADE,
+        Position INT NOT NULL,
+        Name NVARCHAR(100) NOT NULL,
+        Kcal INT NOT NULL,
+        ProteinG FLOAT NOT NULL,
+        CarbsG FLOAT NOT NULL,
+        FatG FLOAT NOT NULL,
+        INDEX IX_SavedMealFoods_SavedMealId (SavedMealId)
+    );
+GO
+
+-- Supersets: 1 = done as a superset with the exercise after it (the next Position); 0 = not,
+-- as every exercise before this. Adjacent linked exercises make one superset
+IF COL_LENGTH('dbo.WorkoutExercises', 'SupersetWithNext') IS NULL
+    ALTER TABLE dbo.WorkoutExercises ADD SupersetWithNext BIT NOT NULL DEFAULT 0;
+IF COL_LENGTH('dbo.RoutineExercises', 'SupersetWithNext') IS NULL
+    ALTER TABLE dbo.RoutineExercises ADD SupersetWithNext BIT NOT NULL DEFAULT 0;
+GO
+
 -- Deleting an account (DELETE /auth/erase): everything the member owns, then the member, in one
 -- transaction. gym_app has no DELETE on Users or Events (security.sql); it may only run this, and
 -- it takes no id: it deletes the member the connection is tagged with (set_user), nobody else
@@ -223,6 +255,7 @@ BEGIN
     -- After the workouts, which were the only ones using them; their muscle rows cascade
     DELETE FROM dbo.Exercises WHERE OwnerUserId = @UserId;
     DELETE FROM dbo.FoodEntries WHERE UserId = @UserId;
+    DELETE FROM dbo.SavedMeals WHERE UserId = @UserId;  -- their foods cascade
     DELETE FROM dbo.BodyWeights WHERE UserId = @UserId;
     DELETE FROM dbo.Profiles WHERE UserId = @UserId;
     DELETE FROM dbo.RecoveryCodes WHERE UserId = @UserId;
@@ -230,4 +263,14 @@ BEGIN
     DELETE FROM dbo.Users WHERE Id = @UserId;
     COMMIT;
 END
+GO
+
+-- Rate limits (password, 2FA and mail tries, and requests per IP), kept here rather than in memory
+-- so every API process counts together: on Vercel there are many. One row per bucket, e.g.
+-- 'login:7:203.0.113.9'; Tat is when it has every try back. Not member data, so no row-level security
+IF OBJECT_ID('dbo.RateLimits', 'U') IS NULL
+    CREATE TABLE dbo.RateLimits (
+        Bucket NVARCHAR(300) NOT NULL PRIMARY KEY,  -- 'mail:' + an email of up to 256
+        Tat DATETIME2 NOT NULL
+    );
 GO

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addDays, duration, shortDate, streak, weekDays, workoutDays } from './week.js';
+import { addDays, duration, monthDays, shortDate, streak, weekDays, workoutDays } from './week.js';
 
 test('a workout under half a minute says so instead of "0 min"', () => {
   assert.equal(duration(20), 'under 1 min');
@@ -49,4 +49,21 @@ test('a date from another year shows its year; this year it goes without', () =>
   const year = String(new Date().getFullYear());
   assert.match(shortDate('2020-03-01T12:00:00'), /2020/);
   assert.doesNotMatch(shortDate(new Date().toISOString()), new RegExp(year));
+});
+
+test('a month is laid out Monday first, padded to whole weeks', () => {
+  // 1 November 2026 is a Sunday: six gaps, 30 days, then six more to finish the last week
+  const november = monthDays(new Date(2026, 10, 18));
+  assert.equal(november.length, 42);
+  assert.deepEqual(
+    november.slice(0, 7).map((d) => d?.getDate() ?? null),
+    [null, null, null, null, null, null, 1],
+  );
+  assert.equal(november[35].getDate(), 30);
+  assert.equal(november[36], null);
+  // February 2027 starts on a Monday and has 28 days: exactly four weeks, no gaps
+  const february = monthDays(new Date(2027, 1, 1));
+  assert.equal(february.length, 28);
+  assert.equal(february[0].getDate(), 1);
+  assert.equal(february.at(-1).getDate(), 28);
 });

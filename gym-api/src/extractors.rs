@@ -1,15 +1,14 @@
-use std::{net::IpAddr, num::NonZeroU32, sync::Arc, time::Duration};
+use std::{net::IpAddr, sync::Arc};
 
 use axum::{
     extract::FromRequestParts,
     http::{StatusCode, header::AUTHORIZATION, request::Parts},
 };
-use governor::{DefaultKeyedRateLimiter, Quota};
 use tiberius::Row;
 
 use crate::models::Credentials;
 use crate::passwords::{DUMMY_HASH, password_matches};
-use crate::state::{ApiResult, AppState, Db, col, connect, internal, one_row, record};
+use crate::state::{ApiResult, AppState, Db, allow, col, connect, internal, one_row, record};
 use crate::tokens::{read_token, session_valid};
 
 pub const PLUS_STATUSES: [&str; 3] = ["active", "trialing", "past_due"];
@@ -130,19 +129,8 @@ pub struct Account {
     pub email_verified: bool,
 }
 
-// 10 password tries at one account from one IP, then one more every 90 s. Keyed by IP as well,
-// so a stranger guessing at a member's email only locks out their own address, not the member
-pub fn login_limiter() -> DefaultKeyedRateLimiter<(i32, IpAddr)> {
-    DefaultKeyedRateLimiter::keyed(
-        Quota::with_period(Duration::from_secs(90))
-            .unwrap()
-            .allow_burst(NonZeroU32::new(10).unwrap()),
-    )
-}
-
 // Returns the user's account flags when the email and password match
 pub async fn verify_credentials(
-    state: &AppState,
     db: &mut Db,
     c: &Credentials,
     ip: IpAddr,
@@ -175,8 +163,10 @@ pub async fn verify_credentials(
     let email_verified: bool = col(&row, "EmailVerified")?;
     // Check the password even when over the limit, so that answers as slowly as a wrong password
     let ok = password_matches(c.password.clone(), stored.to_string()).await?;
-    // Every try counts, right or wrong: the limiter can't be read without spending one
-    if state.login_attempts.check_key(&(id, ip)).is_err() {
+    // Every try counts, right or wrong: the limit can't be read without spending one.
+    // 10 tries at one account from one IP, then one more every 90 s. Keyed by IP as well,
+    // so a stranger guessing at a member's email only locks out their own address, not the member
+    if !allow(db, &format!("login:{id}:{ip}"), 90, 10).await? {
         return Err(unauthorized());
     }
     if !ok {
@@ -191,27 +181,4 @@ pub async fn verify_credentials(
         session_version,
         email_verified,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_strangers_wrong_passwords_dont_lock_the_member_out() {
-        let tries = login_limiter();
-        let stranger: IpAddr = "198.51.100.7".parse().unwrap();
-        let member: IpAddr = "203.0.113.9".parse().unwrap();
-        for _ in 0..10 {
-            assert!(tries.check_key(&(7, stranger)).is_ok());
-        }
-        assert!(
-            tries.check_key(&(7, stranger)).is_err(),
-            "the 11th try from one IP"
-        );
-        assert!(
-            tries.check_key(&(7, member)).is_ok(),
-            "the member's own IP still gets in"
-        );
-    }
 }

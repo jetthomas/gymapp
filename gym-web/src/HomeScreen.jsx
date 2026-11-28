@@ -5,8 +5,9 @@ import ConfirmDialog from './ConfirmDialog';
 import ErrorMsg from './ErrorMsg';
 import MuscleCard from './MuscleCard';
 import { drop, useRefused, useWaiting } from './outbox';
-import { duration, shortDate } from './week';
+import { dayKey, duration, shortDate } from './week';
 import WeekCard from './WeekCard';
+import WorkoutCalendar from './WorkoutCalendar';
 import WorkoutCard from './WorkoutCard';
 import WorkoutDetail from './WorkoutDetail';
 import WorkoutScreen from './WorkoutScreen';
@@ -23,6 +24,8 @@ export default function HomeScreen({ token, showCalories, showWorkout, onOpenCal
   const waiting = useWaiting(token);
   const refused = useRefused(token);
   const [discarding, setDiscarding] = useState(false);
+  const [calendar, setCalendar] = useState(false); // History as a month calendar instead of a list
+  const [picked, setPicked] = useState(null); // the day tapped on the calendar, YYYY-MM-DD
 
   // Reloads when the member comes back to this screen and when a waiting workout uploads
   useEffect(() => {
@@ -50,6 +53,10 @@ export default function HomeScreen({ token, showCalories, showWorkout, onOpenCal
       setError(err.message);
     }
   }
+
+  // History's rows: every workout loaded, or on the calendar only the day picked
+  const shown =
+    workouts && calendar ? workouts.filter((w) => dayKey(new Date(w.date)) === picked) : workouts;
 
   if (editing) {
     return (
@@ -144,11 +151,33 @@ export default function HomeScreen({ token, showCalories, showWorkout, onOpenCal
             <MuscleCard token={token} />
             {workouts.length > 0 && (
               <section className="card" aria-labelledby="history-title">
-                <h2 id="history-title" className="eyebrow">
-                  History
-                </h2>
+                <div className="section-head split-head">
+                  <h2 id="history-title" className="eyebrow">
+                    History
+                  </h2>
+                  <button
+                    className={calendar ? 'pill-btn filled' : 'pill-btn'}
+                    type="button"
+                    aria-pressed={calendar}
+                    onClick={() => setCalendar(!calendar)}
+                  >
+                    Calendar
+                  </button>
+                </div>
+                {calendar && (
+                  <WorkoutCalendar
+                    dates={days ?? workouts.map((w) => w.date)}
+                    picked={picked}
+                    onPick={setPicked}
+                  />
+                )}
+                {calendar && picked && shown.length === 0 && (
+                  <p className="hint">
+                    That day is further back than History has loaded. Tap Show older workouts.
+                  </p>
+                )}
                 <div className="list">
-                  {workouts.map((w) => (
+                  {shown.map((w) => (
                     <button className="row" type="button" key={w.id} onClick={() => setView(w.id)}>
                       <span className="row-text">
                         {w.name}

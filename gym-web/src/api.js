@@ -188,3 +188,16 @@ export const saveHealth = (token, profile) =>
 export const startCheckout = (token) => request('/billing/checkout', { method: 'POST', token });
 export const updateFood = (token, id, food) =>
   request(`/me/food/${id}`, { method: 'PUT', token, body: food });
+// Several foods into one meal at once: { date, meal, foods: [{ name, kcal, proteinG, carbsG, fatG }] }
+export const addFoods = (token, body) => request('/me/food/many', { method: 'POST', token, body });
+// Saved meals, "My foods" in the food sheet: [{ id, name, foods }]. One with a single food is a custom food
+export const getSavedMeals = (token) => request('/me/meals', { token });
+export const saveMeal = (token, meal) =>
+  request('/me/meals', { method: 'POST', token, body: meal });
+export const deleteSavedMeal = (token, id) =>
+  request(`/me/meals/${id}`, { method: 'DELETE', token });
+// The last 90 weigh-ins, oldest first: [{ date, kg }]
+export const getWeights = (token) => request('/me/weights', { token });
+// One weigh-in; a second on the same day replaces the first
+export const logWeight = (token, date, kg) =>
+  request('/me/weights', { method: 'PUT', token, body: { date, kg } });

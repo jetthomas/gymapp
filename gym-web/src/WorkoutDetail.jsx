@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { createRoutine, deleteWorkout, getWorkout } from './api';
 import ConfirmDialog from './ConfirmDialog';
 import { loadDraft, plannedDraft } from './Draft';
@@ -8,6 +8,7 @@ import { userIdOf } from './outbox';
 import PlusLock from './PlusLock';
 import ProgressChart from './ProgressChart';
 import { typeName } from './setTypes';
+import SupersetLink from './SupersetLink';
 import { fromKg, weightUnit } from './units';
 import useSubmit from './useSubmit';
 import { dateText, duration } from './week';
@@ -39,6 +40,7 @@ export default function WorkoutDetail({ token, plus, id, onBack, onEdit, onRepea
             name: e.name,
             equipment: e.equipment,
             sets: e.sets.map((s) => ({ type: s.type, side: s.side })),
+            withNext: e.supersetWithNext,
           })),
         ),
       );
@@ -60,6 +62,7 @@ export default function WorkoutDetail({ token, plus, id, onBack, onEdit, onRepea
             reps: working[0]?.reps ?? null,
             weightKg: working[0]?.weightKg ?? null,
             rir: working[0]?.rir ?? null,
+            supersetWithNext: e.supersetWithNext,
           };
         }),
       });
@@ -158,35 +161,38 @@ export default function WorkoutDetail({ token, plus, id, onBack, onEdit, onRepea
               </section>
             )}
             {workout.exercises.map((e, i) => (
-              <section className="card" key={i}>
-                <div className="section-head">
-                  <h2 className="card-title">{e.name}</h2>
-                  <button
-                    className="pill-btn"
-                    type="button"
-                    aria-expanded={charting === i}
-                    onClick={() => setCharting(charting === i ? null : i)}
-                  >
-                    Progress
-                  </button>
-                </div>
-                {charting === i &&
-                  (plus ? (
-                    <ProgressChart token={token} exerciseId={e.exerciseId} />
-                  ) : (
-                    <PlusLock token={token} feature="Progress charts" />
-                  ))}
-                <ol className="set-list">
-                  {e.sets.map((s, j) => (
-                    <li key={j}>
-                      {s.type && <span className="row-sub">{typeName(s.type)} · </span>}
-                      {s.side && `${s.side} · `}
-                      {fromKg(s.weightKg, unit)} {unit} × {s.reps}
-                      {s.rir != null && <span className="row-sub"> · RIR {s.rir}</span>}
-                    </li>
-                  ))}
-                </ol>
-              </section>
+              <Fragment key={i}>
+                <section className="card">
+                  <div className="section-head">
+                    <h2 className="card-title">{e.name}</h2>
+                    <button
+                      className="pill-btn"
+                      type="button"
+                      aria-expanded={charting === i}
+                      onClick={() => setCharting(charting === i ? null : i)}
+                    >
+                      Progress
+                    </button>
+                  </div>
+                  {charting === i &&
+                    (plus ? (
+                      <ProgressChart token={token} exerciseId={e.exerciseId} />
+                    ) : (
+                      <PlusLock token={token} feature="Progress charts" />
+                    ))}
+                  <ol className="set-list">
+                    {e.sets.map((s, j) => (
+                      <li key={j}>
+                        {s.type && <span className="row-sub">{typeName(s.type)} · </span>}
+                        {s.side && `${s.side} · `}
+                        {fromKg(s.weightKg, unit)} {unit} × {s.reps}
+                        {s.rir != null && <span className="row-sub"> · RIR {s.rir}</span>}
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+                {e.supersetWithNext && i < workout.exercises.length - 1 && <SupersetLink on />}
+              </Fragment>
             ))}
           </div>
         </>

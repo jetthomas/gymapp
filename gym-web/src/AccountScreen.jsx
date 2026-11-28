@@ -6,6 +6,7 @@ import { clock, restSeconds as savedRestSeconds, rirShown } from './Draft';
 import ErrorMsg from './ErrorMsg';
 import ExerciseLibrary from './ExerciseLibrary';
 import toCsv from './exportCsv';
+import ImportCard from './ImportCard';
 import { Check, LogOut } from './icons';
 import UpgradeDialog from './UpgradeDialog';
 import { displayName, initials } from './names';
@@ -457,6 +458,8 @@ export default function AccountScreen({
               {exporting.loading ? 'Exporting…' : 'Export data'}
             </button>
           </section>
+
+          <ImportCard token={token} />
 
           <section className="card danger" aria-labelledby="danger-title">
             <h2 id="danger-title" className="section-title">
