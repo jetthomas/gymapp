@@ -479,6 +479,7 @@ Routes are shown as the API sees them; the website calls them with an `/api` pre
 | GET    | `/food/barcode/{code}` | Plus                      |                                                              | `{ name, kcal, proteinG, carbsG, fatG }` per 100 g                        |
 | POST   | `/billing/checkout`    | Auth                      |                                                              | `url` of Stripe's payment page                                            |
 | POST   | `/billing/portal`      | Auth                      |                                                              | `url` of Stripe's Customer Portal                                         |
+| POST   | `/billing/sync`        | Auth                      |                                                              | 204; reads the membership from Stripe now, in case the webhook failed     |
 | POST   | `/stripe/webhook`      | none (Stripe's signature) | Stripe's event                                               | 200; keeps the membership in step with Stripe                             |
 
 **Admin**

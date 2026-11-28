@@ -404,7 +404,9 @@ export default function AdminScreen({ token, lastLogin, failedSince }) {
                                 className="outline-btn"
                                 type="button"
                                 onClick={() => handleReset(u.id)}
-                                disabled={creatingFor === u.id}
+                                // The API refuses admins: the link turns 2FA off
+                                disabled={u.isAdmin || creatingFor === u.id}
+                                title={u.isAdmin ? 'Admins use Forgot password instead' : undefined}
                               >
                                 {creatingFor === u.id ? 'Creating…' : 'Send reset link'}
                               </button>

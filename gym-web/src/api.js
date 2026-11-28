@@ -186,6 +186,7 @@ export const openPortal = (token) => request('/billing/portal', { method: 'POST'
 export const saveHealth = (token, profile) =>
   request('/me/health', { method: 'PUT', token, body: profile });
 export const startCheckout = (token) => request('/billing/checkout', { method: 'POST', token });
+export const syncBilling = (token) => request('/billing/sync', { method: 'POST', token });
 export const updateFood = (token, id, food) =>
   request(`/me/food/${id}`, { method: 'PUT', token, body: food });
 // Several foods into one meal at once: { date, meal, foods: [{ name, kcal, proteinG, carbsG, fatG }] }

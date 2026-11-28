@@ -5,7 +5,7 @@ import toCsv from './exportCsv.js';
 const empty = { workouts: [], food: [], bodyWeights: [] };
 const lines = (data) => toCsv({ ...empty, ...data }).split('\r\n');
 
-test('a header, then a row per set, food and weigh-in, oldest first', () => {
+test('a section each for workouts, calories and body weight, with their own headings', () => {
   const out = lines({
     // Midday UTC, so the local date is the same in any timezone within ±11 h
     workouts: [
@@ -36,15 +36,22 @@ test('a header, then a row per set, food and weigh-in, oldest first', () => {
     ],
     bodyWeights: [{ date: '2026-11-21', kg: 80.5 }],
   });
-  assert.equal(out.length, 5);
-  assert.match(
-    out[0],
-    /^Type,Date,Workout,Exercise,Set,Set type,Side,Weight \(kg\),Reps,RIR,Meal,Food,kcal,/,
-  );
-  assert.equal(out[1], 'Food,2026-11-19,,,,,,,,,Breakfast,Oats,420,18,62,10,');
-  assert.equal(out[2], 'Set,2026-11-20,Push day,Bench press,1,Warm-up,,80,8,2,,,,,,,');
-  assert.equal(out[3], 'Set,2026-11-20,Push day,Bench press,2,,,80,7,,,,,,,,');
-  assert.equal(out[4], 'Weigh-in,2026-11-21,,,,,,,,,,,,,,,80.5');
+  assert.deepEqual(out, [
+    'Workouts',
+    'Date,Workout,Exercise,Set,Set type,Side,Weight (kg),Reps,RIR',
+    '2026-11-20,Push day,Bench press,1,Warm-up,,80,8,2',
+    '2026-11-20,Push day,Bench press,2,,,80,7,',
+    '',
+    'Calories',
+    'Date,Meal,Food,kcal,Protein (g),Carbs (g),Fat (g)',
+    '2026-11-19,Breakfast,Oats,420,18,62,10',
+    '',
+    'Body weight',
+    'Date,Weight (kg)',
+    '2026-11-21,80.5',
+  ]);
+  // Nothing logged still gives every section its headings
+  assert.equal(lines({}).length, 8);
 });
 
 test('quotes commas and quotes, and stops text being read as a formula', () => {
@@ -57,9 +64,10 @@ test('quotes commas and quotes, and stops text being read as a formula', () => {
     carbsG: 0,
     fatG: 0,
   });
-  const [, comma, quote, formula] = lines({
+  const out = lines({
     food: [food('Rice, beans'), food('5" sub'), food('=HYPERLINK("x")')],
   });
+  const [comma, quote, formula] = out.slice(out.indexOf('Calories') + 2);
   assert.match(comma, /,"Rice, beans",/);
   assert.match(quote, /,"5"" sub",/);
   assert.match(formula, /,"'=HYPERLINK\(""x""\)",/);
